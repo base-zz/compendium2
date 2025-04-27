@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VPS Connection Status</title>
+  <script type="module">
+    // Import the necessary modules
+    import { createApp, ref, computed, watch } from 'https://unpkg.com/vue@3.3.4/dist/vue.esm-browser.js';
+    
+    // Simple state data store implementation
+    const createStateDataStore = () => {
+      const isConnected = ref(false);
+      const connectionSource = ref('');
+      const vpsConnectionStatus = ref({
+        status: 'disconnected',
+        messageCount: 0,
+        lastUpdate: null,
+        lastError: null
+      });
+      const navigationState = ref({
+        position: {
+          latitude: null,
+          longitude: null,
+          timestamp: null,
+          source: null
+        },
+        course: {
+          heading: null,
+          cog: null,
+          variation: null
+        },
+        speed: {
+          sog: null,
+          stw: null
+        }
+      });
+      const lastUpdate = ref(null);
+      
+      // WebSocket connection
+      let ws = null;
+      let reconnectAttempts = 0;
+      const maxReconnectAttempts = 5;
+      const reconnectDelay = 3000;
+      let reconnectTimer = null;
+      
+      // Initialize connection to VPS relay
+      const initRelayMode = async () => {
+        try {
+          // Get configuration from environment or use defaults
+          const relayUrl = localStorage.getItem('VPS_RELAY_URL') || 'wss://your-vps-relay-server.com';
+          const relayToken = localStorage.getItem('VPS_RELAY_TOKEN') || '';
+          
+          console.log(`[StateDataStore] Connecting to VPS relay at ${relayUrl}`);
+          
+          // Update connection status
+          isConnected.value = false;
+          connectionSource.value = 'vps';
+          vpsConnectionStatus.value = {
+            status: 'connecting',
+            messageCount: 0,
+            lastUpdate: Date.now(),
+            lastError: null
+          };
+          
+          // Close existing connection if any
+          if (ws) {
+            ws.close();
+          }
+          
+          // Create WebSocket connection
+          const wsUrl = relayToken ? `${relayUrl}?token=${relayToken}` : relayUrl;
+          ws = new WebSocket(wsUrl);
+          
+          // Set up event handlers
+          ws.onopen = () => {
+            console.log('[StateDataStore] Connected to VPS relay');
+            isConnected.value = true;
+            vpsConnectionStatus.value.status = 'connected';
+            vpsConnectionStatus.value.lastUpdate = Date.now();
+            reconnectAttempts = 0;
+          };
+          
+          ws.onmessage = (event) => {
+            try {
+              const message = JSON.parse(event.data);
+              vpsConnectionStatus.value.messageCount++;
+              vpsConnectionStatus.value.lastUpdate = Date.now();
+              lastUpdate.value = Date.now();
+              
+              // Process different message types
+              if (message.type === 'nav-position' && message.data && message.data.position) {
+                navigationState.value.position = {
+                  latitude: message.data.position.latitude,
+                  longitude: message.data.position.longitude,
+                  timestamp: message.data.position.timestamp || Date.now(),
+                  source: message.data.position.source || 'vps'
+                };
+              } else if (message.type === 'nav-course' && message.data) {
+                navigationState.value.course = {
+                  heading: message.data.heading !== undefined ? message.data.heading : navigationState.value.course.heading,
+                  cog: message.data.cog !== undefined ? message.data.cog : navigationState.value.course.cog,
+                  variation: message.data.variation !== undefined ? message.data.variation : navigationState.value.course.variation
+                };
+              } else if (message.type === 'nav-speed' && message.data) {
+                navigationState.value.speed = {
+                  sog: message.data.sog !== undefined ? message.data.sog : navigationState.value.speed.sog,
+                  stw: message.data.stw !== undefined ? message.data.stw : navigationState.value.speed.stw
+                };
+              }
+              
+              // For testing, generate random data updates
+              if (message.type === 'mock-data') {
+                generateMockData();
+              }
+            } catch (error) {
+              console.error('[StateDataStore] Error processing message:', error);
+              vpsConnectionStatus.value.lastError = `Error processing message: ${error.message}`;
+            }
+          };
+          
+          ws.onerror = (error) => {
+            console.error('[StateDataStore] WebSocket error:', error);
+            vpsConnectionStatus.value.status = 'error';
+            vpsConnectionStatus.value.lastError = 'WebSocket error';
+          };
+          
+          ws.onclose = () => {
+            console.log('[StateDataStore] WebSocket connection closed');
+            isConnected.value = false;
+            vpsConnectionStatus.value.status = 'disconnected';
+            
+            // Attempt to reconnect
+            if (reconnectAttempts < maxReconnectAttempts) {
+              reconnectAttempts++;
+              console.log(`[StateDataStore] Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
+              vpsConnectionStatus.value.status = 'reconnecting';
+              
+              if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+              }
+              
+              reconnectTimer = setTimeout(() => {
+                initRelayMode();
+              }, reconnectDelay);
+            }
+          };
+          
+          // For testing, generate mock data
+          if (relayUrl.includes('mock') || !relayUrl.startsWith('ws')) {
+            startMockDataGeneration();
+          }
+          
+          return true;
+        } catch (error) {
+          console.error('[StateDataStore] Error initializing relay mode:', error);
+          vpsConnectionStatus.value.status = 'error';
+          vpsConnectionStatus.value.lastError = `Error initializing: ${error.message}`;
+          isConnected.value = false;
+          return false;
+        }
+      };
+      
+      // Disconnect from relay
+      const disconnectRelay = () => {
+        if (ws) {
+          ws.close();
+        }
+        
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        
+        isConnected.value = false;
+        vpsConnectionStatus.value.status = 'disconnected';
+        console.log('[StateDataStore] Disconnected from VPS relay');
+      };
+      
+      // Mock data generation for testing
+      let mockDataInterval = null;
+      
+      const startMockDataGeneration = () => {
+        if (mockDataInterval) {
+          clearInterval(mockDataInterval);
+        }
+        
+        // Generate initial data
+        generateMockData();
+        
+        // Update data every 3 seconds
+        mockDataInterval = setInterval(() => {
+          generateMockData();
+        }, 3000);
+      };
+      
+      const generateMockData = () => {
+        // Generate random position data
+        const lat = 37.7749 + (Math.random() - 0.5) * 0.01;
+        const lon = -122.4194 + (Math.random() - 0.5) * 0.01;
+        
+        // Update position
+        navigationState.value.position = {
+          latitude: lat,
+          longitude: lon,
+          timestamp: Date.now(),
+          source: 'mock'
+        };
+        
+        // Update course
+        navigationState.value.course = {
+          heading: Math.floor(Math.random() * 360),
+          cog: Math.floor(Math.random() * 360),
+          variation: (Math.random() - 0.5) * 20
+        };
+        
+        // Update speed
+        navigationState.value.speed = {
+          sog: Math.random() * 10,
+          stw: Math.random() * 10
+        };
+        
+        // Update status
+        vpsConnectionStatus.value.messageCount++;
+        vpsConnectionStatus.value.lastUpdate = Date.now();
+        lastUpdate.value = Date.now();
+        isConnected.value = true;
+      };
+      
+      // Return the store
+      return {
+        isConnected,
+        connectionSource,
+        vpsConnectionStatus,
+        navigationState,
+        lastUpdate,
+        initRelayMode,
+        disconnectRelay
+      };
+    };
+    
+    // Create the app
+    const app = createApp({
+      setup() {
+        // Create the store
+        const stateDataStore = createStateDataStore();
+        
+        // Connection status component
+        const ConnectionStatusIndicator = {
+          props: {
+            showDetails: {
+              type: Boolean,
+              default: false
+            }
+          },
+          setup(props) {
+            // Computed properties for connection status
+            const isConnected = computed(() => stateDataStore.isConnected.value);
+            const connectionSource = computed(() => stateDataStore.connectionSource.value);
+            const isVpsConnection = computed(() => connectionSource.value === 'vps');
+            const vpsStatus = computed(() => stateDataStore.vpsConnectionStatus.value);
+            const lastUpdate = computed(() => stateDataStore.lastUpdate.value);
+            
+            // Check if we're receiving data (had an update in the last 10 seconds)
+            const isReceivingData = computed(() => {
+              if (!lastUpdate.value) return false;
+              return Date.now() - lastUpdate.value < 10000; // 10 seconds
+            });
+            
+            // Format the last update time
+            const lastUpdateText = computed(() => {
+              if (!lastUpdate.value) return 'Never';
+              
+              const date = new Date(lastUpdate.value);
+              return date.toLocaleTimeString();
+            });
+            
+            // Get the message count from VPS connection
+            const messageCount = computed(() => {
+              if (!isVpsConnection.value) return 0;
+              return vpsStatus.value.messageCount || 0;
+            });
+            
+            // Get any error message
+            const errorMessage = computed(() => {
+              if (!isVpsConnection.value) return null;
+              return vpsStatus.value.lastError;
+            });
+            
+            // Status text based on connection state
+            const statusText = computed(() => {
+              if (!isConnected.value) return 'Disconnected';
+              
+              if (isVpsConnection.value) {
+                if (vpsStatus.value.status === 'connecting') return 'Connecting to VPS...';
+                if (vpsStatus.value.status === 'connected') {
+                  return isReceivingData.value ? 'Connected to VPS' : 'Connected (no data)';
+                }
+                return `VPS: ${vpsStatus.value.status}`;
+              }
+              
+              return isReceivingData.value ? 'Connected' : 'Connected (no data)';
+            });
+            
+            // CSS class based on status
+            const statusClass = computed(() => {
+              if (!isConnected.value) return 'disconnected';
+              if (isReceivingData.value) return 'receiving-data';
+              return 'connected';
+            });
+            
+            return {
+              isConnected,
+              connectionSource,
+              isVpsConnection,
+              vpsStatus,
+              lastUpdateText,
+              messageCount,
+              errorMessage,
+              statusText,
+              statusClass,
+              showDetails: props.showDetails
+            };
+          },
+          template: `
+            <div class="connection-status-indicator" :class="statusClass">
+              <div class="status-icon">
+                <div v-if="isConnected" class="connected-icon">
+                  <span class="dot"></span>
+                  <span v-if="statusClass === 'receiving-data'" class="pulse"></span>
+                </div>
+                <div v-else class="disconnected-icon">
+                  <span class="dot"></span>
+                </div>
+              </div>
+              <div class="status-details">
+                <div class="status-text">{{ statusText }}</div>
+                <div v-if="showDetails" class="details">
+                  <div>Source: {{ connectionSource || 'None' }}</div>
+                  <div>Last Update: {{ lastUpdateText }}</div>
+                  <div v-if="isVpsConnection">Messages: {{ messageCount }}</div>
+                  <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
+                </div>
+              </div>
+            </div>
+          `
+        };
+        
+        // Main component
+        const ConnectionStatusExample = {
+          components: {
+            ConnectionStatusIndicator
+          },
+          setup() {
+            // Track when data is updated
+            const lastPositionUpdate = ref(Date.now());
+            const lastCourseUpdate = ref(Date.now());
+            const lastSpeedUpdate = ref(Date.now());
+            
+            // Check if we have valid data
+            const hasPosition = computed(() => {
+              const pos = stateDataStore.navigationState.value.position;
+              return pos && pos.latitude !== null && pos.longitude !== null;
+            });
+            
+            const hasCourseData = computed(() => {
+              const course = stateDataStore.navigationState.value.course;
+              return course && (course.heading !== null || course.cog !== null || course.variation !== null);
+            });
+            
+            const hasSpeedData = computed(() => {
+              const speed = stateDataStore.navigationState.value.speed;
+              return speed && (speed.sog !== null || speed.stw !== null);
+            });
+            
+            // Track when data is updated (shows a visual indicator)
+            const isPositionUpdated = ref(false);
+            const isCourseUpdated = ref(false);
+            const isSpeedUpdated = ref(false);
+            
+            // Watch for data changes
+            watch(() => stateDataStore.navigationState.value.position, () => {
+              if (hasPosition.value) {
+                lastPositionUpdate.value = Date.now();
+                isPositionUpdated.value = true;
+                setTimeout(() => { isPositionUpdated.value = false; }, 2000);
+              }
+            }, { deep: true });
+            
+            watch(() => stateDataStore.navigationState.value.course, () => {
+              if (hasCourseData.value) {
+                lastCourseUpdate.value = Date.now();
+                isCourseUpdated.value = true;
+                setTimeout(() => { isCourseUpdated.value = false; }, 2000);
+              }
+            }, { deep: true });
+            
+            watch(() => stateDataStore.navigationState.value.speed, () => {
+              if (hasSpeedData.value) {
+                lastSpeedUpdate.value = Date.now();
+                isSpeedUpdated.value = true;
+                setTimeout(() => { isSpeedUpdated.value = false; }, 2000);
+              }
+            }, { deep: true });
+            
+            // Format helpers
+            function formatTime(timestamp) {
+              if (!timestamp) return 'Never';
+              const date = new Date(timestamp);
+              return date.toLocaleTimeString();
+            }
+            
+            function formatCoordinate(value, type) {
+              if (value === null || value === undefined) return 'N/A';
+              
+              // Format to 6 decimal places
+              const formatted = value.toFixed(6);
+              return `${formatted}° ${type === 'lat' ? (value >= 0 ? 'N' : 'S') : (value >= 0 ? 'E' : 'W')}`;
+            }
+            
+            // CSS classes
+            const connectionStatusClass = computed(() => {
+              const status = stateDataStore.vpsConnectionStatus.value.status;
+              if (status === 'connected') return 'status-connected';
+              if (status === 'connecting') return 'status-connecting';
+              return 'status-disconnected';
+            });
+            
+            // Initialize connection
+            async function initializeRelayMode() {
+              try {
+                console.log('Initializing relay mode...');
+                await stateDataStore.initRelayMode();
+                console.log('Relay mode initialized successfully');
+              } catch (error) {
+                console.error('Failed to initialize relay mode:', error);
+              }
+            }
+            
+            function disconnectRelay() {
+              console.log('Disconnecting from relay...');
+              stateDataStore.disconnectRelay();
+            }
+            
+            // Configuration settings
+            const relayUrl = ref(localStorage.getItem('VPS_RELAY_URL') || '');
+            const relayToken = ref(localStorage.getItem('VPS_RELAY_TOKEN') || '');
+            
+            function saveConfig() {
+              localStorage.setItem('VPS_RELAY_URL', relayUrl.value);
+              localStorage.setItem('VPS_RELAY_TOKEN', relayToken.value);
+              console.log('Configuration saved');
+            }
+            
+            function useMockData() {
+              relayUrl.value = 'mock://localhost';
+              relayToken.value = '';
+              saveConfig();
+            }
+            
+            return {
+              isConnected: computed(() => stateDataStore.isConnected.value),
+              vpsConnectionStatus: computed(() => stateDataStore.vpsConnectionStatus.value),
+              navigationState: computed(() => stateDataStore.navigationState.value),
+              hasPosition,
+              hasCourseData,
+              hasSpeedData,
+              isPositionUpdated,
+              isCourseUpdated,
+              isSpeedUpdated,
+              formatTime,
+              formatCoordinate,
+              connectionStatusClass,
+              initializeRelayMode,
+              disconnectRelay,
+              relayUrl,
+              relayToken,
+              saveConfig,
+              useMockData
+            };
+          },
+          template: `
+            <div class="connection-status-example">
+              <h2>VPS Connection Status</h2>
+              
+              <div class="config-section">
+                <h3>Configuration</h3>
+                <div class="form-group">
+                  <label for="relay-url">Relay URL:</label>
+                  <input type="text" id="relay-url" v-model="relayUrl" placeholder="wss://your-relay-server.com">
+                </div>
+                <div class="form-group">
+                  <label for="relay-token">Relay Token:</label>
+                  <input type="text" id="relay-token" v-model="relayToken" placeholder="Optional authentication token">
+                </div>
+                <div class="button-group">
+                  <button @click="saveConfig">Save Config</button>
+                  <button @click="useMockData">Use Mock Data</button>
+                </div>
+              </div>
+              
+              <div class="status-container">
+                <ConnectionStatusIndicator :showDetails="true" />
+              </div>
+              
+              <div class="controls">
+                <button @click="initializeRelayMode" :disabled="isConnected">Connect to VPS</button>
+                <button @click="disconnectRelay" :disabled="!isConnected">Disconnect</button>
+              </div>
+              
+              <div v-if="isConnected" class="data-display">
+                <h3>Real-Time VPS Data</h3>
+                
+                <div class="data-section">
+                  <h4>Connection Status</h4>
+                  <div class="data-grid">
+                    <div class="data-item">
+                      <span class="label">Status:</span>
+                      <span class="value" :class="connectionStatusClass">{{ vpsConnectionStatus.status }}</span>
+                    </div>
+                    <div class="data-item">
+                      <span class="label">Messages Received:</span>
+                      <span class="value">{{ vpsConnectionStatus.messageCount || 0 }}</span>
+                    </div>
+                    <div class="data-item">
+                      <span class="label">Last Update:</span>
+                      <span class="value">{{ formatTime(vpsConnectionStatus.lastUpdate) }}</span>
+                    </div>
+                    <div v-if="vpsConnectionStatus.lastError" class="data-item error">
+                      <span class="label">Error:</span>
+                      <span class="value">{{ vpsConnectionStatus.lastError }}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="hasPosition" class="data-section">
+                  <h4>Navigation Data <span class="update-badge" v-if="isPositionUpdated">Updated</span></h4>
+                  <div class="data-grid">
+                    <div class="data-item">
+                      <span class="label">Latitude:</span>
+                      <span class="value">{{ formatCoordinate(navigationState.position.latitude, 'lat') }}</span>
+                    </div>
+                    <div class="data-item">
+                      <span class="label">Longitude:</span>
+                      <span class="value">{{ formatCoordinate(navigationState.position.longitude, 'lon') }}</span>
+                    </div>
+                    <div class="data-item">
+                      <span class="label">Timestamp:</span>
+                      <span class="value">{{ formatTime(navigationState.position.timestamp) }}</span>
+                    </div>
+                    <div class="data-item">
+                      <span class="label">Source:</span>
+                      <span class="value">{{ navigationState.position.source || 'Unknown' }}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="hasCourseData" class="data-section">
+                  <h4>Course Data <span class="update-badge" v-if="isCourseUpdated">Updated</span></h4>
+                  <div class="data-grid">
+                    <div class="data-item">
+                      <span class="label">Heading:</span>
+                      <span class="value">{{ navigationState.course.heading !== null ? navigationState.course.heading + '°' : 'N/A' }}</span>
+                    </div>
+                    <div class="data-item">
+                      <span class="label">COG:</span>
+                      <span class="value">{{ navigationState.course.cog !== null ? navigationState.course.cog + '°' : 'N/A' }}</span>
+                    </div>
+                    <div class="data-item">
+                      <span class="label">Variation:</span>
+                      <span class="value">{{ navigationState.course.variation !== null ? navigationState.course.variation + '°' : 'N/A' }}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="hasSpeedData" class="data-section">
+                  <h4>Speed Data <span class="update-badge" v-if="isSpeedUpdated">Updated</span></h4>
+                  <div class="data-grid">
+                    <div class="data-item">
+                      <span class="label">SOG:</span>
+                      <span class="value">{{ navigationState.speed.sog !== null ? navigationState.speed.sog.toFixed(1) + ' kts' : 'N/A' }}</span>
+                    </div>
+                    <div class="data-item">
+                      <span class="label">STW:</span>
+                      <span class="value">{{ navigationState.speed.stw !== null ? navigationState.speed.stw.toFixed(1) + ' kts' : 'N/A' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `
+        };
+        
+        return {
+          ConnectionStatusExample
+        };
+      }
+    });
+    
+    // Register components
+    app.component('ConnectionStatusExample', app.config.globalProperties.ConnectionStatusExample);
+    
+    // Mount the app
+    app.mount('#app');
+  </script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+    }
+    
+    #app {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .connection-status-example {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      padding: 20px;
+    }
+    
+    .connection-status-example h2 {
+      margin-top: 0;
+      color: #333;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    
+    .config-section {
+      background-color: #f9f9f9;
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .config-section h3 {
+      margin-top: 0;
+      font-size: 16px;
+      color: #555;
+    }
+    
+    .form-group {
+      margin-bottom: 10px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .form-group input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    
+    .status-container {
+      margin-bottom: 20px;
+    }
+    
+    .controls {
+      margin-bottom: 20px;
+    }
+    
+    button {
+      padding: 8px 16px;
+      margin-right: 10px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    .data-display {
+      background-color: #f5f5f5;
+      padding: 15px;
+      border-radius: 4px;
+      margin-top: 20px;
+    }
+    
+    .data-section {
+      margin-bottom: 20px;
+      background-color: white;
+      border-radius: 4px;
+      padding: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .data-section h4 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+      color: #555;
+    }
+    
+    .update-badge {
+      font-size: 12px;
+      background-color: #28a745;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-left: 8px;
+      animation: fade 2s forwards;
+    }
+    
+    @keyframes fade {
+      0% { opacity: 1; }
+      70% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    
+    .data-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    
+    .data-item {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+    
+    .value {
+      font-weight: bold;
+      font-size: 14px;
+    }
+    
+    .error .value {
+      color: #dc3545;
+    }
+    
+    .status-connected {
+      color: #28a745;
+    }
+    
+    .status-connecting {
+      color: #ffc107;
+    }
+    
+    .status-disconnected {
+      color: #dc3545;
+    }
+    
+    /* Connection Status Indicator Styles */
+    .connection-status-indicator {
+      display: flex;
+      align-items: center;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #fff;
+      background-color: rgba(0, 0, 0, 0.5);
+      margin: 8px 0;
+      transition: background-color 0.3s ease;
+    }
+    
+    .connection-status-indicator.disconnected {
+      background-color: rgba(220, 53, 69, 0.7);
+    }
+    
+    .connection-status-indicator.connected {
+      background-color: rgba(255, 193, 7, 0.7);
+    }
+    
+    .connection-status-indicator.receiving-data {
+      background-color: rgba(40, 167, 69, 0.7);
+    }
+    
+    .status-icon {
+      margin-right: 8px;
+      position: relative;
+      width: 16px;
+      height: 16px;
+    }
+    
+    .dot {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      top: 3px;
+      left: 3px;
+    }
+    
+    .connected-icon .dot {
+      background-color: #28a745;
+    }
+    
+    .disconnected-icon .dot {
+      background-color: #dc3545;
+    }
+    
+    .pulse {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background-color: rgba(40, 167, 69, 0.3);
+      top: 0;
+      left: 0;
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0% {
+        transform: scale(0.8);
+        opacity: 0.7;
+      }
+      70% {
+        transform: scale(1.2);
+        opacity: 0;
+      }
+      100% {
+        transform: scale(0.8);
+        opacity: 0;
+      }
+    }
+    
+    .status-details {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .status-text {
+      font-weight: bold;
+    }
+    
+    .details {
+      font-size: 12px;
+      opacity: 0.8;
+      margin-top: 4px;
+    }
+    
+    .error-message {
+      color: #dc3545;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <ConnectionStatusExample />
+  </div>
+</body>
+</html>

@@ -1,0 +1,6 @@
+1. Environment Data Integration Plan
+Data Type	Source Examples	Marine Impact	Architecture Layer
+Weather	NOAA, OpenWeatherMap	Storm alerts, wind-driven drift	EnvironmentService
+Tides	Admiralty, NOAA Tides & Currents	Anchor holding, grounding risks	TidalRuleEvaluator
+Currents	ECMWF, USGS	Course planning, fuel efficiency	CurrentsStrategy
+Sea State	Buoy data (NDBC), satellite	Comfort/safety routing	WaveHeightAction

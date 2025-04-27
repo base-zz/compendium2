@@ -1,0 +1,21 @@
+{
+  "name": "relay-server",
+  "version": "1.0.0",
+  "description": "Relay Server for CompendiumnNav2",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.3",
+    "events": "^3.3.0",
+    "lowdb": "^7.0.1",
+    "uuid": "^9.0.0",
+    "ws": "^8.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.20"
+  }
+}

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="500" height="500" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Deep ocean gradient -->
+    <linearGradient id="oceanGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#01579b" />
+      <stop offset="100%" stop-color="#0277bd" />
+    </linearGradient>
+    
+    <!-- Tech circuit gradient -->
+    <linearGradient id="techGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#64ffda" />
+      <stop offset="100%" stop-color="#00bcd4" />
+    </linearGradient>
+    
+    <!-- Glow effect for tech elements -->
+    <filter id="techGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  
+  <!-- Main background circle -->
+  <circle cx="250" cy="250" r="240" fill="url(#oceanGradient)" />
+  
+  <!-- Abstract wave pattern -->
+  <path d="M50,250 C100,200 150,300 200,250 C250,200 300,300 350,250 C400,200 450,300 500,250 L500,500 L0,500 L0,250 Z" 
+        fill="#0288d1" opacity="0.3" />
+  <path d="M50,300 C100,250 150,350 200,300 C250,250 300,350 350,300 C400,250 450,350 500,300 L500,500 L0,500 L0,300 Z" 
+        fill="#039be5" opacity="0.3" />
+  
+  <!-- Central compass/navigation element -->
+  <g transform="translate(250, 250)">
+    <!-- Outer ring -->
+    <circle cx="0" cy="0" r="120" fill="none" stroke="#ffffff" stroke-width="8" opacity="0.8" />
+    
+    <!-- Inner tech circle -->
+    <circle cx="0" cy="0" r="90" fill="none" stroke="#ffffff" stroke-width="3" stroke-dasharray="5,3" opacity="0.6" />
+    
+    <!-- Compass cardinal points -->
+    <line x1="0" y1="-110" x2="0" y2="-70" stroke="#ffffff" stroke-width="4" />
+    <line x1="110" y1="0" x2="70" y2="0" stroke="#ffffff" stroke-width="4" />
+    <line x1="0" y1="110" x2="0" y2="70" stroke="#ffffff" stroke-width="4" />
+    <line x1="-110" y1="0" x2="-70" y2="0" stroke="#ffffff" stroke-width="4" />
+    
+    <!-- Cardinal letters -->
+    <text x="0" y="-125" text-anchor="middle" fill="#ffffff" font-family="Arial" font-weight="bold" font-size="20">N</text>
+    <text x="125" y="7" text-anchor="middle" fill="#ffffff" font-family="Arial" font-weight="bold" font-size="20">E</text>
+    <text x="0" y="132" text-anchor="middle" fill="#ffffff" font-family="Arial" font-weight="bold" font-size="20">S</text>
+    <text x="-125" y="7" text-anchor="middle" fill="#ffffff" font-family="Arial" font-weight="bold" font-size="20">W</text>
+    
+    <!-- Compass needle -->
+    <g filter="url(#techGlow)">
+      <path d="M0,-60 L20,0 L0,60 L-20,0 Z" fill="#ffffff" />
+      <path d="M0,-60 L20,0 L0,15 L-20,0 Z" fill="#64ffda" opacity="0.8" />
+      <circle cx="0" cy="0" r="15" fill="#ffffff" />
+      <circle cx="0" cy="0" r="8" fill="url(#techGradient)" />
+    </g>
+  </g>
+  
+  <!-- AI/Tech circuit pattern overlay -->
+  <g filter="url(#techGlow)">
+    <!-- Horizontal lines -->
+    <line x1="130" y1="180" x2="370" y2="180" stroke="url(#techGradient)" stroke-width="2" stroke-dasharray="15,10" />
+    <line x1="130" y1="320" x2="370" y2="320" stroke="url(#techGradient)" stroke-width="2" stroke-dasharray="15,10" />
+    
+    <!-- Vertical lines -->
+    <line x1="180" y1="130" x2="180" y2="370" stroke="url(#techGradient)" stroke-width="2" stroke-dasharray="15,10" />
+    <line x1="320" y1="130" x2="320" y2="370" stroke="url(#techGradient)" stroke-width="2" stroke-dasharray="15,10" />
+    
+    <!-- Connection nodes -->
+    <circle cx="180" cy="180" r="5" fill="#64ffda" />
+    <circle cx="320" cy="180" r="5" fill="#64ffda" />
+    <circle cx="180" cy="320" r="5" fill="#64ffda" />
+    <circle cx="320" cy="320" r="5" fill="#64ffda" />
+    <circle cx="250" cy="250" r="5" fill="#64ffda" />
+    
+    <!-- Diagonal connections -->
+    <line x1="180" y1="180" x2="250" y2="250" stroke="url(#techGradient)" stroke-width="2" />
+    <line x1="320" y1="180" x2="250" y2="250" stroke="url(#techGradient)" stroke-width="2" />
+    <line x1="180" y1="320" x2="250" y2="250" stroke="url(#techGradient)" stroke-width="2" />
+    <line x1="320" y1="320" x2="250" y2="250" stroke="url(#techGradient)" stroke-width="2" />
+  </g>
+  
+  <!-- Stylized boat silhouette -->
+  <path d="M250,380 C220,380 200,370 180,360 C160,370 140,380 120,380 L120,400 L380,400 L380,380 C360,380 340,370 320,360 C300,370 280,380 250,380 Z" 
+        fill="#ffffff" opacity="0.9" />
+  
+  <!-- Radar ping animation -->
+  <circle cx="250" cy="250" r="30" fill="none" stroke="#64ffda" stroke-width="2" opacity="0.6">
+    <animate attributeName="r" values="30;120" dur="3s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0.6;0" dur="3s" repeatCount="indefinite" />
+  </circle>
+</svg>

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="500" height="500" xmlns="http://www.w3.org/2000/svg" version="1.1">
+  <title>Compendium Navigation Logo - Smooth Version</title>
+  
+  <!-- Main circular background -->
+  <circle cx="250" cy="250" r="240" fill="#150070"/>
+  
+  <!-- Outer ring -->
+  <path d="M250,10 
+    C380,10 490,120 490,250 
+    C490,380 380,490 250,490 
+    C120,490 10,380 10,250 
+    C10,120 120,10 250,10 Z
+    M250,40
+    C363,40 460,137 460,250
+    C460,363 363,460 250,460
+    C137,460 40,363 40,250
+    C40,137 137,40 250,40 Z" 
+    fill="#150070"/>
+    
+  <!-- Inner details - central area -->
+  <path d="M250,100
+    C315,100 370,155 370,220
+    C370,285 315,340 250,340
+    C185,340 130,285 130,220
+    C130,155 185,100 250,100 Z
+    M250,130
+    C298,130 340,172 340,220
+    C340,268 298,310 250,310
+    C202,310 160,268 160,220
+    C160,172 202,130 250,130 Z"
+    fill="#150070"/>
+  
+  <!-- Top-left quadrant detail -->
+  <path d="M130,220
+    C130,200 135,180 145,165
+    L125,145
+    C110,165 100,190 100,220
+    L130,220 Z"
+    fill="#ffffff"/>
+  
+  <!-- Top-right quadrant detail -->
+  <path d="M250,100
+    C270,100 290,105 305,115
+    L325,95
+    C305,80 280,70 250,70
+    L250,100 Z"
+    fill="#ffffff"/>
+  
+  <!-- Bottom-right quadrant detail -->
+  <path d="M370,220
+    C370,240 365,260 355,275
+    L375,295
+    C390,275 400,250 400,220
+    L370,220 Z"
+    fill="#ffffff"/>
+  
+  <!-- Bottom-left quadrant detail -->
+  <path d="M250,340
+    C230,340 210,335 195,325
+    L175,345
+    C195,360 220,370 250,370
+    L250,340 Z"
+    fill="#ffffff"/>
+  
+  <!-- Central compass needle -->
+  <path d="M250,160
+    L270,220
+    L250,280
+    L230,220 Z"
+    fill="#ffffff"/>
+  
+  <!-- Central circle -->
+  <circle cx="250" cy="220" r="15" fill="#ffffff"/>
+  
+  <!-- Wave pattern at bottom -->
+  <path d="M130,350
+    C160,330 190,360 220,340
+    C250,320 280,350 310,330
+    C340,310 370,340 400,320
+    L400,400
+    L130,400 Z"
+    fill="#ffffff" opacity="0.9"/>
+  
+  <!-- Cardinal direction markers -->
+  <path d="M250,100 L250,130 M370,220 L340,220 M250,340 L250,310 M130,220 L160,220" 
+    stroke="#ffffff" stroke-width="5"/>
+  
+  <!-- Cardinal letters -->
+  <text x="250" y="90" text-anchor="middle" fill="#ffffff" font-family="Arial" font-weight="bold" font-size="20">N</text>
+  <text x="385" y="225" text-anchor="middle" fill="#ffffff" font-family="Arial" font-weight="bold" font-size="20">E</text>
+  <text x="250" y="355" text-anchor="middle" fill="#ffffff" font-family="Arial" font-weight="bold" font-size="20">S</text>
+  <text x="115" y="225" text-anchor="middle" fill="#ffffff" font-family="Arial" font-weight="bold" font-size="20">W</text>
+  
+  <!-- Subtle tech pattern overlay -->
+  <g opacity="0.2">
+    <circle cx="250" cy="250" r="200" fill="none" stroke="#ffffff" stroke-width="1" stroke-dasharray="5,5"/>
+    <circle cx="250" cy="250" r="180" fill="none" stroke="#ffffff" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="150" y1="150" x2="350" y2="350" stroke="#ffffff" stroke-width="1" stroke-dasharray="5,5"/>
+    <line x1="150" y1="350" x2="350" y2="150" stroke="#ffffff" stroke-width="1" stroke-dasharray="5,5"/>
+  </g>
+</svg>

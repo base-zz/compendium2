@@ -1,0 +1,80 @@
+// baseAnchordata.js
+export const baseAnchordata = {
+    depth: 20,
+    depthUpdated: false,
+    anchorDropLocation: {
+      x: 300,
+      y: 300,
+      lat: 0,
+      long: 0,
+      time: Date.now(),
+      depth: 11,
+      distanceFromCurrentLocation: 0,
+      originalBearing: 0,
+    },
+    wind: {
+      updated: false,
+      speed: 0,
+      speedUnits: "kts",
+      angle: 0,
+      angleUnits: "°",
+    },
+    current: {
+      updated: false,
+      speed: 0,
+      speedUnits: "kts",
+      angle: 0,
+      angleUnits: "°",
+    },
+    tide: {
+      updated: false,
+      low: 0,
+      high: 0,
+      units: "ft",
+    },
+    aisTargets: [],
+    rode: {
+      x1: 300,
+      y1: 300,
+      x2: 300,
+      y2: 300,
+      amount: 0,
+      units: "feet",
+    },
+    range: {
+      x1: 300,
+      y1: 300,
+      x2: 300,
+      y2: 300,
+      r: 0,
+      units: "feet",
+    },
+    dragging: false,
+    anchorDeployed: false,
+    criticalRange: {
+      x1: 300,
+      y1: 300,
+      x2: 300,
+      y2: 300,
+      r: 0,
+      units: "feet",
+    },
+    warningRange: {
+      x1: 300,
+      y1: 300,
+      x2: 300,
+      y2: 300,
+      r: 0,
+      units: "feet",
+    },
+    position: {
+      lat: null,
+      lon: null,
+      accuracy: null,
+      timestamp: null,
+      source: null
+    },
+    history: [],
+    useDeviceGPS: false
+  };
+  

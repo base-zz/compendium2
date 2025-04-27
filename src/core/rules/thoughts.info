@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant StateManager
+    participant Environment
+    participant RulesEngine
+    participant ActionResolver
+    
+    StateManager->>Environment: Fetch latest (weather/tides/currents)
+    Environment-->>StateManager: { waves: 4m, tide: "falling" }
+    StateManager->>RulesEngine: Evaluate(state="anchored", env)
+    RulesEngine-->>StateManager: [actions: "increaseAnchorSync"]
+    StateManager->>ActionResolver: Execute(actions)
+    ActionResolver->>SyncManager: Apply(WeatherSyncStrategy)
+
+
+
+Data Type	Polling Frequency	Emergency Trigger
+Storms	5 min	weather.stormLevel > 5
+Tides	1 hour	tide.changeRate > 0.5m/hr
+Currents	15 min	currents.speed > 3 knots
