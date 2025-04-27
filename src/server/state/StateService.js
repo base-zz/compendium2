@@ -11,6 +11,7 @@ import EventEmitter from "events";
 import { stateData } from "./StateData.js";
 import { signalKAdapterRegistry } from "../../relay/server/adapters/SignalKAdapterRegistry.js";
 import fetch from "node-fetch"; // Use node-fetch for HTTP requests
+import { extractAISTargetsFromSignalK } from "./extractAISTargets.js";
 
 class StateService extends EventEmitter {
   _debug(...args) {
@@ -19,6 +20,7 @@ class StateService extends EventEmitter {
 
   constructor() {
     super();
+    console.log('[StateService] Constructed StateService instance');
     this.config = null;
     this.signalKAdapter = null;
     this.signalKWsUrl = null;
@@ -31,6 +33,7 @@ class StateService extends EventEmitter {
         lastMessage: null,
       },
     };
+    this.hasLoggedFirstData = false;
     // Data sources registry
     this.sources = new Map();
     // Update queue for batching
@@ -52,6 +55,7 @@ class StateService extends EventEmitter {
    * Initialize the service: set config, discover server, connect, set up listeners
    */
   async initialize(config = {}) {
+  console.log('[StateService] Initializing with config:', config);
     // Helper: detect Node.js environment
     const isNodeEnv = typeof process !== "undefined" && process.env;
 
@@ -105,15 +109,60 @@ class StateService extends EventEmitter {
     // Async setup
     await this._discoverSignalKServer();
     await this._connectToSignalK();
-    this._setupStateListeners();
+    // Fetch the full SignalK state (vessels) once at startup
+    try {
+      const vesselsUrl = this.config.signalKBaseUrl.replace(/\/$/, '') + '/v1/api/vessels';
+      console.log('[StateService] Fetching vessels from URL:', vesselsUrl);
+      const headers = this.config.signalKToken ? { Authorization: `Bearer ${this.config.signalKToken}` } : {};
+      const response = await fetch(vesselsUrl, { headers });
+      if (response.ok) {
+        const vesselsData = await response.json();
+        console.log('[StateService] vesselsData keys:', Object.keys(vesselsData));
+        const selfMmsi = stateData.vessel?.info?.mmsi;
+        console.log('[StateService] selfMmsi for AIS extraction:', selfMmsi);
+        const aisTargets = extractAISTargetsFromSignalK(vesselsData, selfMmsi);
+        console.log('[StateService] Output of extractAISTargetsFromSignalK:', JSON.stringify(aisTargets, null, 2));
+        stateData.anchor.aisTargets = aisTargets;
+        console.log('[StateService] anchor after AIS extraction:', JSON.stringify(stateData.anchor, null, 2));
+      } else {
+        console.warn('[StateService] Could not fetch full /vessels for AIS extraction:', response.status, response.statusText);
+      }
+    } catch (err) {
+      console.warn('[StateService] Error fetching full /vessels for AIS extraction:', err);
+    }
+    // this._setupStateListeners && this._setupStateListeners(); // Removed as method does not exist or is not needed
     this._debug("StateService initialized");
     return this;
   }
 
-  // Dummy method for future event listener setup
-  _setupStateListeners() {
-    this._debug("_setupStateListeners called (stub)");
+  /**
+   * Update anchor.aisTargets from the latest SignalK vessels data
+   * @param {Object} fullSignalKData - Full SignalK document (should include .vessels)
+   */
+  async updateAISTargetsFromSignalK(fullSignalKData) {
+    const selfMmsi = stateData.vessel?.info?.mmsi;
+    const aisTargets = extractAISTargetsFromSignalK(fullSignalKData.vessels, selfMmsi);
+    stateData.anchor.aisTargets = aisTargets;
   }
+
+  // Optionally, add a periodic refresh (every N seconds)
+  startAISPeriodicRefresh(fetchSignalKFullState, intervalMs = 10000) {
+    if (this._aisRefreshTimer) clearInterval(this._aisRefreshTimer);
+    this._aisRefreshTimer = setInterval(async () => {
+      try {
+        const fullSignalKData = await fetchSignalKFullState();
+        await this.updateAISTargetsFromSignalK(fullSignalKData);
+      } catch (err) {
+        this._debug("AIS periodic refresh error:", err);
+      }
+    }, intervalMs);
+  }
+
+  stopAISPeriodicRefresh() {
+    if (this._aisRefreshTimer) clearInterval(this._aisRefreshTimer);
+    this._aisRefreshTimer = null;
+  }
+
 
   /**
    * Discover SignalK server info and select adapter
@@ -284,6 +333,7 @@ class StateService extends EventEmitter {
    * @private
    */
   async _processSignalKDelta(delta) {
+  // console.log('[StateService] Received delta from SignalK:', JSON.stringify(delta, null, 2));
     if (!delta.updates || !Array.isArray(delta.updates)) {
       return;
     }
@@ -322,7 +372,11 @@ class StateService extends EventEmitter {
                 )}, source=${source}`
               );
               */
-              this._queueUpdate(statePath, value.value, source);
+              if (value.value !== null && value.value !== undefined && !this.hasLoggedFirstData) {
+  console.log(`[StateService] RECEIVED FIRST DATA from SignalK: ${statePath} =`, value.value);
+  this.hasLoggedFirstData = true;
+}
+            this._queueUpdate(statePath, value.value, source);
             } else {
               console.warn(
                 "[DEBUG][StateService] No statePath mapping for:",
@@ -625,8 +679,17 @@ class StateService extends EventEmitter {
 // Create singleton instance
 const stateService = new StateService();
 
-export { stateService, StateService };
+// Utility: fetch the full SignalK state (including vessels)
+// Example implementation, adapt as needed for your SignalK server
+async function fetchSignalKFullState(signalKBaseUrl, signalKToken) {
+  const url = `${signalKBaseUrl}/vessels`;
+  const headers = signalKToken ? { Authorization: `Bearer ${signalKToken}` } : {};
+  const response = await fetch(url, { headers });
+  if (!response.ok) throw new Error(`Failed to fetch /vessels: ${response.status}`);
+  return { vessels: await response.json() };
+}
 
+export { stateService, StateService, fetchSignalKFullState };
 // Print a summary of stateData every 10 seconds for debugging
 setInterval(() => {
   if (stateData && stateData.state) {

@@ -35,13 +35,13 @@ const routes = [
     component: AnchorView,
     meta: { title: "Anchor" },
   },
-  // {
-  //   path: "/aistarget/:mmsi",
-  //   name: "AISTarget",
-  //   props: true,
-  //   meta: { requiresAuth: true, title: "AIS Target" },
-  //   component: () => import("@client/views/AISTargetView.vue"),
-  // },
+  {
+    path: "/aistarget/:mmsi",
+    name: "AISTarget",
+    props: true,
+    meta: { requiresAuth: true, title: "AIS Target" },
+    component: () => import("@client/views/AISTargetView.vue"),
+  },
 
   // Sail route commented out due to import issues
   // {

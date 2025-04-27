@@ -25,7 +25,7 @@ class StateUpdateProvider {
   }
 
   _notify(evt) {
-    console.log('[StateUpdateProvider] Notifying subscribers:', evt);
+    // console.log('[StateUpdateProvider] Notifying subscribers:', evt);
     for (const cb of this.subscribers) {
       cb(evt);
     }

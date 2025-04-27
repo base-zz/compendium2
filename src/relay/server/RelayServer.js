@@ -1,5 +1,5 @@
 import EventEmitter from "events";
-import { StateManager } from "./core/state/StateManager.js"; // (No change needed unless StateManager.js import needs update)
+import { stateManager } from '../core/state/StateManager.js'; // Canonical StateManager instance
 import { RuleEngine } from "./core/state/ruleEngine.js";
 import { AllRules } from "./core/state/rules.js";
 import { syncOrchestrator } from "./core/sync/SyncOrchestrator.js";
@@ -21,6 +21,7 @@ export class RelayServer extends EventEmitter {
     // All config must be passed in; do not access process.env here
     if (!config.port) throw new Error("RelayServer: port must be provided in config");
     this.config = { ...config };
+    this.stateManager = stateManager;
 
     // console.log(`[RELAY] Using SignalK URL: ${this.config.signalKUrl}`);
     // console.log(
@@ -29,10 +30,6 @@ export class RelayServer extends EventEmitter {
 
     this.clients = new Map(); // Minimal client management
 
-    // Initialize state manager with rule engine
-    const ruleEngine = new RuleEngine(AllRules);
-    this.stateManager = new StateManager(ruleEngine);
-    // Do not attach here; will attach in initialize()
 
     // Initialize VPSConnector with config
     this.vpsConnector = new VPSConnector({
@@ -51,14 +48,9 @@ export class RelayServer extends EventEmitter {
       }
     });
 
-    // Listen for unified JSON patch state updates and relay to clients/VPS
-    this.stateManager.on("state-update", (patch) => {
-      // console.log(`[DEBUG][RelayServer] Received state-update event with patch:`, JSON.stringify(patch));
-      // console.log(`[DEBUG][RelayServer] Received state-update event`);
-      // console.log("[RELAY][DEBUG] Received state-update patch from StateManager:", JSON.stringify(patch));
-      // console.log(`[DEBUG][RelayServer] Calling _sendToClients for state-update`);
-      // console.log(`[DEBUG][RelayServer] Sending patch to clients.`);
-      this._sendToClients("state-update", patch);
+    // Listen for canonical state updates from StateManager and relay to clients
+    stateManager.on('state-updated', (appState) => {
+      this._sendToClients('state-update', appState);
     });
   }
 
@@ -68,8 +60,6 @@ export class RelayServer extends EventEmitter {
   async initialize() {
     try {
       console.log("[RELAY] Initializing relay server");
-      // Attach StateManager to StateData for patching
-      this.stateManager.attachToStateData();
       // Connect to the VPS Relay Proxy
       console.log("[RELAY] Connecting to VPS Relay Proxy");
       try {
@@ -204,7 +194,7 @@ export class RelayServer extends EventEmitter {
     // // console.log(`[RELAY][DEBUG] Sending to clients: event=${event}, data=${JSON.stringify(data)}`);
     if (event !== "state-update") return;
     const message = {
-      type: "state-update",
+      type: 'state-update',
       data: data,
       timestamp: Date.now(),
       boatId: boatId // Ensure boatId is included in every message
