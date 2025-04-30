@@ -107,6 +107,15 @@ export class RelayServer extends EventEmitter {
       .on("max-retries", () => {
         console.error("[RELAY] VPS connection permanently lost");
         this.emit("vps-connection-lost");
+      })
+      .on("connectionStatus", ({ boatId, clientCount }) => {
+        console.log(`[RELAY] Client connection status update: ${clientCount} clients for boat ${boatId}`);
+        
+        // Update the stateManager's client count
+        if (boatId === this.stateManager.boatId) {
+          this.stateManager.updateClientCount(clientCount);
+          this.emit("client-count-updated", { boatId, clientCount });
+        }
       });
   }
 

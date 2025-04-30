@@ -17,6 +17,7 @@ export class VPSConnector extends EventEmitter {
     this.connected = false;
     this.retryCount = 0;
     this.reconnectTimer = null;
+    this._clientCount = 0; // Track number of connected clients
     // Ensure sensible defaults
     this.config.reconnectInterval = this.config.reconnectInterval || 5000;
     this.config.maxRetries = this.config.maxRetries || 10;
@@ -93,7 +94,7 @@ export class VPSConnector extends EventEmitter {
     const payload = {
       originId: "relay-server",
       boatId: boatId,
-      role: "relay",
+      role: "boat-server",
     };
 
     console.log("[VPS-CONNECTOR] Payload for token:", payload);
@@ -142,6 +143,7 @@ export class VPSConnector extends EventEmitter {
           const registerMessage = JSON.stringify({
             type: "register",
             boatIds: [boatId],
+            role: "boat-server",
           });
           this.connection.send(registerMessage);
 
@@ -149,20 +151,34 @@ export class VPSConnector extends EventEmitter {
           const identityMessage = JSON.stringify({
             type: "identity",
             boatId: boatId,
+            role: "boat-server",
             time: new Date().toISOString(),
-            data: {
-              type: "relay-server",
-              id: "boat-relay",
-            },
           });
           this.connection.send(identityMessage);
           resolve();
         });
 
+        // Handle incoming messages from the VPS Relay Proxy
         this.connection.on("message", (data) => {
           try {
             const message = JSON.parse(data);
-            this.emit("message", message);
+
+            // Handle connection status updates
+            if (message.type === "connectionStatus") {
+              const { boatId, clientCount } = message;
+              console.log(
+                `[VPS-CONNECTOR] Client count for boat ${boatId}: ${clientCount}`
+              );
+              
+              // Update our internal client count
+              this._clientCount = clientCount;
+              
+              // Emit a new event type for connection status
+              this.emit("connectionStatus", { boatId, clientCount });
+            } else {
+              // Forward other messages as before
+              this.emit("message", message);
+            }
           } catch (error) {
             console.error("[VPS-CONNECTOR] Error parsing message:", error);
           }
@@ -216,19 +232,27 @@ export class VPSConnector extends EventEmitter {
   }
 
   /**
-   * Send data to the VPS Relay Proxy
+   * Send data to the VPS relay proxy
+   * @param {Object|Array} data - Data to send
+   * @returns {boolean} - Success status
    */
   send(data) {
     if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
       console.warn("[VPS-CONNECTOR] Cannot send data - not connected");
       return false;
     }
-  
+
+    // Check if we have any remote clients connected
+    if (this._clientCount <= 0 && this._shouldSkipMessage(data)) {
+      console.log("[VPS-CONNECTOR] Suppressing message - no remote clients connected");
+      return true; // Return true to indicate "success" even though we didn't send
+    }
+
     try {
       // Handle array case (send sequentially)
       if (Array.isArray(data)) {
         if (data.length === 0) return true;
-        
+
         let allSuccess = true;
         for (const item of data) {
           if (!this._sendSingle(item)) {
@@ -237,7 +261,7 @@ export class VPSConnector extends EventEmitter {
         }
         return allSuccess;
       }
-      
+
       // Single message case
       return this._sendSingle(data);
     } catch (error) {
@@ -245,7 +269,26 @@ export class VPSConnector extends EventEmitter {
       return false;
     }
   }
-  
+
+  /**
+   * Determine if a message should be skipped when no clients are connected
+   * @private
+   * @param {Object} data - Message data
+   * @returns {boolean} - Whether to skip the message
+   */
+  _shouldSkipMessage(data) {
+    // Always send identity, registration, and heartbeat messages
+    if (data.type === "identity" || 
+        data.type === "register" || 
+        data.type === "subscribe" || 
+        data.type === "heartbeat") {
+      return false;
+    }
+    
+    // Skip state updates and other messages when no clients
+    return true;
+  }
+
   // Private method for single message sending
   _sendSingle(data) {
     try {

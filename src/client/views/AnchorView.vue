@@ -5,6 +5,12 @@
       <div class="acquire-location-content">
         <ion-spinner name="crescent" class="location-spinner"></ion-spinner>
         <div class="location-modal-message">Acquiring Location...</div>
+        <div v-if="locationRequestFailed" class="location-error-message">
+          Unable to get your location. Please check your browser permissions.
+          <ion-button @click="requestLocationPermission" class="location-retry-button">
+            Request Location Access
+          </ion-button>
+        </div>
       </div>
     </div>
 
@@ -119,14 +125,6 @@
     <div class="map-wrapper">
       <AnchorInfoGrid @drop-anchor="handleDropAnchor" />
       <div ref="mapElement" class="openlayers-map"></div>
-      <div class="zoom-fab-container">
-        <ion-fab-button @click="zoomIn" color="primary" class="custom-fab-size">
-          <span class="zoom-icon">+</span>
-        </ion-fab-button>
-        <ion-fab-button @click="zoomOut" color="primary" class="custom-fab-size">
-          <span class="zoom-icon">−</span>
-        </ion-fab-button>
-      </div>
       <div class="anchor-fab-container">
         <ion-fab-button
           color="secondary"
@@ -159,6 +157,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import GenericHeader from "@client/components/GenericHeader.vue";
 import AnchorInfoGrid from "@client/components/AnchorInfoGrid.vue";
+import debounce from "lodash/debounce";
 import {
   IonPage,
   IonContent,
@@ -211,6 +210,34 @@ function ensureVectorSourceAndLayer() {
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 const navigationState = computed(() => state.value.navigation);
+
+// Location request state
+const locationRequestFailed = ref(false);
+const locationRequestAttempts = ref(0);
+
+// Function to explicitly request location permission
+function requestLocationPermission() {
+  locationRequestAttempts.value++;
+  console.log('[AnchorView] Requesting location permission, attempt:', locationRequestAttempts.value);
+  
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        console.log('[AnchorView] Browser geolocation success:', position);
+        locationRequestFailed.value = false;
+        // We don't need to update the state here as the Signal K server will do it
+      },
+      (error) => {
+        console.error('[AnchorView] Browser geolocation error:', error);
+        locationRequestFailed.value = true;
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  } else {
+    console.error('[AnchorView] Browser does not support geolocation');
+    locationRequestFailed.value = true;
+  }
+}
 const anchorState = computed(() => state.value.anchor);
 // const { navigationState, anchorState } = storeToRefs(stateStore);
 
@@ -319,10 +346,19 @@ function confirmUpdateDropLocation() {
 
 // Show modal if position is missing or at (0,0)
 const showLocationModal = computed(() => {
-  const pos = navigationState.value.position;
-  const result =
-    !pos || !pos.latitude || !pos.longitude || pos.latitude === 0 || pos.longitude === 0;
-  console.log("[COMPUTED: showLocationModal] evaluated:", { pos, result });
+  const pos = navigationState.value?.position;
+  // Check if we have valid position data
+  const hasValidPosition = 
+    pos && 
+    pos.latitude && 
+    pos.longitude && 
+    typeof pos.latitude.value === 'number' && 
+    typeof pos.longitude.value === 'number' && 
+    Math.abs(pos.latitude.value) > 0.0001 && 
+    Math.abs(pos.longitude.value) > 0.0001;
+  
+  const result = !hasValidPosition;
+  console.log("[COMPUTED: showLocationModal] evaluated:", { pos, hasValidPosition, result });
   return result;
 });
 
@@ -583,7 +619,7 @@ function drawPositionDot(lat, lon, animate = false) {
   // Create a visually appealing boat style
   const boatStyle = new Style({
     image: new CircleStyle({
-      radius: 12, // Reasonable size for normal use
+      radius: 8, // Reasonable size for normal use
       fill: new Fill({ color: "#2196f3" }), // Blue
       stroke: new Stroke({ color: "#ffffff", width: 3 }), // White border
     }),
@@ -599,16 +635,20 @@ function drawPositionDot(lat, lon, animate = false) {
   // Apply the style directly
   newBoatFeature.setStyle(boatStyle);
   
-  // Clear any existing features and add the new one
+  // Only remove the existing boat feature, not all features
   if (vectorSource) {
-    vectorSource.clear();
+    // Find and remove only the boat position feature
+    const existingBoatFeatures = vectorSource.getFeatures()
+      .filter(f => f.get('name') === 'boat-position-direct');
+    
+    existingBoatFeatures.forEach(f => vectorSource.removeFeature(f));
     vectorSource.addFeature(newBoatFeature);
-     
-    // Force map to redraw
-    if (map.value) {
-      map.value.updateSize();
+    
+    // Don't force a complete redraw during normal operations
+    // This prevents the marker from disappearing during zoom
+    if (map.value && animate) {
+      // Only render if animation is explicitly requested
       map.value.render();
-      console.log("%c FORCED MAP REDRAW", "background: orange; color: black; font-size: 16px;");
     }
   }
   
@@ -617,6 +657,10 @@ function drawPositionDot(lat, lon, animate = false) {
 }
 
 function drawAnchorDropLocationDot(lat, lon) {
+  // Handle proxy objects from Pinia store
+  if (typeof lat === 'object' && lat?.value !== undefined) lat = lat.value;
+  if (typeof lon === 'object' && lon?.value !== undefined) lon = lon.value;
+  
   if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
     console.warn(
       "[drawAnchorDropLocationDot] Skipping feature with invalid coordinates:",
@@ -647,6 +691,10 @@ function drawAnchorDropLocationDot(lat, lon) {
 }
 
 function drawAnchorLocationDot(lat, lon) {
+  // Handle proxy objects from Pinia store
+  if (typeof lat === 'object' && lat?.value !== undefined) lat = lat.value;
+  if (typeof lon === 'object' && lon?.value !== undefined) lon = lon.value;
+  
   console.log(
     "[drawAnchorLocationDot] lat:",
     lat,
@@ -655,6 +703,16 @@ function drawAnchorLocationDot(lat, lon) {
     "vectorSource:",
     vectorSource
   );
+  
+  if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
+    console.warn(
+      "[drawAnchorLocationDot] Skipping feature with invalid coordinates:",
+      lat,
+      lon
+    );
+    return;
+  }
+  
   // CURRENT ANCHOR LOCATION: Yellow dot
   const feature = new Feature({
     geometry: new Point(fromLonLat([lon, lat])),
@@ -704,6 +762,7 @@ function addDebugMarkers() {
 
 // Draw a breadcrumb at a given lat/lon with a given radius and color
 function addBreadcrumb(lon, lat, styleOpts = {}) {
+  console.log("[addBreadcrumb] lat:", lat, "lon:", lon);
   if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
     console.warn(
       "[addBreadcrumb] Skipping breadcrumb with invalid coordinates:",
@@ -813,6 +872,12 @@ function calculateBearing(lat1, lon1, lat2, lon2) {
 }
 
 function drawRodeLine(fromLat, fromLon, toLat, toLon) {
+  // Handle proxy objects from Pinia store
+  if (typeof fromLat === 'object' && fromLat?.value !== undefined) fromLat = fromLat.value;
+  if (typeof fromLon === 'object' && fromLon?.value !== undefined) fromLon = fromLon.value;
+  if (typeof toLat === 'object' && toLat?.value !== undefined) toLat = toLat.value;
+  if (typeof toLon === 'object' && toLon?.value !== undefined) toLon = toLon.value;
+  
   if (
     fromLat == null ||
     fromLon == null ||
@@ -918,14 +983,20 @@ function addFeatures() {
     }
     // Green dot: anchor drop location
     if (drop && drop.latitude && drop.longitude) {
-      drawAnchorDropLocationDot(drop.latitude, drop.longitude);
+      // Access latitude and longitude correctly based on the actual structure
+      const dropLat = typeof drop.latitude === 'object' ? drop.latitude.value : drop.latitude;
+      const dropLon = typeof drop.longitude === 'object' ? drop.longitude.value : drop.longitude;
+      
+      drawAnchorDropLocationDot(dropLat, dropLon);
+      
       // Use criticalRange.r as the only source of truth for the alarm circle radius
       const radiusMeters =
         anchorState.value.criticalRange &&
         typeof anchorState.value.criticalRange.r === "number"
           ? anchorState.value.criticalRange.r
           : 0;
-      drawCircleOnMap(drop.latitude, drop.longitude, radiusMeters, "meters", {
+      
+      drawCircleOnMap(dropLat, dropLon, radiusMeters, "meters", {
         strokeColor: "#2196f3",
         fillColor: "rgba(33,150,243,0.1)",
       });
@@ -959,7 +1030,10 @@ function addFeatures() {
       anchorLoc.position.latitude &&
       anchorLoc.position.longitude
     ) {
-      drawAnchorLocationDot(anchorLoc.position.latitude, anchorLoc.position.longitude);
+      // Access latitude and longitude correctly based on the actual structure
+      const anchorLat = typeof anchorLoc.position.latitude === 'object' ? anchorLoc.position.latitude.value : anchorLoc.position.latitude;
+      const anchorLon = typeof anchorLoc.position.longitude === 'object' ? anchorLoc.position.longitude.value : anchorLoc.position.longitude;
+      drawAnchorLocationDot(anchorLat, anchorLon);
       // Draw rode (line) from current position to anchorLocation
       if (
         navPos?.latitude &&
@@ -967,18 +1041,24 @@ function addFeatures() {
         anchorLoc?.position?.latitude &&
         anchorLoc?.position?.longitude
       ) {
+        // Access latitude and longitude correctly for both positions
+        const boatLat = typeof navPos.latitude === 'object' ? navPos.latitude.value : navPos.latitude;
+        const boatLon = typeof navPos.longitude === 'object' ? navPos.longitude.value : navPos.longitude;
+        const anchorLat = typeof anchorLoc.position.latitude === 'object' ? anchorLoc.position.latitude.value : anchorLoc.position.latitude;
+        const anchorLon = typeof anchorLoc.position.longitude === 'object' ? anchorLoc.position.longitude.value : anchorLoc.position.longitude;
+        
         drawRodeLine(
-          navPos.latitude,
-          navPos.longitude,
-          anchorLoc.position.latitude,
-          anchorLoc.position.longitude
+          boatLat,
+          boatLon,
+          anchorLat,
+          anchorLon
         );
         // Calculate and log distance in feet between your position and anchor drop
         const distanceMeters = calculateDistance(
-          navPos.latitude,
-          navPos.longitude,
-          anchorLoc.position.latitude,
-          anchorLoc.position.longitude
+          boatLat,
+          boatLon,
+          anchorLat,
+          anchorLon
         );
         const distanceFeet = distanceMeters / 0.3048;
         console.log(
@@ -997,45 +1077,61 @@ function addFeatures() {
     }
     // Draw breadcrumbs: older = lighter
     breadcrumbs.value.forEach((crumb, idx) => {
+      console.log("[addFeatures] Drawing breadcrumb:", crumb);
       // Most recent is last, oldest is first
       const age = idx / breadcrumbs.value.length;
       // Fade from blue (recent) to transparent (old)
       const alpha = 0.8 * (1 - age) + 0.1; // 0.9 (new) to 0.1 (old)
-      addBreadcrumb(crumb.lon, crumb.lat, {
+      
+      // Access latitude and longitude correctly based on the actual structure
+      const lat = typeof crumb.latitude === 'object' ? crumb.latitude.value : crumb.latitude;
+      const lon = typeof crumb.longitude === 'object' ? crumb.longitude.value : crumb.longitude;
+      
+      addBreadcrumb(lon, lat, {
         fillColor: `rgba(33,150,243,${alpha})`,
         radius: 4,
         strokeColor: `rgba(33,150,243,${alpha + 0.1})`,
       });
+      
     });
-    console.log(
-      "[addFeatures] vectorSource feature count after all:",
-      vectorSource.getFeatures().length
-    );
+
   } catch (e) {
     console.error("[AnchorView] Exception inside addFeatures:", e);
     console.trace();
   }
 }
 
-function zoomIn() {
-  if (map.value) {
-    map.value.getView().setZoom(map.value.getView().getZoom() + 1);
-    // Recenter after zoom
-    // const pos = navigationState.value?.position;
-    // if (pos?.longitude && pos?.latitude) {
-    //   map.value.getView().setCenter(fromLonLat([pos.longitude, pos.latitude]));
-    // }
+// Zoom functions removed - using native OpenLayers pinch-to-zoom functionality
+
+// Helper function to get initial zoom level from localStorage or use default
+function getInitialZoom() {
+  try {
+    // console.log('[AnchorView][getInitialZoom] Checking for saved zoom level in localStorage');
+    const savedZoom = localStorage.getItem("anchorMapZoom");
+    // console.log('[AnchorView][getInitialZoom] Raw saved zoom value:', savedZoom);
+    
+    if (savedZoom !== null) {
+      const parsedZoom = Number(savedZoom);
+      // console.log('[AnchorView][getInitialZoom] Parsed zoom value:', parsedZoom);
+      
+      // Validate zoom level is reasonable (between 5 and 19.5)
+      if (!isNaN(parsedZoom) && parsedZoom >= 5 && parsedZoom <= 22) {
+        // console.log(`[AnchorView][getInitialZoom] Restoring saved zoom level: ${parsedZoom}`);
+        return parsedZoom;
+      } else {
+        // console.log(`[AnchorView] Saved zoom level out of range: ${parsedZoom}, using default`);
+        localStorage.removeItem("anchorMapZoom"); // Clear invalid value
+      }
+    } else {
+      console.log('[AnchorView] No saved zoom level found in localStorage');
+    }
+  } catch (error) {
+    console.error('[AnchorView] Error retrieving zoom level from localStorage:', error);
   }
-}
-function zoomOut() {
-  if (map.value) {
-    map.value.getView().setZoom(map.value.getView().getZoom() - 1);
-    // Recenter after zoom
-    // const pos = navigationState.value?.position;
-    // if (pos?.longitude && pos?.latitude) {
-    //   map.value.getView().setCenter(fromLonLat([pos.longitude, pos.latitude]));
-    // }
-  }
+  
+  // Default zoom level if nothing valid in localStorage
+  console.log('[AnchorView] Using default zoom level: 15');
+  return 15; // Default zoom level
 }
 
 // Watch anchorDropLocation, rode, and bearing to update anchorLocation
@@ -1086,8 +1182,44 @@ watch(
 );
 
 onMounted(() => {
-  console.log("%c 🚢 INITIALIZING MAP 🚢", "background: green; color: white; font-size: 16px; padding: 5px;");
   ensureVectorSourceAndLayer();
+  
+  // Request location permission on mount
+  setTimeout(() => {
+    // Check if we already have location data
+    const pos = navigationState.value?.position;
+    const hasValidPosition = 
+      pos && 
+      pos.latitude && 
+      pos.longitude && 
+      typeof pos.latitude.value === 'number' && 
+      typeof pos.longitude.value === 'number' && 
+      Math.abs(pos.latitude.value) > 0.0001 && 
+      Math.abs(pos.longitude.value) > 0.0001;
+      
+    if (!hasValidPosition) {
+      console.log('[AnchorView] No valid position on mount, requesting location permission');
+      requestLocationPermission();
+      
+      // Set a timeout to check if we got location data
+      setTimeout(() => {
+        const newPos = navigationState.value?.position;
+        const nowHasValidPosition = 
+          newPos && 
+          newPos.latitude && 
+          newPos.longitude && 
+          typeof newPos.latitude.value === 'number' && 
+          typeof newPos.longitude.value === 'number' && 
+          Math.abs(newPos.latitude.value) > 0.0001 && 
+          Math.abs(newPos.longitude.value) > 0.0001;
+          
+        if (!nowHasValidPosition) {
+          console.log('[AnchorView] Still no valid position after delay, marking as failed');
+          locationRequestFailed.value = true;
+        }
+      }, 5000); // Check after 5 seconds
+    }
+  }, 1000); // Small delay to allow any existing location data to load
   // Defensive: remove any old map instance
   if (map.value && typeof map.value.setTarget === "function") {
     map.value.setTarget(null);
@@ -1152,7 +1284,7 @@ onMounted(() => {
     layers,
     view: new View({
       center: fromLonLat(mapCenter),
-      zoom: 15,
+      zoom: getInitialZoom() || 18.9,
     }),
     controls: defaultControls({ zoom: false }),
   });
@@ -1324,8 +1456,6 @@ function checkMapVisibility() {
 }
 
 // Watch for relevant state changes to update map features
-import debounce from "lodash/debounce";
-
 watch(
   [
     () => navigationState.value.position,
@@ -1370,6 +1500,8 @@ onMounted(() => {
     (newPos, oldPos) => {
       if (oldPos && oldPos.latitude && oldPos.longitude) {
         // Add previous position to breadcrumbs
+        // Log the structure of the position object for debugging
+        console.log("[breadcrumb watcher] Adding position to breadcrumbs:", oldPos);
         breadcrumbs.value.push({
           latitude: oldPos.latitude,
           longitude: oldPos.longitude,
@@ -1431,29 +1563,113 @@ onMounted(() => {
     mapCenter = [0, 0]; // fallback to (0,0) if nothing available
     console.log("[AnchorView] Using fallback [0,0] for map center");
   }
-  console.trace("[AnchorView] map.value is being (re)initialized");
-  map.value = new Map({
-    target: mapElement.value,
-    layers: [new TileLayer({ source: new OSM() }), vectorLayer],
-    view: new View({
-      center: fromLonLat(mapCenter),
-      zoom: 15,
-    }),
-    controls: defaultControls({ zoom: false }), // Disable default zoom control
-  });
-
-  // Restore zoom level from localStorage *immediately after map is created*
-  const savedZoom = localStorage.getItem("anchorMapZoom");
-  if (savedZoom && map.value && map.value.getView) {
-    map.value.getView().setZoom(Number(savedZoom));
+  // Only initialize the map if we have valid location data
+  const hasValidLocation = 
+    pos && 
+    pos.latitude && 
+    pos.longitude && 
+    typeof pos.latitude.value === 'number' && 
+    typeof pos.longitude.value === 'number' && 
+    Math.abs(pos.latitude.value) > 0.0001 && 
+    Math.abs(pos.longitude.value) > 0.0001;
+  
+  // Ensure we have a clean map initialization
+  if (map.value && typeof map.value.setTarget === "function") {
+    console.log("[AnchorView] Cleaning up existing map instance");
+    map.value.setTarget(null);
+    map.value = null;
   }
-  // Listen for zoom changes and persist to localStorage
+
+  if (hasValidLocation) {
+    console.log("[AnchorView] Creating new map instance with valid location data");
+    const initialZoom = getInitialZoom();
+    console.log(`[AnchorView] Using initial zoom level: ${initialZoom}`);
+    
+    // Create the map with the initial zoom level
+    map.value = new Map({
+      target: mapElement.value,
+      layers: [new TileLayer({ source: new OSM() }), vectorLayer],
+      view: new View({
+        center: fromLonLat([pos.longitude.value, pos.latitude.value]),
+        zoom: initialZoom,
+      }),
+      controls: defaultControls({ zoom: false }), // Disable default zoom control
+    });
+  } else {
+    console.log("[AnchorView] Waiting for valid location data before initializing map");
+  }
+
+  // Set up a single event listener for zoom changes only if map is initialized
   if (map.value && map.value.getView) {
+    // Use a simple throttled approach instead of debounce
+    let lastSaveTime = Date.now();
     map.value.getView().on("change:resolution", () => {
-      const currentZoom = map.value.getView().getZoom();
-      localStorage.setItem("anchorMapZoom", currentZoom);
+      const now = Date.now();
+      // Only save at most once per second
+      if (now - lastSaveTime > 1000) {
+        const currentZoom = map.value.getView().getZoom();
+        localStorage.setItem("anchorMapZoom", currentZoom.toString());
+        console.log(`[AnchorView] Saved zoom level: ${currentZoom}`);
+        lastSaveTime = now;
+      }
     });
   }
+  
+  // Use a separate function to initialize the map with valid location data
+  function initializeMapWithLocation(locationData) {
+    if (!locationData?.longitude?.value || !locationData?.latitude?.value) {
+      console.log("[AnchorView] Cannot initialize map: invalid location data", locationData);
+      return;
+    }
+    
+    // Clean up any existing map
+    if (map.value && typeof map.value.setTarget === "function") {
+      map.value.setTarget(null);
+      map.value = null;
+    }
+    
+    const mapCenterFromPos = [locationData.longitude.value, locationData.latitude.value];
+    const initialZoom = getInitialZoom();
+    console.log(`[AnchorView] Initializing map with location: ${mapCenterFromPos} and zoom: ${initialZoom}`);
+    
+    map.value = new Map({
+      target: mapElement.value,
+      layers: [new TileLayer({ source: new OSM() }), vectorLayer],
+      view: new View({
+        center: fromLonLat(mapCenterFromPos),
+        zoom: initialZoom,
+      }),
+      controls: defaultControls({ zoom: false }),
+    });
+    
+    // Set up zoom change listener
+    let lastSaveTime = Date.now();
+    map.value.getView().on("change:resolution", () => {
+      const now = Date.now();
+      if (now - lastSaveTime > 1000) {
+        const currentZoom = map.value.getView().getZoom();
+        localStorage.setItem("anchorMapZoom", currentZoom.toString());
+        console.log(`[AnchorView] Saved zoom level: ${currentZoom}`);
+        lastSaveTime = now;
+      }
+    });
+    
+    // Add features to the map
+    addFeatures();
+    return true;
+  }
+  
+  // Set up a watcher to initialize the map when location data becomes available
+  watch(
+    () => navigationState.value?.position,
+    (newPos) => {
+      if (!map.value && newPos?.longitude?.value && newPos?.latitude?.value) {
+        console.log("[AnchorView] Location data available, initializing map");
+        initializeMapWithLocation(newPos);
+      }
+    },
+    { immediate: true }
+  );
 
   // Always recenter map view when features are updated
   if (pos?.longitude?.value !== undefined && pos?.latitude?.value !== undefined) {
@@ -1510,15 +1726,7 @@ ion-page.page-container {
   z-index: 0;
   overflow: hidden;
 }
-.zoom-fab-container {
-  position: absolute;
-  right: 20px;
-  bottom: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  z-index: 10;
-}
+/* Zoom buttons removed - using native OpenLayers pinch-to-zoom functionality */
 
 .map-wrapper .ol-scale-line {
   position: absolute !important;

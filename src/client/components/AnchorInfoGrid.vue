@@ -23,15 +23,15 @@
       <div class="grid-row">
         <div class="info-rect-div">
           <div class="label-div">Depth</div>
-          <div class="metric-div">{{ stateStore.navigationState?.depth?.belowTransducer || '--' }}</div>
+          <div class="metric-div">{{ stateStore.state.navigation?.depth?.belowTransducer?.value || '--' }}</div>
         </div>
         <div class="info-rect-div">
           <div class="label-div">Wind Speed</div>
-          <div class="metric-div">{{ stateStore.environmentState?.weather?.wind?.speed || '--' }}</div>
+          <div class="metric-div">{{ stateStore.state.navigation?.wind?.apparent?.speed?.value || '--' }}</div>
         </div>
         <div class="info-rect-div">
           <div class="label-div">Current Speed</div>
-          <div class="metric-div">{{ stateStore.environmentState?.current?.speed || '--' }}</div>
+          <div class="metric-div">{{ stateStore.state.environment?.current?.speed?.value || '--' }}</div>
         </div>
       </div>
     </div>
@@ -87,6 +87,8 @@ function confirmEditRadius() {
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 const anchorState = computed(() => state.value.anchor);
+  
+console.log("AnchorInfoGrid.vue anchorState:", anchorState.value);
 
 const titleClass = computed(() => {
   if (anchorState.value.dragging) { 
