@@ -1,308 +1,273 @@
 import EventEmitter from "events";
-import { stateManager } from '../core/state/StateManager.js'; // Canonical StateManager instance
-import { RuleEngine } from "./core/state/ruleEngine.js";
-import { AllRules } from "./core/state/rules.js";
+import { stateManager } from "../core/state/StateManager.js";
 import { syncOrchestrator } from "./core/sync/SyncOrchestrator.js";
-import { VPSConnector } from "./services/VPSConnector.js"; // Use class, not singleton
-import { getOrCreateAppUuid } from "../../server/uniqueAppId.js";
+import { VPSConnector } from "./services/VPSConnector.js";
 
-const boatId = getOrCreateAppUuid();
-
-/**
- * RelayServer
- *
- * A server-side process that intermediates between SignalK and VPS.
- * It throttles data based on priority and importance to reduce VPS load.
- */
 export class RelayServer extends EventEmitter {
   constructor(config = {}) {
     super();
 
-    // All config must be passed in; do not access process.env here
+    // Validate configuration
     if (!config.port) throw new Error("RelayServer: port must be provided in config");
-    this.config = { ...config };
+    if (!config.tokenSecret) throw new Error("RelayServer: tokenSecret is required");
+    if (!config.vpsUrl) throw new Error("RelayServer: vpsUrl is required");
+
+    this.config = {
+      ...config,
+      vpsReconnectInterval: config.vpsReconnectInterval || 5000,
+      vpsMaxRetries: config.vpsMaxRetries || 10
+    };
+
+    // State management
+    this._stateVersion = 0;
+    this._messageBuffer = [];
+    this._maxBufferSize = 100;
     this.stateManager = stateManager;
 
-    // console.log(`[RELAY] Using SignalK URL: ${this.config.signalKUrl}`);
-    // console.log(
-//   `[RELAY] Initializing relay server with port ${this.config.port}`
-// );
+    // Client management
+    this.clients = new Map();
 
-    this.clients = new Map(); // Minimal client management
-
-
-    // Initialize VPSConnector with config
+    // Initialize services
     this.vpsConnector = new VPSConnector({
       tokenSecret: this.config.tokenSecret,
       vpsUrl: this.config.vpsUrl,
-      // Add any other VPSConnector config here
+      reconnectInterval: this.config.vpsReconnectInterval,
+      maxRetries: this.config.vpsMaxRetries
     });
 
-    // Use the SyncOrchestrator for adaptive throttling
     this.syncOrchestrator = syncOrchestrator;
 
-    // Listen for state changes to update throttle profile
+    // Setup listeners
+    this._setupStateListeners();
+    this._setupConnectionListeners();
+
+    // Setup maintenance intervals
+    this._maintenanceIntervals = {
+      tokenRefresh: setInterval(() => this._refreshVpsConnection(), 86400000), // 24 hours
+      bufferMonitor: setInterval(() => this._monitorBuffer(), 60000) // 1 minute
+    };
+  }
+
+  async initialize() {
+    try {
+      console.log("[RELAY] Initializing relay server");
+      
+      // Connect to VPS
+      await this.vpsConnector.connect();
+      
+      // Setup server components
+      this._setupServer();
+
+      console.log(`[RELAY] Successfully initialized on port ${this.config.port}`);
+      this.emit("initialized");
+      return true;
+    } catch (error) {
+      console.error("[RELAY] Initialization failed:", error);
+      this.emit("error", { 
+        type: "init-failed", 
+        error: error.message 
+      });
+      throw error;
+    }
+  }
+
+  // ========== PRIVATE METHODS ========== //
+
+
+
+  _setupStateListeners() {
+    // Throttle profile updates
     this.stateManager.on("state-changed", (newState) => {
       if (newState.throttleProfile) {
         this.syncOrchestrator.updateThrottleProfile(newState.throttleProfile);
       }
     });
 
-    // Listen for canonical state updates from StateManager and relay to clients
-    stateManager.on('state-updated', (appState) => {
-      this._sendToClients('state-update', appState);
-    });
+    // Forward StateManager payloads directly (flat structure)
+    this._stateEventHandler = (payload) => this._sendToVPS(payload);
+    this.stateManager.on("state:full-update", this._stateEventHandler);
+    this.stateManager.on("state:patch", this._stateEventHandler);
   }
 
-  /**
-   * Initialize the relay server
-   */
-  async initialize() {
-    try {
-      console.log("[RELAY] Initializing relay server");
-      // Connect to the VPS Relay Proxy
-      console.log("[RELAY] Connecting to VPS Relay Proxy");
-      try {
-        await this.vpsConnector.connect();
-      } catch (error) {
-        console.error("[RELAY] Failed to connect to VPS Relay Proxy:", error);
-        throw error;
-      }
-
-      // Set up event listeners for VPS connection
-      this.vpsConnector.on("connected", () => {
-        console.log("[RELAY] Connected to VPS Relay Proxy");
+  _setupConnectionListeners() {
+    this.vpsConnector
+      .on("connected", () => {
+        console.log("[RELAY] VPS connection established");
+        this._flushMessageBuffer();
         this.emit("vps-connected");
-      });
-
-      this.vpsConnector.on("disconnected", () => {
-        console.log("[RELAY] Disconnected from VPS Relay Proxy");
+      })
+      .on("disconnected", () => {
+        console.warn("[RELAY] VPS connection lost");
         this.emit("vps-disconnected");
-      });
-
-      this.vpsConnector.on("error", (error) => {
-        console.error("[RELAY] VPS connection error:", error);
-        console.error("[RELAY] VPS connection error details:", {
-          message: error.message,
-          code: error.code,
-          stack: error.stack,
-        });
+      })
+      .on("error", (error) => {
+        console.error("[RELAY] VPS connection error:", error.message);
         this.emit("vps-error", error);
+      })
+      .on("max-retries", () => {
+        console.error("[RELAY] VPS connection permanently lost");
+        this.emit("vps-connection-lost");
       });
-
-      this.vpsConnector.on("max-retries", () => {
-        console.error("[RELAY] Maximum VPS connection retries reached");
-        this.emit("vps-max-retries");
-      });
-
-      // Set up server
-      this._setupServer();
-
-      console.log(
-        `[RELAY] Relay server initialized and running on port ${this.config.port}`
-      );
-      this.emit("initialized");
-
-      return true;
-    } catch (error) {
-      console.error("[RELAY] Initialization failed:", error);
-      this.emit("error", error);
-      throw error;
-    }
   }
 
-  // Then add this method to the class:
-  // Port validation is now handled by the entry point; this method is not needed
 
-
-  // No longer needed (all updates are handled via unified state-update)
-  _setupDataStreams() {}
-
-  // No longer needed (all updates are handled via unified state-update)
-  _setupThrottling() {}
-
-  /**
-   * Set up the server to handle client connections
-   */
   _setupServer() {
-    // This is now implemented with a WebSocket server in WebSocketServer.js
-
-    // Set up event listeners for VPS messages
     this.vpsConnector.on("message", (message) => {
-      console.log(
-        "[RELAY] Received message from VPS Relay Proxy:",
-        JSON.stringify(message)
-      );
-
-      /**
-       * Full State Sync Relay Handler
-       * ---------------------------------------------
-       * When a client requests the full vessel state via the VPS relay proxy,
-       * the VPS forwards a `{ type: 'get-full-state', boatId }` message to this relay server.
-       *
-       * This handler responds by fetching the current unified state from the StateManager
-       * and sending a `{ type: 'full-state', data, boatId, timestamp }` message back to the VPS relay proxy.
-       *
-       * The VPS relay proxy then relays this message to the original client.
-       *
-       * This enables secure, authenticated, and isolated state sync for each boat/user,
-       * while keeping the VPS stateless and scalable.
-       *
-       * All messages must include the correct `boatId` for proper routing.
-       *
-       * See documentation for full architecture details.
-       */
-      // Handle request-full-state and get-full-state requests from VPS relay proxy
-      if (message && (message.type === 'request-full-state' || message.type === 'get-full-state')) {
-        const fullState = this.stateManager.getState();
-        const response = {
-          type: 'full-state',
-          data: fullState,
-          boatId: boatId,
-          timestamp: Date.now()
-        };
-        this.vpsConnector.send(response);
-        console.log(`[RELAY] Responded to ${message.type} with full state`);
-        return;
-      }
-
-      if (message && message.type) {
-        // Forward the message to clients
-        this.emit("dataToSend", message);
-        console.log(`[RELAY] Forwarding ${message.type} data from VPS to clients`);
-      } else if (message && message.status) {
-        // Handle status/control messages gracefully
-        // console.log("[RELAY] VPS status/control message:", message);
-      } else {
-        // Only warn for truly unexpected messages
-        // console.warn(
-    //   "[RELAY] Received unknown or malformed message from VPS Relay Proxy:",
-    //   message
-    // );
-      }
-    });
-
-    // console.log("[RELAY] Server setup complete");
-  }
-
-    /**
-   * Send unified state-update patch to connected clients and VPS Relay Proxy
-   * @note boatId must be provided in config (e.g., via environment variable BOAT_ID)
-   */
-  _sendToClients(event, data) {
-    // console.log(`[DEBUG][RelayServer] _sendToClients called for event=${event}`);
-    // // console.log(`[RELAY][DEBUG] Sending to clients: event=${event}, data=${JSON.stringify(data)}`);
-    if (event !== "state-update") return;
-    const message = {
-      type: 'state-update',
-      data: data,
-      timestamp: Date.now(),
-      boatId: boatId // Ensure boatId is included in every message
-    };
-
-    // Send to VPS
-    if (this.vpsConnector && this.vpsConnector.connected) {
-      this._vpsOutboundCount = (this._vpsOutboundCount || 0) + 1;
-      this.vpsConnector.send(message);
-      // Optionally, log every 100 messages or every N seconds
-      if (this._vpsOutboundCount % 100 === 0) {
-        console.info(`[VPS-OUTBOUND] Sent ${this._vpsOutboundCount} messages so far at ${new Date().toISOString()}`);
-      }
-    }
-    // Send to all connected WebSocket clients (if managed here)
-    if (this.clients) {
-      this.clients.forEach((client) => {
-        if (client && client.readyState === 1 && client.send) {
-          client.send(JSON.stringify(message));
+      try {
+        if (!message?.type) {
+          console.warn("[RELAY] Received malformed message:", message);
+          return;
         }
-      });
-    }
-    // Emit for any listeners (e.g., WebSocketServer)
-    this.emit("dataToSend", message);
+  
+        console.debug(`[RELAY] Processing VPS message: ${message.type}`);
+  
+        switch (message.type) {
+          case "get-full-state":
+            this._handleFullStateRequest(message);
+            break;
+            
+          case "state:full-update":  // Network message type
+            this.emit("state:full-update", message.data); // Standardized event
+            break;
+            
+          case "state:patch": // Network message type 
+            this.emit("state:patch", message.data); // Already standardized
+            break;
+            
+          default:
+            this.emit("vps-message", message);
+            break;
+        }
+      } catch (error) {
+        console.error("[RELAY] Error processing VPS message:", error);
+        this.emit("vps-error", { 
+          error, 
+          message: "Failed to process VPS message" 
+        });
+      }
+    });
+  }  
+
+  _handleFullStateRequest(request) {
+    const response = {
+      type: "state:full-update",
+      data: this.stateManager.getState(),
+      boatId: this.stateManager.boatId,
+      timestamp: Date.now(),
+      requestId: request.requestId
+    };
+    this.vpsConnector.send(response);
+    console.log(`[RELAY] Responded to state request ${request.requestId}`);
   }
 
-  /**
-   * Add a client connection
-   */
-  addClient(clientId, subscriptions = ["navigation", "vessel", "alerts"]) {
-    this.clients.set(clientId, {
-      id: clientId,
-      subscriptions,
-      connected: Date.now(),
-    });
+  _sendToVPS(message) {
+    if (!this.vpsConnector.connected) {
+      if (this._messageBuffer.length < this._maxBufferSize) {
+        this._messageBuffer.push(message);
+      } else {
+        console.warn("[RELAY] Message buffer full, discarding oldest message");
+        this._messageBuffer.shift();
+        this._messageBuffer.push(message);
+      }
+      return;
+    }
+    
+    try {
+      // Include any buffered messages
+      const messagesToSend = [message, ...this._messageBuffer];
+      this.vpsConnector.send(messagesToSend);
+      this._messageBuffer = [];
+    } catch (error) {
+      console.error("[RELAY] Failed to send to VPS:", error);
+      this._messageBuffer.push(message); // Retry later
+    }
+  }
 
-    console.log(
-      `[RELAY] Client ${clientId} connected with subscriptions: ${subscriptions.join(
-        ", "
-      )}`
-    );
+  _flushMessageBuffer() {
+    if (this._messageBuffer.length > 0 && this.vpsConnector.connected) {
+      console.log(`[RELAY] Flushing ${this._messageBuffer.length} buffered messages`);
+      this.vpsConnector.send([...this._messageBuffer]);
+      this._messageBuffer = [];
+    }
+  }
+
+  _refreshVpsConnection() {
+    console.log("[RELAY] Refreshing VPS connection");
+    this.vpsConnector.disconnect();
+    this.vpsConnector.connect().catch(error => {
+      console.error("[RELAY] VPS reconnection failed:", error);
+    });
+  }
+
+  _monitorBuffer() {
+    if (this._messageBuffer.length > 0) {
+      console.log(`[RELAY] Message buffer size: ${this._messageBuffer.length}`);
+    }
+  }
+
+  // ========== PUBLIC METHODS ========== //
+
+  addClient(clientId, subscriptions = ["navigation", "vessel", "alerts"]) {
+    const client = {
+      id: clientId,
+      subscriptions: new Set(subscriptions),
+      connected: Date.now(),
+      lastActivity: Date.now()
+    };
+    
+    this.clients.set(clientId, client);
+    console.log(`[RELAY] Client ${clientId} connected`);
     return clientId;
   }
 
-  /**
-   * Remove a client connection
-   */
   removeClient(clientId) {
-    if (this.clients.has(clientId)) {
-      this.clients.delete(clientId);
+    if (this.clients.delete(clientId)) {
       console.log(`[RELAY] Client ${clientId} disconnected`);
       return true;
     }
     return false;
   }
 
-  /**
-   * Update client subscriptions
-   */
   updateClientSubscriptions(clientId, subscriptions) {
-    if (this.clients.has(clientId)) {
-      this.clients.get(clientId).subscriptions = subscriptions;
-      console.log(
-        `[RELAY] Updated subscriptions for client ${clientId}: ${subscriptions.join(
-          ", "
-        )}`
-      );
-
-      if (process.env.DEBUG === "true") {
-        console.log(
-          `[RELAY-DEBUG] Client ${clientId} subscriptions updated:`,
-          JSON.stringify(this.clients.get(clientId))
-        );
-        console.log(
-          `[RELAY-DEBUG] Total clients with subscriptions:`,
-          this.clients.size
-        );
-        // Log all clients and their subscriptions
-        this.clients.forEach((c, id) => {
-          console.log(
-            `[RELAY-DEBUG] Client ${id} subscriptions:`,
-            c.subscriptions.join(", ")
-          );
-        });
-      }
-
+    const client = this.clients.get(clientId);
+    if (client) {
+      client.subscriptions = new Set(subscriptions);
+      client.lastActivity = Date.now();
+      console.log(`[RELAY] Updated subscriptions for ${clientId}`);
       return true;
     }
     return false;
   }
 
-  /**
-   * Shutdown the relay server
-   */
+  getClientCount() {
+    return this.clients.size;
+  }
+
   shutdown() {
-    console.log("[RELAY] Shutting down relay server");
+    console.log("[RELAY] Starting shutdown sequence");
 
-    // Clean up connections
+    // Remove StateManager event listeners
+    if (this._stateEventHandler) {
+      this.stateManager.off("state:full-update", this._stateEventHandler);
+      this.stateManager.off("state:patch", this._stateEventHandler);
+    }
+    
+    // Clear intervals
+    clearInterval(this._maintenanceIntervals.tokenRefresh);
+    clearInterval(this._maintenanceIntervals.bufferMonitor);
+    
+    // Disconnect clients
     this.clients.clear();
-
-    // Disconnect from VPS Relay Proxy
-    if (this.vpsConnector && this.vpsConnector.connected) {
-      console.log("[RELAY] Disconnecting from VPS Relay Proxy");
+    
+    // Disconnect VPS
+    if (this.vpsConnector.connected) {
       this.vpsConnector.disconnect();
     }
-
-    console.log("[RELAY] Relay server shut down");
+    
+    // Remove all listeners
+    this.removeAllListeners();
+    
+    console.log("[RELAY] Shutdown complete");
     this.emit("shutdown");
   }
 }
-

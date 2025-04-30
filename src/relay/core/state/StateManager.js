@@ -1,6 +1,12 @@
 import { EventEmitter } from 'events';
 import { AllRules } from './rules.js';
 import { RuleEngine } from './ruleEngine.js';
+import { getOrCreateAppUuid } from "../../../server/uniqueAppId.js";
+import { stateData } from '../../../server/state/StateData.js';
+
+// import { applyPatch } from 'fast-json-patch';
+import pkg from 'fast-json-patch';
+const { applyPatch } = pkg;
 
 class StateManager extends EventEmitter {
   getState() {
@@ -8,13 +14,66 @@ class StateManager extends EventEmitter {
     // console.log('[StateManager] getState called, returning:', state);
     return state;
   }
+
+  /**
+   * Get the boat ID
+   * @returns {string} - The boat ID
+   */
+  get boatId() {
+    return this._boatId;
+  }
+
   constructor(initialState = {}) {
     super();
     this.appState = initialState || {}; // Always ensure appState is an object
     this.ruleEngine = new RuleEngine(AllRules);
     this.currentProfile = this._createDefaultProfile();
+    this._boatId = getOrCreateAppUuid();
   }
 
+  /**
+   * Apply a JSON patch (RFC 6902) to the managed state and emit to clients.
+   * Emits 'state:patch' with the patch array.
+   * Triggers rule evaluation after patch is applied.
+   * @param {Array} patch - JSON patch array
+   */
+  applyPatchAndForward(patch) {
+    if (!Array.isArray(patch) || patch.length === 0) return;
+    try {
+      applyPatch(this.appState, patch, true);
+      this.updateState(this.appState); // Ensure rules are evaluated after patch
+      const payload = {
+        type: 'state:patch',
+        data: patch,
+        boatId: this._boatId,
+        timestamp: Date.now(),
+      };
+      // console.log('[StateManager] Emitting patch:', payload);
+      this.emit('state:patch', payload);
+    } catch (error) {
+      console.error('[StateManager] Failed to apply patch:', error);
+      this.emit('error:patch-error', { error, patch, boatId, timestamp: Date.now() });
+    }
+  }
+
+  /**
+   * Emit the full state to clients.
+   * Emits 'state:full-update' with the full appState object.
+   */
+  emitFullState() {
+    // Emit with boatId and timestamp at the base
+    const payload = {
+      type: 'state:full-update',
+      data: this.appState,
+      boatId: this._boatId,
+      timestamp: Date.now(),
+    };
+    // console.log('[StateManager] Emitting full state:', JSON.stringify(payload));
+    if (!payload.data.anchor) {
+      console.warn('[StateManager] WARNING: anchor is missing from outgoing state!');
+    }
+    this.emit('state:full-update', payload);
+  }
   /**
    * Merge a domain update (e.g., from StateData/SignalK) into the unified appState.
    * Emits 'state-updated' after merging.
@@ -24,9 +83,19 @@ class StateManager extends EventEmitter {
     // console.log('[StateManager] applyDomainUpdate called with:', update);
     // Simple shallow merge; replace with deep merge if needed
     Object.assign(this.appState, update);
-    // console.log('[StateManager] appState after update:', this.appState);
-    // Emit a shallow copy for safety
-    this.emit('state-updated', { ...this.appState });
+    console.log('[StateManager] appState after update:', JSON.stringify(this.appState));
+    if (!this.appState.anchor) {
+      console.warn('[StateManager] WARNING: anchor is missing from appState after update!');
+    } else {
+      console.log('[StateManager] Updated anchor after domain update:', JSON.stringify(this.appState.anchor));
+    }
+    // Emit with boatId and timestamp at the base
+    this.emit('state:full-update', {
+      type: 'state:full-update',
+      data: this.appState,
+      boatId: this._boatId,
+      timestamp: Date.now(),
+    });
   }
 
   updateState(newState, env = {}) {
@@ -43,7 +112,7 @@ class StateManager extends EventEmitter {
       }
     });
 
-    this.emit('profile-updated', this.currentProfile);
+    this.emit('profile-updated', { profile: this.currentProfile, boatId: this._boatId, timestamp: Date.now() });
   }
 
   _applySyncProfile(config) {
@@ -65,4 +134,4 @@ class StateManager extends EventEmitter {
   }
 }
 
-export const stateManager = new StateManager();
+export const stateManager = new StateManager(stateData.state);

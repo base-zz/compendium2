@@ -211,7 +211,7 @@ export class RelayWebSocketServer {
         // Fetch the current state from the relay server's StateManager
         const fullState = this.relayServer.stateManager.getState();
         this._sendToClient(clientId, {
-          type: 'full-state',
+          type: 'state:full-update',
           data: fullState,
           timestamp: Date.now()
         });

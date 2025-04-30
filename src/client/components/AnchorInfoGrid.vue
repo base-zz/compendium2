@@ -85,7 +85,8 @@ function confirmEditRadius() {
 
 
 const stateStore = useStateDataStore();
-const { anchorState } = storeToRefs(stateStore);
+const { state } = storeToRefs(stateStore);
+const anchorState = computed(() => state.value.anchor);
 
 const titleClass = computed(() => {
   if (anchorState.value.dragging) { 

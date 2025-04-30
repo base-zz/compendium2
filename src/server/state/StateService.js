@@ -10,20 +10,24 @@ import WebSocket from "ws";
 import EventEmitter from "events";
 import { stateData } from "./StateData.js";
 import { signalKAdapterRegistry } from "../../relay/server/adapters/SignalKAdapterRegistry.js";
-import fetch from "node-fetch"; // Use node-fetch for HTTP requests
+import fetch from "node-fetch";
 import { extractAISTargetsFromSignalK } from "./extractAISTargets.js";
+import pkg from "fast-json-patch";
+const { compare: jsonPatchCompare } = pkg;
 
 class StateService extends EventEmitter {
   _debug(...args) {
-    // // console.debug('[StateService]', ...args);
+    // console.debug('[StateService]', ...args);
   }
 
   constructor() {
     super();
-    console.log('[StateService] Constructed StateService instance');
+    console.log("[StateService] Constructed StateService instance");
     this.config = null;
     this.signalKAdapter = null;
     this.signalKWsUrl = null;
+    this.selfMmsi = null;
+
     // Connection state
     this.connections = {
       signalK: {
@@ -33,13 +37,14 @@ class StateService extends EventEmitter {
         lastMessage: null,
       },
     };
+
     this.hasLoggedFirstData = false;
-    // Data sources registry
     this.sources = new Map();
-    // Update queue for batching
     this.updateQueue = new Map();
     this.updateTimer = null;
-    // Define events
+    this._aisRefreshTimer = null;
+    this._lastFullEmit = 0;
+
     this.EVENTS = {
       CONNECTED: "connected",
       DISCONNECTED: "disconnected",
@@ -48,49 +53,35 @@ class StateService extends EventEmitter {
       STATE_UPDATED: "state:updated",
       SOURCE_ADDED: "source:added",
       SOURCE_REMOVED: "source:removed",
+      STATE_FULL_UPDATE: "state:full-update",
+      STATE_PATCH: "state:patch",
     };
   }
 
-  /**
-   * Initialize the service: set config, discover server, connect, set up listeners
-   */
   async initialize(config = {}) {
-  console.log('[StateService] Initializing with config:', config);
-    // Helper: detect Node.js environment
+    console.log("[StateService] Initializing with config:", config);
     const isNodeEnv = typeof process !== "undefined" && process.env;
 
-    // Only use process.env in Node; require explicit config in browser
     const signalKBaseUrl =
       config.signalKBaseUrl ||
       (isNodeEnv ? process.env.SIGNALK_URL : undefined);
-    if (!signalKBaseUrl) {
-      throw new Error(
-        "SIGNALK_URL (signalKBaseUrl) must be set in the config or environment."
-      );
-    }
     const reconnectDelay =
       config.reconnectDelay ||
       (isNodeEnv ? process.env.RECONNECT_DELAY : undefined);
-    if (!reconnectDelay) {
-      throw new Error(
-        "RECONNECT_DELAY must be set in the config or environment."
-      );
-    }
     const maxReconnectAttempts =
       config.maxReconnectAttempts ||
       (isNodeEnv ? process.env.MAX_RECONNECT_ATTEMPTS : undefined);
-    if (!maxReconnectAttempts) {
-      throw new Error(
-        "MAX_RECONNECT_ATTEMPTS must be set in the environment or config."
-      );
-    }
     const updateInterval = config.updateInterval || process.env.UPDATE_INTERVAL;
-    if (!updateInterval) {
-      throw new Error(
-        "UPDATE_INTERVAL must be set in the environment or config."
-      );
+
+    if (
+      !signalKBaseUrl ||
+      !reconnectDelay ||
+      !maxReconnectAttempts ||
+      !updateInterval
+    ) {
+      throw new Error("Missing required configuration parameters");
     }
-    // Optional: token, debug
+
     this.config = {
       signalKBaseUrl,
       signalKToken: config.signalKToken || process.env.SIGNALK_TOKEN || null,
@@ -103,49 +94,69 @@ class StateService extends EventEmitter {
           : process.env.DEBUG === "true",
       ...config,
     };
-    // Set up batch processing before attempting SignalK connection
-    this._setupBatchProcessing();
 
-    // Async setup
+    this._setupBatchProcessing();
     await this._discoverSignalKServer();
     await this._connectToSignalK();
-    // Fetch the full SignalK state (vessels) once at startup
+
     try {
-      const vesselsUrl = this.config.signalKBaseUrl.replace(/\/$/, '') + '/v1/api/vessels';
-      console.log('[StateService] Fetching vessels from URL:', vesselsUrl);
-      const headers = this.config.signalKToken ? { Authorization: `Bearer ${this.config.signalKToken}` } : {};
-      const response = await fetch(vesselsUrl, { headers });
-      if (response.ok) {
-        const vesselsData = await response.json();
-        console.log('[StateService] vesselsData keys:', Object.keys(vesselsData));
-        const selfMmsi = stateData.vessel?.info?.mmsi;
-        console.log('[StateService] selfMmsi for AIS extraction:', selfMmsi);
-        const aisTargets = extractAISTargetsFromSignalK(vesselsData, selfMmsi);
-        console.log('[StateService] Output of extractAISTargetsFromSignalK:', JSON.stringify(aisTargets, null, 2));
+      const vesselsUrl = `${this.config.signalKBaseUrl.replace(
+        /\/$/,
+        ""
+      )}/v1/api/vessels`;
+      const selfUrl = `${this.config.signalKBaseUrl.replace(
+        /\/$/,
+        ""
+      )}/v1/api/self`;
+      const headers = this.config.signalKToken
+        ? { Authorization: `Bearer ${this.config.signalKToken}` }
+        : {};
+
+      const [vesselsResponse, selfResponse] = await Promise.all([
+        fetch(vesselsUrl, { headers }),
+        fetch(selfUrl, { headers }),
+      ]);
+
+      if (vesselsResponse.ok && selfResponse.ok) {
+        const [vesselsData, selfData] = await Promise.all([
+          vesselsResponse.json(),
+          selfResponse.json(),
+        ]);
+
+        this.selfMmsi = selfData?.replace("vessels.", "");
+        const aisTargets = extractAISTargetsFromSignalK(
+          vesselsData,
+          this.selfMmsi
+        );
         stateData.anchor.aisTargets = aisTargets;
-        console.log('[StateService] anchor after AIS extraction:', JSON.stringify(stateData.anchor, null, 2));
-      } else {
-        console.warn('[StateService] Could not fetch full /vessels for AIS extraction:', response.status, response.statusText);
+
+        this.startAISPeriodicRefresh(async () => {
+          const url = `${this.config.signalKBaseUrl.replace(
+            /\/$/,
+            ""
+          )}/v1/api/vessels`;
+          const response = await fetch(url, { headers });
+          if (!response.ok)
+            throw new Error(`Failed to fetch /vessels: ${response.status}`);
+          return { vessels: await response.json() };
+        }, 10000);
       }
     } catch (err) {
-      console.warn('[StateService] Error fetching full /vessels for AIS extraction:', err);
+      console.warn("[StateService] Error fetching initial data:", err);
     }
-    // this._setupStateListeners && this._setupStateListeners(); // Removed as method does not exist or is not needed
+
     this._debug("StateService initialized");
     return this;
   }
 
-  /**
-   * Update anchor.aisTargets from the latest SignalK vessels data
-   * @param {Object} fullSignalKData - Full SignalK document (should include .vessels)
-   */
   async updateAISTargetsFromSignalK(fullSignalKData) {
-    const selfMmsi = stateData.vessel?.info?.mmsi;
-    const aisTargets = extractAISTargetsFromSignalK(fullSignalKData.vessels, selfMmsi);
+    const aisTargets = extractAISTargetsFromSignalK(
+      fullSignalKData.vessels,
+      this.selfMmsi
+    );
     stateData.anchor.aisTargets = aisTargets;
   }
 
-  // Optionally, add a periodic refresh (every N seconds)
   startAISPeriodicRefresh(fetchSignalKFullState, intervalMs = 10000) {
     if (this._aisRefreshTimer) clearInterval(this._aisRefreshTimer);
     this._aisRefreshTimer = setInterval(async () => {
@@ -163,69 +174,49 @@ class StateService extends EventEmitter {
     this._aisRefreshTimer = null;
   }
 
-
-  /**
-   * Discover SignalK server info and select adapter
-   */
   async _discoverSignalKServer() {
-    // Fetch server info from SignalK HTTP endpoint
-    // Fetch discovery JSON from the base SignalK URL (do not append /api/v1/server)
-    const infoUrl = this.config.signalKBaseUrl; // should end with /signalk
+    const infoUrl = this.config.signalKBaseUrl;
     const headers = this.config.signalKToken
       ? { Authorization: `Bearer ${this.config.signalKToken}` }
       : {};
-    // // // console.log(`[SignalK] Fetching server info from: ${infoUrl}`);
+
     const response = await fetch(infoUrl, { headers });
     if (!response.ok) {
-      console.error(
-        `[SignalK] Failed to fetch server info: ${response.status} ${response.statusText}`
-      );
       throw new Error(
         `Failed to fetch SignalK server info: ${response.status} ${response.statusText}`
       );
     }
+
     const discoveryJson = await response.json();
-    // console.log('[SignalK] Discovery JSON:', JSON.stringify(discoveryJson, null, 2));
-    // Extract endpoints
     const wsUrl = discoveryJson?.endpoints?.v1?.["signalk-ws"];
+
     if (!wsUrl || typeof wsUrl !== "string" || !wsUrl.startsWith("ws")) {
-      console.error("[SignalK] Invalid or missing signalk-ws endpoint:", wsUrl);
       throw new Error(
         "SignalK WebSocket URL (signalk-ws) not found in discovery JSON."
       );
     }
+
     this.signalKWsUrl = wsUrl;
-    // console.log(`[SignalK] Using WebSocket URL: ${this.signalKWsUrl}`);
-    // Adapter selection (optional, may use discoveryJson as needed)
     this.signalKAdapter = signalKAdapterRegistry.findAdapter
       ? signalKAdapterRegistry.findAdapter(discoveryJson)
       : null;
-    if (!this.signalKAdapter) {
-      console.warn(
-        "[SignalK] No suitable SignalK adapter found for discovery JSON. Using default."
-      );
-    }
   }
 
-  /**
-   * Connect to the SignalK server
-   * @private
-   */
   async _connectToSignalK() {
     return new Promise((resolve, reject) => {
-      // Build connection URL
       let url = this.signalKWsUrl;
       if (this.config.signalKToken) {
         url += `?token=${this.config.signalKToken}`;
       }
-      // Create WebSocket connection
+
       const socket = new WebSocket(url);
       this.connections.signalK.socket = socket;
+
       socket.on("open", () => {
         this._debug("Connected to SignalK");
         this.connections.signalK.connected = true;
         this.connections.signalK.reconnectAttempts = 0;
-        // Subscribe to all updates
+
         socket.send(
           JSON.stringify({
             context: "*",
@@ -237,20 +228,15 @@ class StateService extends EventEmitter {
             ],
           })
         );
+
         this.emit(this.EVENTS.CONNECTED, { source: "signalK" });
         resolve();
       });
+
       socket.on("message", (data) => {
-        let messageStr = data;
-        if (Buffer.isBuffer(data)) {
-          messageStr = data.toString("utf8");
-        }
-        this._debug(
-          "[DEBUG][StateService] Received SignalK WS message (decoded):",
-          messageStr
-        );
         this._handleSignalKMessage(data);
       });
+
       socket.on("error", (error) => {
         this._debug(`SignalK connection error: ${error.message}`);
         this.emit(this.EVENTS.ERROR, {
@@ -259,22 +245,17 @@ class StateService extends EventEmitter {
           message: error.message,
         });
       });
+
       socket.on("close", () => {
         this._debug("Disconnected from SignalK");
         this.connections.signalK.connected = false;
         this.emit(this.EVENTS.DISCONNECTED, { source: "signalK" });
-        // Attempt to reconnect
         this._reconnectToSignalK();
       });
     });
-  } //end _connectToSignalK
+  }
 
-  /**
-   * Attempt to reconnect to SignalK
-   * @private
-   */
   _reconnectToSignalK() {
-    // Check if we've exceeded max reconnect attempts
     if (
       this.connections.signalK.reconnectAttempts >=
       this.config.maxReconnectAttempts
@@ -287,24 +268,16 @@ class StateService extends EventEmitter {
       return;
     }
 
-    // Increment attempt counter
     this.connections.signalK.reconnectAttempts++;
-
-    // Schedule reconnect
     this._debug(
       `Reconnecting to SignalK (attempt ${this.connections.signalK.reconnectAttempts}/${this.config.maxReconnectAttempts})`
     );
-    setTimeout(() => {
-      this._connectToSignalK().catch(() => {
-        // Error handling is done in _connectToSignalK
-      });
-    }, this.config.reconnectDelay);
-  } //end _reconnectToSignalK
 
-  /**
-   * Handle messages from SignalK
-   * @private
-   */
+    setTimeout(() => {
+      this._connectToSignalK().catch(() => {});
+    }, this.config.reconnectDelay);
+  }
+
   async _handleSignalKMessage(data) {
     try {
       const message = JSON.parse(data);
@@ -326,196 +299,313 @@ class StateService extends EventEmitter {
         data,
       });
     }
-  } //end _handleSignalKMessage
+  }
 
-  /**
-   * Process a SignalK delta message
-   * @private
-   */
   async _processSignalKDelta(delta) {
-  // console.log('[StateService] Received delta from SignalK:', JSON.stringify(delta, null, 2));
-    if (!delta.updates || !Array.isArray(delta.updates)) {
-      return;
-    }
+    if (!delta.updates || !Array.isArray(delta.updates)) return;
+
     let processedData = delta;
-    if (
-      this.signalKAdapter &&
-      typeof this.signalKAdapter.processMessage === "function"
-    ) {
+    if (this.signalKAdapter?.processMessage) {
       processedData = this.signalKAdapter.processMessage(delta);
     }
-    if (!processedData.updates || !Array.isArray(processedData.updates)) {
-      console.warn(
-        "[StateService][_processSignalKDelta] No valid updates array after adapter processing:",
-        processedData
-      );
-      return;
-    }
-    let processedCount = 0;
+
+    if (!processedData.updates) return;
+
     for (const update of processedData.updates) {
+      if (!Array.isArray(update.values)) continue;
+
       const source =
         update.$source || (update.source && update.source.label) || "unknown";
-      if (Array.isArray(update.values)) {
-        for (const value of update.values) {
-          if (value.path) {
-            const statePath = this._mapSignalKPathToStatePath(value.path);
-            /*
-            console.log(
-              `[DEBUG][StateService] Mapping SignalK path ${value.path} to state path ${statePath}`
-            );
-            */
-            if (statePath) {
-              /*
-              console.log(
-                `[DEBUG][StateService] Queueing update: statePath=${statePath}, value=${JSON.stringify(
-                  value.value
-                )}, source=${source}`
-              );
-              */
-              if (value.value !== null && value.value !== undefined && !this.hasLoggedFirstData) {
-  console.log(`[StateService] RECEIVED FIRST DATA from SignalK: ${statePath} =`, value.value);
-  this.hasLoggedFirstData = true;
-}
-            this._queueUpdate(statePath, value.value, source);
-            } else {
-              console.warn(
-                "[DEBUG][StateService] No statePath mapping for:",
-                value.path
-              );
-            }
-            processedCount++;
-            if (processedCount % 10 === 0) {
-              await Promise.resolve();
-            }
+
+      for (const value of update.values) {
+        if (!value.path) continue;
+
+        this._processSignalKValue(value.path, value.value, source);
+      }
+    }
+  }
+
+  _processSignalKValue(path, value, source) {
+    // Log all incoming updates
+    // console.log("[DEBUG] Incoming SignalK update:", path, value);
+
+    // First check special transforms
+    if (this._applySpecialTransform(path, value)) {
+      return;
+    }
+
+    // Then check direct mappings
+    const mapping = this._getCanonicalMapping(path);
+    if (mapping) {
+      let transformedValue = mapping.transform
+        ? mapping.transform(value)
+        : value;
+      // console.log(
+      //   "[DEBUG] Mapping found for",
+      //   path,
+      //   "->",
+      //   mapping.path,
+      //   "Transformed value:",
+      //   transformedValue
+      // );
+      this._queueUpdate(mapping.path, transformedValue, source);
+      // console.log(
+      //   "[DEBUG] Queued update:",
+      //   mapping.path,
+      //   transformedValue,
+      //   source
+      // );
+      return;
+    }
+
+    // Fallback to generic mapping
+    const fallbackPath = `external.signalK.${path.replace(/\./g, "_")}`;
+    this._queueUpdate(fallbackPath, value, source);
+    // console.log("[DEBUG] Queued fallback update:", fallbackPath, value, source);
+  }
+
+  _applySpecialTransform(path, value) {
+    const transform = this._getSpecialTransform(path);
+    if (transform) {
+      transform(value, stateData);
+      return true;
+    }
+    return false;
+  }
+
+  _getSpecialTransform(path) {
+    // Special transforms take priority
+    const specialTransforms = {
+      "navigation.headingMagnetic": (value, state) => {
+        state.navigation.course.heading.magnetic.value = value;
+        if (state.navigation.course.variation.value !== null) {
+          state.navigation.course.heading.true.value =
+            value + state.navigation.course.variation.value;
+        }
+      },
+      "environment.wind.angleApparent": (value, state) => {
+        state.navigation.wind.apparent.angle.value = value;
+        if (state.navigation.course.heading.true.value !== null) {
+          state.navigation.wind.apparent.direction.value =
+            state.navigation.course.heading.true.value + value;
+        }
+      },
+      // "navigation.position": (value, state) => {
+      //   // Just update position - clean and simple
+      //   state.navigation.position.latitude.value = value.latitude;
+      //   state.navigation.position.longitude.value = value.longitude;
+      //   state.navigation.position.timestamp = new Date().toISOString();
+      // },
+    };
+
+    return specialTransforms[path];
+  }
+
+  _getCanonicalMapping(path) {
+    const signalKToCanonicalMappings = {
+      // Position Data
+      // "navigation.position": {
+      //   path: "navigation.position",
+      //   transform: (skObj) => {
+      //     console.log("[DEBUG] navigation.position input:", skObj);
+      //     const result = {
+      //       latitude: { value: skObj.latitude ?? null, units: "deg" },
+      //       longitude: { value: skObj.longitude ?? null, units: "deg" },
+      //     };
+      //     console.log("[DEBUG] navigation.position output:", result);
+      //     return result;
+      //   },
+      // },
+      "navigation.position": {
+        path: "navigation.position",
+        transform: (skObj) => ({
+          latitude: { value: skObj.latitude ?? null, units: "deg" },
+          longitude: { value: skObj.longitude ?? null, units: "deg" },
+          timestamp: new Date().toISOString(),
+        }),
+      },
+      "navigation.gnss.antennaAltitude": {
+        path: "navigation.position.altitude.value",
+      },
+      "navigation.gnss.satellites": {
+        path: "navigation.position.gnss.satellites.value",
+      },
+      "navigation.gnss.horizontalDilution": {
+        path: "navigation.position.gnss.hdop.value",
+      },
+      "navigation.gnss.positionDilution": {
+        path: "navigation.position.gnss.pdop.value",
+      },
+
+      // Course Data
+      "navigation.courseOverGroundTrue": {
+        path: "navigation.course.cog.value",
+      },
+      "navigation.headingMagnetic": {
+        path: "navigation.course.heading.magnetic.value",
+      },
+      "navigation.magneticVariation": {
+        path: "navigation.course.variation.value",
+      },
+      "navigation.rateOfTurn": { path: "navigation.course.rateOfTurn.value" },
+
+      // Speed Data
+      "navigation.speedOverGround": { path: "navigation.speed.sog.value" },
+      "navigation.speedThroughWater": { path: "navigation.speed.stw.value" },
+
+      // Trip Data
+      "navigation.trip.log": { path: "navigation.trip.log.value" },
+
+      // Depth Data
+      "environment.depth.belowTransducer": {
+        path: "navigation.depth.belowTransducer.value",
+      },
+
+      // Wind Data
+      "environment.wind.speedApparent": {
+        path: "navigation.wind.apparent.speed.value",
+      },
+      "environment.wind.angleApparent": {
+        path: "navigation.wind.apparent.angle.value",
+      },
+      "environment.wind.directionApparent": {
+        path: "navigation.wind.apparent.direction.value",
+      },
+
+      // Environment Data
+      "environment.outside.pressure": {
+        path: "environment.weather.pressure.value",
+      },
+      "environment.outside.temperature": {
+        path: "environment.weather.temperature.air.value",
+      },
+      "environment.water.temperature": {
+        path: "environment.weather.temperature.water.value",
+      },
+      "environment.outside.humidity": {
+        path: "environment.weather.humidity.value",
+      },
+
+      // Vessel Info
+      mmsi: { path: "vessel.info.mmsi" },
+      "vessel.name": { path: "vessel.info.name" },
+      "vessel.callsignVhf": { path: "vessel.info.callsign" },
+      "vessel.design.type": { path: "vessel.info.type" },
+      "vessel.design.length": { path: "vessel.info.dimensions.length.value" },
+      "vessel.design.beam": { path: "vessel.info.dimensions.beam.value" },
+      "vessel.design.draft": { path: "vessel.info.dimensions.draft.value" },
+
+      // Electrical Systems
+      "electrical.batteries.voltage": {
+        path: "vessel.systems.electrical.batteries.voltage.value",
+      },
+      "electrical.batteries.current": {
+        path: "vessel.systems.electrical.batteries.current.value",
+      },
+
+      // Propulsion (with wildcard support)
+      propulsion: {
+        path: "vessel.systems.propulsion.engines",
+        transform: (value, path) => {
+          // Handle wildcard paths like propulsion.0.revolutions
+          const parts = path.split(".");
+          if (parts.length > 1 && !isNaN(parts[1])) {
+            const index = parseInt(parts[1]);
+            return { [index]: { [parts[2]]: value } };
           }
+          return value;
+        },
+      },
+      "tanks.fuel.currentLevel": {
+        path: "vessel.systems.propulsion.fuel.level.value",
+      },
+      "tanks.fuel.rate": { path: "vessel.systems.propulsion.fuel.rate.value" },
+
+      // Tanks
+      "tanks.freshWater.currentLevel": {
+        path: "vessel.systems.tanks.freshWater.value",
+      },
+      "tanks.wasteWater.currentLevel": {
+        path: "vessel.systems.tanks.wasteWater.value",
+      },
+      "tanks.blackWater.currentLevel": {
+        path: "vessel.systems.tanks.blackWater.value",
+      },
+
+      // Anchor Data
+      "navigation.anchor.position": {
+        path: "anchor.anchorLocation.position",
+        transform: (value) => ({
+          latitude: { value: value.latitude, units: "deg" },
+          longitude: { value: value.longitude, units: "deg" },
+        }),
+      },
+      "navigation.anchor.maxRadius": {
+        path: "anchor.watchCircle.radius.value",
+      },
+    };
+
+    // Check for exact match first
+    if (signalKToCanonicalMappings[path]) {
+      return signalKToCanonicalMappings[path];
+    }
+
+    // Check for wildcard matches (like propulsion.0.revolutions)
+    for (const [skPath, mapping] of Object.entries(
+      signalKToCanonicalMappings
+    )) {
+      if (skPath.includes("*")) {
+        const regex = new RegExp(
+          "^" + skPath.replace(".", "\\.").replace("*", "\\d+") + "$"
+        );
+        if (regex.test(path)) {
+          return {
+            ...mapping,
+            transform: (value) =>
+              mapping.transform ? mapping.transform(value, path) : value,
+          };
         }
       }
     }
+
+    return null;
   }
 
-  /**
-   * Map SignalK path to StateData path
-   * @private
-   */
-  _mapSignalKPathToStatePath(signalKPath) {
-    // This mapping defines how SignalK paths translate to our state structure
-    const mappings = {
-      // Navigation domain
-      "navigation.position": "navigation.position",
-      "navigation.courseOverGroundTrue": "navigation.course.cog",
-      "navigation.headingMagnetic": "navigation.course.heading",
-      "navigation.magneticVariation": "navigation.course.variation",
-      "navigation.speedOverGround": "navigation.speed.sog",
-      "navigation.speedThroughWater": "navigation.speed.stw",
-      "navigation.trip.log": "navigation.trip.log",
-      "navigation.trip.lastReset": "navigation.trip.lastReset",
+  _calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // meters
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-      // Depth
-      "environment.depth.belowTransducer": "navigation.depth.belowTransducer",
-      "environment.depth.belowKeel": "navigation.depth.belowKeel",
-      "environment.depth.belowSurface": "navigation.depth.belowSurface",
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-      // Wind
-      "environment.wind.speedApparent": "navigation.wind.speed",
-      "environment.wind.angleApparent": "navigation.wind.angle",
-      "environment.wind.directionTrue": "navigation.wind.direction",
-
-      // Environment
-      "environment.outside.temperature": "environment.weather.temperature.air",
-      "environment.water.temperature": "environment.weather.temperature.water",
-      "environment.outside.pressure": "environment.weather.pressure.value",
-      "environment.outside.humidity": "environment.weather.humidity",
-
-      // Vessel info
-      "vessel.name": "vessel.info.name",
-      "vessel.mmsi": "vessel.info.mmsi",
-      "vessel.callsignVhf": "vessel.info.callsign",
-      "vessel.design.type": "vessel.info.type",
-      "vessel.design.length": "vessel.info.length",
-      "vessel.design.beam": "vessel.info.beam",
-      "vessel.design.draft": "vessel.info.draft",
-
-      // Electrical
-      "electrical.batteries": "vessel.systems.electrical.batteries",
-      "electrical.sources": "vessel.systems.electrical.sources",
-
-      // Propulsion
-      propulsion: "vessel.systems.propulsion.engines",
-      "tanks.fuel": "vessel.systems.propulsion.fuel",
-
-      // Other tanks
-      "tanks.freshWater": "vessel.systems.tanks.freshWater",
-      "tanks.wasteWater": "vessel.systems.tanks.wasteWater",
-      "tanks.blackWater": "vessel.systems.tanks.blackWater",
-
-      // Special handling for position
-    };
-
-    // Check for direct mapping
-    if (mappings[signalKPath]) {
-      return mappings[signalKPath];
-    }
-
-    // Recursively check parent paths for mapping (leaf path support)
-    const parts = signalKPath.split(".");
-    for (let i = parts.length - 1; i > 0; i--) {
-      const parentPath = parts.slice(0, i).join(".");
-      const suffix = parts.slice(i).join(".");
-      if (mappings[parentPath]) {
-        return mappings[parentPath] + "." + suffix;
-      }
-    }
-
-    // Handle nested paths (legacy fallback)
-    for (const [skPath, statePath] of Object.entries(mappings)) {
-      if (signalKPath.startsWith(skPath + ".")) {
-        const suffix = signalKPath.substring(skPath.length);
-        return statePath + suffix;
-      }
-    }
-
-    // Handle special cases
-    if (signalKPath.startsWith("navigation.anchor")) {
-      // Map anchor paths
-      const anchorPath = signalKPath.replace("navigation.anchor.", "anchor.");
-      return anchorPath;
-    }
-
-    // For paths we don't explicitly map, place in external.signalK domain
-    return `external.signalK.${signalKPath.replace(/\./g, "_")}`;
+    return R * c;
   }
 
-  /**
-   * Queue an update to be processed in batch
-   * @private
-   */
   _queueUpdate(path, value, source) {
     this.updateQueue.set(path, { value, source });
-    // console.log(`[DEBUG][StateService] Queued update for path=${path}`);
+    if (value !== null && value !== undefined && !this.hasLoggedFirstData) {
+      console.log(
+        `[StateService] RECEIVED FIRST DATA from SignalK: ${path} =`,
+        value
+      );
+      this.hasLoggedFirstData = true;
+    }
   }
 
-  /**
-   * Set up batch processing of updates
-   * @private
-   */
   _setupBatchProcessing() {
     if (this.updateTimer) clearInterval(this.updateTimer);
     this.updateTimer = setInterval(() => {
       this._processBatchUpdates();
     }, this.config.updateInterval);
-    console.log(
-      `[DEBUG][StateService] Batch processing setup with interval ${this.config.updateInterval}ms`
-    );
   }
 
-  /**
-   * Process all queued updates in a batch
-   * @private
-   */
   _processBatchUpdates() {
-    if (this.updateQueue.size === 0) {
-      return;
-    }
+    if (this.updateQueue.size === 0) return;
 
     const updates = {};
     const sources = {};
@@ -525,66 +615,64 @@ class StateService extends EventEmitter {
       sources[path] = data.source;
     });
 
-    // Special handling for lat/lon if both are present
+    // Handle position updates
     if (
       updates["navigation.position.latitude"] !== undefined &&
-      updates["navigation.position.longitude"] !== undefined &&
-      updates["navigation.position.latitude"] !== null &&
-      updates["navigation.position.longitude"] !== null
+      updates["navigation.position.longitude"] !== undefined
     ) {
       updates["navigation.position"] = {
         latitude: updates["navigation.position.latitude"],
         longitude: updates["navigation.position.longitude"],
       };
+      delete updates["navigation.position.latitude"];
+      delete updates["navigation.position.longitude"];
     }
 
-    // Anchor domain: sanitize anchorDropLocation assignment
-    if (updates["anchor.anchorDropLocation"]) {
-      const value = updates["anchor.anchorDropLocation"];
-      updates["anchor.anchorDropLocation"] = {
-        latitude: value.latitude ?? null,
-        longitude: value.longitude ?? null,
-        time: value.time ?? null,
-        distanceFromCurrentLocation: value.distanceFromCurrentLocation ?? 0,
-        distanceFromDropLocation: value.distanceFromDropLocation ?? 0,
-        originalBearing: value.originalBearing ?? 0,
-      };
-    }
-
-    // Batch update if there are any updates
+    // Process batch update
     if (Object.keys(updates).length > 0) {
-      console.info(`[StateService] Batch processing: ${Object.keys(updates).length} updates at ${Date.now()}`);
-      stateData.batchUpdate(updates, "signalK");
+      const prevState = stateData.state
+        ? JSON.parse(JSON.stringify(stateData.state))
+        : {};
+      const updateResult = stateData.batchUpdate(updates, "signalK");
+
+      if (updateResult) {
+        const newState = stateData.state;
+        const patches = jsonPatchCompare(prevState, newState);
+
+        if (patches.length > 0) {
+          // Only run conversions if something actually changed
+          stateData.convert.updateAllDerivedValues();
+
+          this.emit(this.EVENTS.STATE_PATCH, {
+            type: "state:patch",
+            data: patches,
+            source: "signalK",
+            timestamp: Date.now(),
+          });
+
+          if (!this._lastFullEmit || Date.now() - this._lastFullEmit > 30000) {
+            this.emit(this.EVENTS.STATE_FULL_UPDATE, {
+              type: "state:full-update",
+              data: newState,
+              source: "signalK",
+              timestamp: Date.now(),
+            });
+            this._lastFullEmit = Date.now();
+          }
+        }
+      }
+
       this.updateQueue.clear();
-      this.emit(this.EVENTS.STATE_UPDATED, {
-        timestamp: Date.now(),
-        updatedPaths: Object.keys(updates),
-      });
     }
   }
 
-  /**
-   * Register an external data source
-   * @param {string} sourceId - Unique identifier for the source
-   * @param {Object} initialData - Initial data for this source
-   * @param {Function} updateHandler - Function to call when updates are needed
-   * @returns {boolean} Success status
-   */
   registerExternalSource(sourceId, initialData = {}, updateHandler = null) {
     try {
-      // Register the source in state data
       const success = stateData.addExternalSource(sourceId, initialData);
-
       if (success && updateHandler) {
-        // Store the update handler
         this.sources.set(sourceId, { updateHandler });
       }
-
-      this.emit(this.EVENTS.SOURCE_ADDED, {
-        sourceId,
-        timestamp: Date.now(),
-      });
-
+      this.emit(this.EVENTS.SOURCE_ADDED, { sourceId, timestamp: Date.now() });
       return success;
     } catch (error) {
       this._debug(`Failed to register external source: ${error.message}`);
@@ -593,53 +681,28 @@ class StateService extends EventEmitter {
         error,
         message: `Failed to register external source: ${sourceId}`,
       });
-      return false;
     }
   }
 
-  /**
-   * Update data from an external source
-   * @param {string} sourceId - Source identifier
-   * @param {Object} updates - Object with paths as keys and values as values
-   * @returns {boolean} Success status
-   */
-  updateFromExternalSource(sourceId, updates) {
-    try {
-      // Convert flat updates to full paths
-      const fullUpdates = {};
-
-      Object.entries(updates).forEach(([path, value]) => {
-        const fullPath = path
-          ? `external.${sourceId}.${path}`
-          : `external.${sourceId}`;
-        fullUpdates[fullPath] = value;
-      });
-
-      // Apply the updates
-      return stateData.batchUpdate(fullUpdates, sourceId);
-    } catch (error) {
-      this._debug(`Failed to update from external source: ${error.message}`);
-      this.emit(this.EVENTS.ERROR, {
-        source: "stateService",
-        error,
-        message: `Failed to update from external source: ${sourceId}`,
-      });
-      return false;
+  shutdown() {
+    if (this.updateTimer) {
+      clearInterval(this.updateTimer);
+      this.updateTimer = null;
     }
+    if (this._aisRefreshTimer) {
+      clearInterval(this._aisRefreshTimer);
+      this._aisRefreshTimer = null;
+    }
+    if (this.connections.signalK.socket) {
+      this.connections.signalK.socket.close();
+    }
+    return true;
   }
 
-  /**
-   * Remove an external data source
-   * @param {string} sourceId - Source identifier to remove
-   * @returns {boolean} Success status
-   */
   removeExternalSource(sourceId) {
     try {
-      // Remove from state data
       const success = stateData.removeExternalSource(sourceId);
-
       if (success) {
-        // Remove from sources map
         this.sources.delete(sourceId);
         this.emit(this.EVENTS.SOURCE_REMOVED, {
           sourceId,
@@ -657,44 +720,21 @@ class StateService extends EventEmitter {
       return false;
     }
   }
-
-  /**
-   * Shutdown the service
-   */
-  shutdown() {
-    // Clear batch processing timer
-    if (this.updateTimer) {
-      clearInterval(this.updateTimer);
-      this.updateTimer = null;
-    }
-    // Close SignalK connection
-    if (this.connections.signalK.socket) {
-      this.connections.signalK.socket.close();
-      this.connections.signalK.socket = null;
-    }
-    this._debug("StateService shutdown");
-  }
-} // <--- Only one closing brace for the class
+}
 
 // Create singleton instance
 const stateService = new StateService();
 
-// Utility: fetch the full SignalK state (including vessels)
-// Example implementation, adapt as needed for your SignalK server
+// Utility function for fetching full SignalK state
 async function fetchSignalKFullState(signalKBaseUrl, signalKToken) {
   const url = `${signalKBaseUrl}/vessels`;
-  const headers = signalKToken ? { Authorization: `Bearer ${signalKToken}` } : {};
+  const headers = signalKToken
+    ? { Authorization: `Bearer ${signalKToken}` }
+    : {};
   const response = await fetch(url, { headers });
-  if (!response.ok) throw new Error(`Failed to fetch /vessels: ${response.status}`);
+  if (!response.ok)
+    throw new Error(`Failed to fetch /vessels: ${response.status}`);
   return { vessels: await response.json() };
 }
 
 export { stateService, StateService, fetchSignalKFullState };
-// Print a summary of stateData every 10 seconds for debugging
-setInterval(() => {
-  if (stateData && stateData.state) {
-    // console.dir(stateData.state, { depth: null, colors: true });
-  } else {
-    // console.info("[StateService] stateData not available");
-  }
-}, 10000);

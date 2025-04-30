@@ -13,10 +13,8 @@ let currentMode = null;
 let intervalId = null;
 
 function showConnectionStatus(mode) {
-  // Simple feedback: update a global toast or status div if you want more
   const msg = `[SmartConn] Switched to ${mode.toUpperCase()} connection`;
   console.log(msg);
-  // Optionally, update a DOM element for user feedback
   let el = document.getElementById('connection-status-indicator');
   if (!el) {
     el = document.createElement('div');
@@ -33,6 +31,12 @@ function showConnectionStatus(mode) {
     document.body.appendChild(el);
   }
   el.textContent = msg;
+  // Remove the element after 15 seconds
+  setTimeout(() => {
+    if (el.parentNode) {
+      el.parentNode.removeChild(el);
+    }
+  }, 15000);
 }
 
 async function tryDirectConnection() {

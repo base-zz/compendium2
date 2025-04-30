@@ -220,35 +220,40 @@ export class VPSConnector extends EventEmitter {
    */
   send(data) {
     if (!this.connection || this.connection.readyState !== WebSocket.OPEN) {
-      console.warn(
-        "[VPS-CONNECTOR] Cannot send data, not connected to VPS Relay Proxy"
-      );
+      console.warn("[VPS-CONNECTOR] Cannot send data - not connected");
       return false;
     }
   
     try {
-      let payload = data;
-  
-      // If data is a string, try to parse it to object for augmentation
-      if (typeof data === "string") {
-        try {
-          payload = JSON.parse(data);
-        } catch {
-          // Not JSON, leave as string
+      // Handle array case (send sequentially)
+      if (Array.isArray(data)) {
+        if (data.length === 0) return true;
+        
+        let allSuccess = true;
+        for (const item of data) {
+          if (!this._sendSingle(item)) {
+            allSuccess = false;
+          }
         }
+        return allSuccess;
       }
+      
+      // Single message case
+      return this._sendSingle(data);
+    } catch (error) {
+      console.error("[VPS-CONNECTOR] Send failed:", error);
+      return false;
+    }
+  }
   
-      // Optionally inject boatId or other metadata here if needed
-      // if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-      //   payload.boatId = this.boatId; // or whatever is appropriate
-      // }
-  
-      // Always send as string!
-      const messageToSend = typeof payload === "string" ? payload : JSON.stringify(payload);
-      this.connection.send(messageToSend);
+  // Private method for single message sending
+  _sendSingle(data) {
+    try {
+      const payload = typeof data === "string" ? data : JSON.stringify(data);
+      this.connection.send(payload);
       return true;
-    } catch (e) {
-      console.error("[VPS-CONNECTOR] Error sending data:", e);
+    } catch (error) {
+      console.error("[VPS-CONNECTOR] Single message send failed:", error);
       return false;
     }
   }

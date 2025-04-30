@@ -30,6 +30,13 @@ class RelayConnectionAdapter extends EventEmitter {
     relayConnectionBridge.on('nav-position', (data) => {
       this.emit('nav-position', data);
     });
+
+    // --- Harmonized state/patch update handling ---
+    relayConnectionBridge.on('state-update', ({ type, data, boatId, timestamp }) => {
+      if (type === 'state:full-update' || type === 'state:patch') {
+        this.emit('state-update', { type, data, boatId, timestamp });
+      }
+    });
     
     relayConnectionBridge.on('nav-instruments', (data) => {
       this.emit('nav-instruments', data);
@@ -133,10 +140,7 @@ class RelayConnectionAdapter extends EventEmitter {
       this.emit('environment', data);
     });
 
-    // Handle full-state snapshot from relay
-    relayConnectionBridge.on('full-state', (data) => {
-      this.emit('full-state', data);
-    });
+    // No longer handle 'full-state' events from relay. Only handle 'state:full-update' and 'state:patch'.
     
     relayConnectionBridge.on('connection-status', (status) => {
       console.log('[RELAY-ADAPTER] ======= VPS CONNECTION STATUS CHANGED =======');

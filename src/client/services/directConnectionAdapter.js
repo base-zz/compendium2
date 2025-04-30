@@ -41,21 +41,31 @@ class DirectConnectionAdapter extends EventEmitter {
       this.ws = new WebSocket(LOCAL_SERVER_WS_URL);
       console.log("[DIRECT-ADAPTER] Attaching WebSocket event handlers");
       this.ws.onopen = (event) => {
-        // console.log("[DIRECT-ADAPTER] WebSocket onopen event:", event);
+        console.log("[DIRECT-ADAPTER] WebSocket onopen event:", event);
         this.connectionState.status = "connected";
         this._reconnectAttempts = 0;
         this.emit("connected");
         resolve();
       };
       this.ws.onmessage = (event) => {
-        // console.log("[DIRECT-ADAPTER] WebSocket onmessage event:", event.data);
         try {
-          const msg = JSON.parse(event.data);
-          // console.log("[DIRECT-ADAPTER] Parsed message:", msg);
-          this._handleMessage(msg);
+          let msg = event.data;
+          if (typeof msg === 'string') {
+            msg = JSON.parse(msg);
+            // If after parsing, msg is still a string, parse again (handles double-encoded JSON)
+            if (typeof msg === 'string') {
+              msg = JSON.parse(msg);
+            }
+          }
+          if (msg.type === 'state:full-update') {
+            this.emit('state:full-update', msg);
+          } else if (msg.type === 'state:patch') {
+            this.emit('state:patch', msg);
+          } else {
+            this._handleMessage(msg);
+          }
         } catch (e) {
-          console.warn("[DIRECT-ADAPTER] Invalid JSON:", event.data);
-          return;
+          console.warn('[DIRECT-ADAPTER] Invalid JSON:', event.data, 'Error:', e);
         }
       };
       this.ws.onerror = (err) => {
@@ -117,7 +127,7 @@ class DirectConnectionAdapter extends EventEmitter {
 
   _handleMessage(msg) {
     try {
-      // console.log("[DIRECT-ADAPTER] __handleMessage ENTRY", msg);
+      console.error("[DIRECT-ADAPTER] __handleMessage ENTRY", msg);
       if (!msg || !msg.type) {
         console.warn(
           "[DIRECT-ADAPTER] _handleMessage: Missing or invalid msg/type",
@@ -127,7 +137,6 @@ class DirectConnectionAdapter extends EventEmitter {
       }
       // Always emit the raw type for compatibility
       if (msg.type === "full-state") {
-        // console.log("[DIRECT-ADAPTER] Emitting raw type: full-state", msg.state);
         this.emit("full-state", msg.state);
         // console.log(`[DIRECT-ADAPTER] Emitted 'full-state'`, msg.state);
       } else {
@@ -258,11 +267,7 @@ class DirectConnectionAdapter extends EventEmitter {
           }
           break;
         case "full-state":
-          //console.log("[DIRECT-ADAPTER] switch: full-state", msg.data);
-          if (msg.data) {
-            this.emit("full-state", msg.data);
-            //console.log(`[DIRECT-ADAPTER] Emitted 'full-state'`, msg.data);
-          }
+          console.warn('[DIRECT-ADAPTER] Unexpected legacy "full-state" message received:', msg);
           break;
         case "connection-status":
           //console.log("[DIRECT-ADAPTER] switch: connection-status", msg.data);
@@ -285,7 +290,7 @@ class DirectConnectionAdapter extends EventEmitter {
       }
       // console.log("[DIRECTs-ADAPTER] _handleMessage EXIT", msg);
     } catch (err) {
-      console.error("[DIRECT-ADAPTER] Exception in __handleMessage:", err, msg);
+      console.error("[DIRECT-ADAPTER] Exception in __handleMessage:", err, msg.type, msg);
     }
   }
 }

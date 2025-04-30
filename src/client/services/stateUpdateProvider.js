@@ -81,15 +81,20 @@ class StateUpdateProvider {
     this.currentAdapter.on('env-temperature', envTempListener);
     this._listenerRefs.push({ event: 'env-temperature', fn: envTempListener });
 
-    // Listen for state-update events (full-state or patch)
-    const stateUpdateListener = (data) => this._notify({ type: 'state-update', data });
-    this.currentAdapter.on('state-update', stateUpdateListener);
-    this._listenerRefs.push({ event: 'state-update', fn: stateUpdateListener });
+    // Listen for patch-update events (incremental patches)
+    const patchUpdateListener = (data) => this._notify({ type: 'patch-update', data });
+    this.currentAdapter.on('patch-update', patchUpdateListener);
+    this._listenerRefs.push({ event: 'patch-update', fn: patchUpdateListener });
 
-    // Listen for full-state events
-    const fullStateListener = (data) => this._notify({ type: 'full-state', data });
-    this.currentAdapter.on('full-state', fullStateListener);
-    this._listenerRefs.push({ event: 'full-state', fn: fullStateListener });
+    // Listen for native state events
+    const fullUpdateListener = (msg) => this._notify(msg);
+    this.currentAdapter.on('state:full-update', fullUpdateListener);
+    this._listenerRefs.push({ event: 'state:full-update', fn: fullUpdateListener });
+
+    const patchListener = (msg) => this._notify(msg);
+    this.currentAdapter.on('state:patch', patchListener);
+    this._listenerRefs.push({ event: 'state:patch', fn: patchListener });
+
     // Add more as needed for other domains
   }
 

@@ -10,11 +10,11 @@ export function useRelayPiniaSync() {
   subscribed = true
 
   const store = useStateDataStore()
-  relayConnectionBridge.on('state-update', ({ type, state, patch, data }) => {
-    if (type === 'full-state') {
-      store.replaceState(data || state);
-    } else if (type === 'state-update' && (patch || data)) {
-      store.applyStatePatch(patch || data);
+  relayConnectionBridge.on('state-update', ({ type, data }) => {
+    if (type === 'state:full-update') {
+      store.replaceState(data);
+    } else if (type === 'state:patch') {
+      store.applyStatePatch(data);
     }
   });
 }

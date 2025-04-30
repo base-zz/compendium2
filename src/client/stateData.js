@@ -7,43 +7,153 @@ class StateData extends EventEmitter {
   constructor() {
     super();
     this.state = {
-      // Navigation domain
       navigation: {
-        position: { latitude: null, longitude: null, altitude: null, timestamp: null, source: null },
-        course: { heading: null, cog: null, variation: null, timestamp: null, source: null },
-        speed: { sog: null, stw: null, timestamp: null, source: null },
-        depth: { belowTransducer: null, belowKeel: null, belowSurface: null, timestamp: null, source: null },
-        wind: { speed: null, angle: null, direction: null, timestamp: null, source: null },
-        trip: { log: null, lastReset: null, timestamp: null, source: null }
+        position: {
+          latitude: { value: null, units: "deg" },
+          longitude: { value: null, units: "deg" },
+          altitude: { value: null, units: "m", feet: null },
+          timestamp: null,
+          source: null,
+          gnss: {
+            satellites: { value: null, units: "count" },
+            hdop: { value: null, units: "ratio" },
+            pdop: { value: null, units: "ratio" },
+          },
+        },
+        course: {
+          cog: { value: null, units: "rad", degrees: null },
+          heading: {
+            magnetic: { value: null, units: "rad", degrees: null },
+            true: { value: null, units: "rad", degrees: null },
+          },
+          variation: { value: null, units: "rad", degrees: null },
+          rateOfTurn: { value: null, units: "rad/s", degPerMin: null },
+        },
+        speed: {
+          sog: { value: null, units: "m/s", knots: null },
+          stw: { value: null, units: "m/s", knots: null },
+        },
+        trip: {
+          log: { value: null, units: "m", nauticalMiles: null },
+          lastReset: null,
+        },
+        depth: {
+          belowTransducer: { value: null, units: "m", feet: null },
+          belowKeel: { value: null, units: "m", feet: null },
+          belowSurface: { value: null, units: "m", feet: null },
+        },
+        wind: {
+          apparent: {
+            speed: { value: null, units: "m/s", knots: null },
+            angle: { value: null, units: "rad", degrees: null, side: null },
+            direction: {
+              value: null,
+              units: "rad",
+              degrees: null,
+              reference: "true",
+            },
+          },
+          true: {
+            speed: { value: null, units: "m/s", knots: null },
+            direction: {
+              value: null,
+              units: "rad",
+              degrees: null,
+              reference: "true",
+            },
+          },
+        },
       },
-      // Anchor domain
+      environment: {
+        weather: {
+          temperature: {
+            air: { value: null, units: "°C", fahrenheit: null },
+            water: { value: null, units: "°C", fahrenheit: null },
+          },
+          pressure: {
+            value: null,
+            units: "Pa",
+            hPa: null,
+            inHg: null,
+          },
+          humidity: { value: null, units: "%" },
+        },
+      },
+      vessel: {
+        info: {
+          name: null,
+          mmsi: null,
+          callsign: null,
+          type: null,
+          dimensions: {
+            length: { value: null, units: "m", feet: null },
+            beam: { value: null, units: "m", feet: null },
+            draft: { value: null, units: "m", feet: null },
+          },
+        },
+        systems: {
+          electrical: {
+            batteries: {
+              voltage: { value: null, units: "V" },
+              current: { value: null, units: "A" },
+            },
+            sources: null,
+          },
+          propulsion: {
+            engines: {
+              rpm: { value: null, units: "rpm" },
+              hours: { value: null, units: "hours" },
+            },
+            fuel: {
+              level: { value: null, units: "L", gallons: null },
+              rate: { value: null, units: "L/h", gph: null },
+            },
+          },
+          tanks: {
+            freshWater: { value: null, units: "L", gallons: null },
+            wasteWater: { value: null, units: "L", gallons: null },
+            blackWater: { value: null, units: "L", gallons: null },
+          },
+        },
+      },
       anchor: {
         anchorDropLocation: {
-          latitude: null,
-          longitude: null,
+          position: {
+            latitude: { value: null, units: "deg" },
+            longitude: { value: null, units: "deg" },
+          },
           time: null,
-          depth: null,
-          distanceFromCurrentLocation: 0,
-          distanceFromDropLocation: 0,
-          originalBearing: 0,
+          depth: { value: null, units: "m", feet: null },
+          distancesFromCurrent: {
+            value: 0,
+            units: "m",
+            nauticalMiles: null,
+          },
+          distancesFromDrop: {
+            value: 0,
+            units: "m",
+            nauticalMiles: null,
+          },
+          originalBearing: { value: 0, units: "rad", degrees: null },
+          bearing: { value: 0, units: "rad", degrees: null },
         },
         anchorLocation: {
-          latitude: null,
-          longitude: null,
+          position: {
+            latitude: { value: null, units: "deg" },
+            longitude: { value: null, units: "deg" },
+          },
           time: null,
-          depth: null,
-          distanceFromCurrentLocation: 0,
-          distanceFromDropLocation: 0,
-          originalBearing: 0,
-          bearing: 0,
+          depth: { value: null, units: "m", feet: null },
+          distancesFromCurrent: { value: 0, units: "m", nauticalMiles: null },
+          distancesFromDrop: { value: 0, units: "m", nauticalMiles: null },
+          originalBearing: { value: 0, units: "rad", degrees: null },
+          bearing: { value: 0, units: "rad", degrees: null },
         },
         aisTargets: [],
         rode: {
           amount: 0,
           units: "m",
         },
-        dragging: false,
-        anchorDeployed: false,
         criticalRange: {
           r: 0,
           units: "m",
@@ -52,52 +162,15 @@ class StateData extends EventEmitter {
           r: 0,
           units: "m",
         },
+        defaultScope: {
+          value: 5,
+          units: "ratio",
+        },
+        dragging: false,
+        anchorDeployed: false,
         history: [],
         useDeviceGPS: true,
-      },
-      // Alerts domain
-      alerts: {
-        active: [],
-        history: [],
-        settings: {
-          anchor: { enabled: true, radius: 50 },
-          depth: { enabled: true, minimum: 2.0 }
-        },
-        timestamp: null,
-        source: null
-      },
-      // Environment domain
-      environment: {
-        weather: {
-          temperature: { air: null, water: null, timestamp: null, source: null },
-          wind: { speed: null, angle: null, direction: null, speedApparent: null, angleApparent: null, reference: null, timestamp: null, source: null },
-          pressure: { value: null, trend: null, timestamp: null, source: null },
-          humidity: null,
-          timestamp: null,
-          source: null
-        },
-        tide: { height: null, timestamp: null, source: null }
-      },
-      // Vessel domain
-      vessel: {
-        info: { name: null, mmsi: null, callsign: null, type: null, length: null, beam: null, draft: null },
-        systems: {
-          electrical: { batteries: {}, sources: {}, loads: {}, timestamp: null, source: null },
-          propulsion: { engines: {}, fuel: {}, timestamp: null, source: null },
-          tanks: {},
-          timestamp: null,
-          source: null
-        }
-      },
-      // External domain
-      external: {
-        // Placeholder for external data sources
-      },
-      // Meta domain
-      meta: {
-        lastUpdated: Date.now(),
-        version: '1.0.0'
-      }
+      },      
     };
 
   }

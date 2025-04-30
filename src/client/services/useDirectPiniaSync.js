@@ -10,12 +10,12 @@ export function useDirectPiniaSync() {
   subscribed = true
 
   const store = useStateDataStore()
-  directConnectionAdapter.on('state-update', ({ full, state, patch, data, type }) => {
-    console.log('[PINIA-SYNC] state-update event received', { full, state, patch, data, type });
-    if (full || type === 'full-state') {
-      store.replaceState(data || state)
-    } else if ((patch || data) && (type === 'state-update' || !type)) {
-      store.applyStatePatch(patch || data)
+  directConnectionAdapter.on('state-update', ({ type, data }) => {
+    console.log('[PINIA-SYNC] state-update event received', { type, data });
+    if (type === 'state:full-update') {
+      store.replaceState(data);
+    } else if (type === 'state:patch') {
+      store.applyStatePatch(data);
     }
-  })
+  });
 }
