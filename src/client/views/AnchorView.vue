@@ -256,8 +256,9 @@ const { state, breadcrumbs } = storeToRefs(stateStore);
 const navigationState = computed(() => state.value.navigation);
 const anchorState = computed(() => state.value.anchor);
 const aisTargets = computed(() => {
-  const targets = state.value.anchor?.aisTargets || [];
-  return targets;
+  const targetsObj = state.value.anchor?.aisTargets || {};
+  // Convert object to array for component compatibility
+  return Object.values(targetsObj);
 });
 
 

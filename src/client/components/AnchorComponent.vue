@@ -147,8 +147,8 @@
             <g id="anchor-graph">
               <g class="ais-targets">
                 <circle
-                  v-for="(t, index) in store.anchorData.aisTargets"
-                  :key="t.id"
+                  v-for="(t, index) in Object.values(store.anchorData.aisTargets || {})"
+                  :key="t.mmsi"
                   :cx="t.x"
                   :cy="t.y"
                   r="4"
@@ -271,8 +271,8 @@
                 </text>
                 <g class="ais-targets" id="ais-targets">
                   <circle
-                    v-for="(t, index) in store.anchorData.aisTargets"
-                    :key="t.id"
+                    v-for="(t, index) in Object.values(store.anchorData.aisTargets || {})"
+                    :key="t.mmsi"
                     :cx="t.x"
                     :cy="t.y"
                     r="4"

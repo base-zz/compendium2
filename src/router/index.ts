@@ -3,13 +3,13 @@ import { createRouter, createWebHistory } from "@ionic/vue-router";
 
 // Commented out imports that are causing TypeScript declaration file errors
 import AnchorView from "@client/views/AnchorView.vue";
-// import Settings from "@client/views/SettingsView.vue";
+import Settings from "@client/views/SettingsView.vue";
 import RegisterAccount from "@client/views/RegisterAccountView.vue";
-// import InstrumentView from "@client/components/InstrumentComponent.vue";
-// import StateManagementView from "@client/views/StateManagementView.vue";
-// import MappingManager from "@client/views/MappingManager.vue";
-// import SailView from "@client/views/SailView.vue";
-// import ConnectionStatusExample from "@client/examples/ConnectionStatusExample.vue";
+import InstrumentView from "@client/components/InstrumentComponent.vue";
+import StateManagementView from "@client/views/StateManagementView.vue";
+import MappingManager from "@client/views/MappingManager.vue";
+import SailView from "@client/views/SailView.vue";
+import ConnectionStatusExample from "@client/examples/ConnectionStatusExample.vue";
 
 const routes = [
   {
@@ -52,23 +52,22 @@ const routes = [
   //   meta: { title: "Sail" },
   // },
 
-
   // Settings route commented out due to import issues
-  // {
-  //   path: "/settings",
-  //   name: "Settings",
-  //   props: false,
-  //   component: Settings,
-  //   meta: { title: "Settings" },
-  // },
+  {
+    path: "/settings",
+    name: "Settings",
+    props: false,
+    component: Settings,
+    meta: { title: "Settings" },
+  },
   // Instrument route commented out due to import issues
-  // {
-  //   path: "/instrument",
-  //   name: "Instrument",
-  //   props: false,
-  //   component: InstrumentView,
-  //   meta: { title: "Sail360" },
-  // },
+  {
+    path: "/instrument",
+    name: "Instrument",
+    props: false,
+    component: InstrumentView,
+    meta: { title: "Sail360" },
+  },
   {
     path: "/login",
     name: "Login",
@@ -104,26 +103,26 @@ const routes = [
   //   meta: { title: "SignalK Data Viewer" },
   // },
   // Pages route commented out due to import issues
-  // {
-  //   path: "/pages",
-  //   name: "Pages",
-  //   component: () => import("@client/views/PagesView.vue"),
-  //   meta: { title: "Pages" },
-  // },
+  {
+    path: "/pages",
+    name: "Pages",
+    component: () => import("@client/views/PagesView.vue"),
+    meta: { title: "Pages" },
+  },
   // Alerts route commented out due to import issues
-  // {
-  //   path: "/alerts",
-  //   name: "Alerts",
-  //   component: () => import("@client/views/AlertView.vue"),
-  //   meta: { title: "Alerts" },
-  // },
-  // {
-  //   path: "/alertdetails/:id",
-  //   name: "AlertDetails",
-  //   props: true,
-  //   component: () => import("@client/views/AlertDetailView.vue"),
-  //   meta: { title: "Alert Details" },
-  // },
+  {
+    path: "/alerts",
+    name: "Alerts",
+    component: () => import("@client/views/AlertView.vue"),
+    meta: { title: "Alerts" },
+  },
+  {
+    path: "/alertdetails/:id",
+    name: "AlertDetails",
+    props: true,
+    component: () => import("@client/views/AlertDetailView.vue"),
+    meta: { title: "Alert Details" },
+  },
   // UserInfo route commented out due to import issues
   {
     path: '/userinfo',

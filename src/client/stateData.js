@@ -149,7 +149,7 @@ class StateData extends EventEmitter {
           originalBearing: { value: 0, units: "rad", degrees: null },
           bearing: { value: 0, units: "rad", degrees: null },
         },
-        aisTargets: [],
+        aisTargets: {},
         rode: {
           amount: 0,
           units: "m",

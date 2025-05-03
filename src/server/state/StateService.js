@@ -151,24 +151,287 @@ class StateService extends EventEmitter {
     return this;
   }
 
+  /**
+   * Update AIS targets from SignalK data and emit a full update
+   * @param {Object} fullSignalKData - Complete SignalK data including vessels
+   * @returns {Promise<void>}
+   */
   async updateAISTargetsFromSignalK(fullSignalKData) {
-    const aisTargets = extractAISTargetsFromSignalK(
-      fullSignalKData.vessels,
-      this.selfMmsi
-    );
-    stateData.anchor.aisTargets = aisTargets;
+    try {
+      console.log("[StateService] Starting AIS targets update...");
+      const startTime = Date.now();
+      
+      // Ensure we have valid data to work with
+      if (!fullSignalKData?.vessels) {
+        console.warn("[StateService] Invalid SignalK data received for AIS update");
+        return;
+      }
+
+      // Extract AIS targets from SignalK data
+      const extractStartTime = Date.now();
+      const newAisTargetsArray = extractAISTargetsFromSignalK(
+        fullSignalKData.vessels,
+        this.selfMmsi
+      );
+      console.log(`[StateService] Extracted ${newAisTargetsArray.length} AIS targets in ${Date.now() - extractStartTime}ms`);
+      
+      // Convert array to object with MMSI keys
+      const newAisTargets = {};
+      newAisTargetsArray.forEach(target => {
+        if (target && target.mmsi) {
+          newAisTargets[target.mmsi] = target;
+        }
+      });
+      
+      // Ensure anchor state exists
+      if (!stateData.anchor) {
+        console.warn("[StateService] Anchor state not initialized, cannot update AIS targets");
+        return;
+      }
+      
+      // Get current targets for comparison
+      const oldAisTargets = stateData.anchor.aisTargets || {};
+      
+      // Analyze the current and new targets directly using object keys
+      const oldMmsiSet = new Set(Object.keys(oldAisTargets));
+      const newMmsiSet = new Set(Object.keys(newAisTargets));
+      
+      // Analyze changes
+      const addedTargets = [];
+      const removedTargets = [];
+      const updatedTargets = [];
+      const unchangedTargets = [];
+      
+      // Find added targets (in new but not in old)
+      for (const mmsi of newMmsiSet) {
+        if (!oldMmsiSet.has(mmsi)) {
+          addedTargets.push(newAisTargets[mmsi]);
+        }
+      }
+      
+      // Find removed targets (in old but not in new)
+      for (const mmsi of oldMmsiSet) {
+        if (!newMmsiSet.has(mmsi)) {
+          removedTargets.push(oldAisTargets[mmsi]);
+        }
+      }
+      
+      // Find updated and unchanged targets (in both old and new)
+      for (const mmsi of newMmsiSet) {
+        if (oldMmsiSet.has(mmsi)) {
+          const oldTarget = oldAisTargets[mmsi];
+          const newTarget = newAisTargets[mmsi];
+          
+          if (this._hasTargetChanged(oldTarget, newTarget)) {
+            updatedTargets.push(newTarget);
+          } else {
+            unchangedTargets.push(newTarget);
+          }
+        }
+      }
+      
+      const totalChanges = addedTargets.length + removedTargets.length + updatedTargets.length;
+      const totalTargets = Object.keys(newAisTargets).length;
+      
+      console.log(`[StateService] AIS changes: ${addedTargets.length} added, ${removedTargets.length} removed, ${updatedTargets.length} updated, ${unchangedTargets.length} unchanged (${totalChanges} total changes out of ${totalTargets} targets)`);
+      
+      // Only proceed if there are actual changes
+      if (totalChanges > 0) {
+        // Update the state with the new targets
+        stateData.anchor.aisTargets = newAisTargets;
+        
+        // Log sample changes
+        if (addedTargets.length > 0) {
+          const sample = addedTargets.slice(0, Math.min(2, addedTargets.length));
+          console.log(`[StateService] Sample ADDED targets:\n${JSON.stringify(sample, null, 2)}`);
+        }
+        
+        if (updatedTargets.length > 0) {
+          const sample = updatedTargets.slice(0, Math.min(2, updatedTargets.length));
+          console.log(`[StateService] Sample UPDATED targets:\n${JSON.stringify(sample, null, 2)}`);
+          
+          // Analyze what properties are changing most frequently
+          const propertyChanges = this._analyzeTargetChanges(oldAisTargets, updatedTargets);
+          console.log(`[StateService] Property change frequency: ${JSON.stringify(propertyChanges)}`);
+        }
+        
+        // Determine update strategy based on change volume
+        // If changes exceed 30% of total targets or there are more than 20 changes, send full update
+        // Otherwise, send individual patches
+        const changeRatio = totalTargets > 0 ? totalChanges / totalTargets : 1;
+        const useFullUpdate = changeRatio > 0.3 || totalChanges > 20;
+        
+        if (useFullUpdate) {
+          // Emit a full update event for AIS targets
+          console.log(`[StateService] Emitting full AIS targets update (change ratio: ${(changeRatio * 100).toFixed(1)}%)`);
+          this.emit(this.EVENTS.STATE_UPDATED, {
+            type: 'state:updated',
+            path: 'anchor.aisTargets',
+            value: newAisTargets,
+            source: 'signalK',
+            timestamp: Date.now(),
+            changes: {
+              added: addedTargets.length,
+              removed: removedTargets.length,
+              updated: updatedTargets.length,
+              unchanged: unchangedTargets.length
+            }
+          });
+        } else {
+          // Emit individual patches for each change
+          console.log(`[StateService] Emitting individual AIS target patches (change ratio: ${(changeRatio * 100).toFixed(1)}%)`);
+          
+          // Create patches for each type of change
+          const patches = [];
+          
+          // Added targets
+          addedTargets.forEach(target => {
+            patches.push({
+              op: 'add',
+              path: `/anchor/aisTargets/${target.mmsi}`,
+              value: target
+            });
+          });
+          
+          // Removed targets
+          removedTargets.forEach(target => {
+            patches.push({
+              op: 'remove',
+              path: `/anchor/aisTargets/${target.mmsi}`
+            });
+          });
+          
+          // Updated targets
+          updatedTargets.forEach(target => {
+            patches.push({
+              op: 'replace',
+              path: `/anchor/aisTargets/${target.mmsi}`,
+              value: target
+            });
+          });
+          
+          // Emit the patches
+          this.emit(this.EVENTS.STATE_PATCH, {
+            type: 'state:patch',
+            path: 'anchor.aisTargets',
+            patches: patches,
+            source: 'signalK',
+            timestamp: Date.now(),
+            changes: {
+              added: addedTargets.length,
+              removed: removedTargets.length,
+              updated: updatedTargets.length,
+              unchanged: unchangedTargets.length
+            }
+          });
+        }
+      } else {
+        console.log('[StateService] No significant changes detected in AIS targets');
+      }
+      
+      console.log(`[StateService] AIS update process completed in ${Date.now() - startTime}ms`);
+    } catch (error) {
+      console.error('[StateService] Error in AIS target update process:', error);
+    }
+  }
+  
+  /**
+   * Check if a specific AIS target has changed in important ways
+   * @param {Object} oldTarget - The previous state of the target
+   * @param {Object} newTarget - The current state of the target
+   * @returns {boolean} True if the target has meaningful changes
+   */
+  _hasTargetChanged(oldTarget, newTarget) {
+    // Check position changes
+    if (oldTarget.position?.latitude !== newTarget.position?.latitude ||
+        oldTarget.position?.longitude !== newTarget.position?.longitude) {
+      return true;
+    }
+    
+    // Check other important properties
+    if (oldTarget.sog !== newTarget.sog ||
+        oldTarget.cog !== newTarget.cog ||
+        oldTarget.heading !== newTarget.heading) {
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Analyze what properties are changing in updated targets
+   * @param {Object} oldTargets - Object of old targets with MMSI keys
+   * @param {Array} updatedTargets - Array of targets that have been updated
+   * @returns {Object} Count of changes by property
+   */
+  _analyzeTargetChanges(oldTargets, updatedTargets) {
+    const changes = {};
+    
+    updatedTargets.forEach(newTarget => {
+      const mmsi = newTarget.mmsi;
+      const oldTarget = oldTargets[mmsi];
+      if (!oldTarget) return;
+      
+      // Check position
+      if (oldTarget.position?.latitude !== newTarget.position?.latitude) {
+        changes.latitude = (changes.latitude || 0) + 1;
+      }
+      if (oldTarget.position?.longitude !== newTarget.position?.longitude) {
+        changes.longitude = (changes.longitude || 0) + 1;
+      }
+      
+      // Check other properties
+      if (oldTarget.sog !== newTarget.sog) {
+        changes.sog = (changes.sog || 0) + 1;
+      }
+      if (oldTarget.cog !== newTarget.cog) {
+        changes.cog = (changes.cog || 0) + 1;
+      }
+      if (oldTarget.heading !== newTarget.heading) {
+        changes.heading = (changes.heading || 0) + 1;
+      }
+    });
+    
+    return changes;
+  }
+  
+  // Method to emit the full state to all clients
+  _emitFullState() {
+    this._debug("Emitting full state update");
+    this.emit(this.EVENTS.STATE_FULL_UPDATE, {
+      type: "state:full-update",
+      data: stateData,
+      source: "signalK",
+      timestamp: Date.now(),
+    });
+    this._lastFullEmit = Date.now();
   }
 
   startAISPeriodicRefresh(fetchSignalKFullState, intervalMs = 10000) {
-    if (this._aisRefreshTimer) clearInterval(this._aisRefreshTimer);
+    if (this._aisRefreshTimer) {
+      console.log("[StateService] Stopping existing AIS refresh timer");
+      clearInterval(this._aisRefreshTimer);
+    }
+    
+    console.log(`[StateService] Starting AIS periodic refresh every ${intervalMs}ms`);
+    
     this._aisRefreshTimer = setInterval(async () => {
       try {
+        console.log("[StateService] Fetching SignalK data for AIS refresh...");
+        const startTime = Date.now();
+        
         const fullSignalKData = await fetchSignalKFullState();
+        const vesselCount = Object.keys(fullSignalKData?.vessels || {}).length;
+        
+        console.log(`[StateService] Received SignalK data with ${vesselCount} vessels in ${Date.now() - startTime}ms`);
+        
         await this.updateAISTargetsFromSignalK(fullSignalKData);
       } catch (err) {
-        this._debug("AIS periodic refresh error:", err);
+        console.error("[StateService] AIS periodic refresh error:", err);
       }
     }, intervalMs);
+    
+    console.log("[StateService] AIS refresh timer started");
   }
 
   stopAISPeriodicRefresh() {

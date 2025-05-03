@@ -1,6 +1,5 @@
 <script setup>
 import { ref, onMounted, computed } from "vue";
-import { useAlertStore } from "../stores/alerts";
 import {
   IonPage,
   IonContent,
@@ -14,17 +13,23 @@ import {
   modalController,
 } from "@ionic/vue";
 import { addOutline } from "ionicons/icons";
-import AddWidgetAlert from "../components/AddWidgetAlert.vue";
-// import EditAlertSelector from "../components/EditAlertSelector.vue";
-import GenericHeader from "../components/GenericHeader.vue";
-import AlertItem from "../components/AlertItem.vue";
-import SignalKAlertInfo from "../components/SignalKAlertInfo.vue";
+import AddWidgetAlert from "@components/AddWidgetAlert.vue";
+// import EditAlertSelector from "@components/EditAlertSelector.vue";
+import GenericHeader from "@components/GenericHeader.vue";
+import AlertItem from "@components/AlertItem.vue";
+import SignalKAlertInfo from "@components/SignalKAlertInfo.vue";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime"; // import plugin
 dayjs.extend(relativeTime);
 
-const alertStore = useAlertStore();
+import { useStateDataStore  } from "@/client/stores/stateDataStore";
+
+const stateStore = useStateDataStore();
+const { state } = storeToRefs(stateStore);
+const alertStore = computed(() => state.value.alerts);
 const isLoading = ref(true);
+
+// alerts: { active: [], processingQueue: [] },
 
 // Sort alerts by timestamp
 const sortedAlerts = computed(() => {

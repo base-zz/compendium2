@@ -4,7 +4,9 @@
     "paths": {
       "@client/*": ["src/client/*"],
       "@relay/*": ["src/relay/*"],
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@components/*": ["src/client/components/*"],
+      "@views/*": ["src/client/views/*"]
     },
     "target": "ESNext",
     "useDefineForClassFields": true,

@@ -81,10 +81,11 @@ const target = computed(() => {
     return null;
   }
   
-  console.log("Available AIS targets:", state.value.anchor.aisTargets.length);
+  // With the new object-based structure, we can directly access by MMSI
+  const mmsiStr = String(mmsi);
+  const found = state.value.anchor.aisTargets[mmsiStr];
   
-  // Convert MMSI to number for comparison since it might be stored as string
-  const found = state.value.anchor.aisTargets.find(t => Number(t.mmsi) === mmsi);
+  console.log("Available AIS targets:", Object.keys(state.value.anchor.aisTargets).length);
   console.log("AIS TARGET found:", found);
   return found;
 });
