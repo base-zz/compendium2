@@ -8,7 +8,7 @@ import { stateData } from "../../../server/state/StateData.js";
 import pkg from "fast-json-patch";
 const { applyPatch } = pkg;
 
-class StateManager extends EventEmitter {
+export class StateManager extends EventEmitter {
   getState() {
     const state = { ...(this.appState || {}) };
     // console.log('[StateManager] getState called, returning:', state);
@@ -31,14 +31,17 @@ class StateManager extends EventEmitter {
     return this._clientCount;
   }
 
+
   constructor(initialState = {}) {
     super();
-    this.appState = initialState || {}; // Always ensure appState is an object
+    // Initialize with stateData's state which already has all structures
+    this.appState = structuredClone(stateData.state); 
     this.ruleEngine = new RuleEngine(AllRules);
     this.currentProfile = this._createDefaultProfile();
     this._boatId = getOrCreateAppUuid();
-    this._clientCount = 0; // Track connected clients
+    this._clientCount = 0;
   }
+
 
   /**
    * Apply a JSON patch (RFC 6902) to the managed state and emit to clients.
@@ -50,35 +53,69 @@ class StateManager extends EventEmitter {
     if (!Array.isArray(patch) || patch.length === 0) return;
     
     try {
-      // Apply the patch locally
-      applyPatch(this.appState, patch, true);
-      this.updateState(this.appState); // Ensure rules are evaluated after patch
+      // Get fresh state with all structures
+      const currentState = stateData.state;
       
-      const payload = {
-        type: "state:patch",
-        data: patch,
-        boatId: this._boatId,
-        role: "boat-server",
-        timestamp: Date.now(),
-      };
-      // console.log('[StateManager] Emitting patch:', payload);
-      this.emit("state:patch", payload);
-    } catch (error) {
-      console.error("[StateManager] Failed to apply patch:", error);
-      this.emit("error:patch-error", {
-        error,
-        patch,
-        boatId: this._boatId,
-        timestamp: Date.now(),
+      // Filter out any altitude-related operations first
+      const filteredPatch = patch.filter(operation => {
+        return !operation.path.includes('altitude');
       });
+
+      // Validate remove operations against the canonical state
+      const validPatch = filteredPatch.filter(operation => {
+        if (operation.op === 'remove') {
+          return this._pathExists(currentState, operation.path);
+        }
+        return true;
+      });
+  
+      if (validPatch.length === 0) return;
+  
+      // Apply to both our local state and the canonical state
+      applyPatch(this.appState, validPatch, true, false);
+      applyPatch(currentState, validPatch, true, false);
+      
+      this.updateState(this.appState);
+      
+      if (this._clientCount > 0) {
+        this.emit("state:patch", {
+          type: "state:patch",
+          data: validPatch,
+          boatId: this._boatId,
+          timestamp: Date.now(),
+        });
+      }
+    } catch (error) {
+      console.error("[StateManager] Patch error:", error);
+      this.emit("error:patch-error", { error, patch });
     }
   }
+  
+  // Helper remains the same
+  _pathExists(obj, path) {
+    const parts = path.split('/').filter(p => p);
+    let current = obj;
+    for (const part of parts) {
+      if (!current || typeof current !== 'object' || !(part in current)) {
+        return false;
+      }
+      current = current[part];
+    }
+    return true;
+  }
+  
 
   /**
    * Emit the full state to clients.
    * Emits 'state:full-update' with the full appState object.
    */
   emitFullState() {
+    // Only emit if clients are connected, unless explicitly forced
+    if (this._clientCount <= 0) {
+      console.log('[StateManager] Suppressing full state emission - no clients connected');
+      return;
+    }
+    
     // Emit with boatId and timestamp at the base
     const payload = {
       type: "state:full-update",
@@ -101,37 +138,53 @@ class StateManager extends EventEmitter {
    * Emits 'state-updated' after merging.
    * @param {Object} update - Partial state update (e.g., { signalK: ... })
    */
+
   applyDomainUpdate(update) {
-    // console.log('[StateManager] applyDomainUpdate called with:', update);
-    // Simple shallow merge; replace with deep merge if needed
-    Object.assign(this.appState, update);
-    console.log(
-      "[StateManager] appState after update:",
-      JSON.stringify(this.appState)
-    );
-    if (!this.appState.anchor) {
-      console.warn(
-        "[StateManager] WARNING: anchor is missing from appState after update!"
-      );
-    } else {
-      console.log(
-        "[StateManager] Updated anchor after domain update:",
-        JSON.stringify(this.appState.anchor)
-      );
+    if (!update || typeof update !== 'object') {
+      console.warn('[StateManager] Invalid update received:', update);
+      return;
     }
-    
-    // Always emit updates regardless of client count
-    // The VPSConnector will decide whether to actually send the message
-    
-    // Emit with boatId and timestamp at the base
-    this.emit("state:full-update", {
-      type: "state:full-update",
-      data: this.appState,
-      boatId: this._boatId,
-      role: "boat-server",
-      timestamp: Date.now(),
-    });
-  }
+  
+    // Debug logging
+    console.log('[StateManager] Applying domain update:', JSON.stringify(update));
+  
+    // Use stateData's batchUpdate to ensure proper structure handling
+    const success = stateData.batchUpdate(update);
+    if (!success) {
+      console.error('[StateManager] Failed to apply batch update');
+      return;
+    }
+  
+    // Refresh our local state with proper structure
+    this.appState = structuredClone(stateData.state);
+  
+    // Debug logging
+    console.log('[StateManager] State after update:', 
+      JSON.stringify({
+        anchor: this.appState.anchor, // Just log anchor instead of full state
+        updateSize: Object.keys(update).length
+      })
+    );
+  
+    if (!this.appState.anchor) {
+      console.warn('[StateManager] Anchor missing after update!');
+    }
+  
+    // Only emit if clients are connected
+    if (this._clientCount > 0) {
+      this.emit("state:full-update", {
+        type: "state:full-update",
+        data: this.appState,
+        boatId: this._boatId,
+        role: "boat-server",
+        timestamp: Date.now(),
+      });
+    } else {
+      console.debug('[StateManager] Suppressing emission - no clients connected');
+    }
+  } 
+
+
 
   updateState(newState, env = {}) {
     const actions = this.ruleEngine.evaluate(newState, env);

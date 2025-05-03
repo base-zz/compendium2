@@ -13,6 +13,8 @@ import { signalKAdapterRegistry } from "../../relay/server/adapters/SignalKAdapt
 import fetch from "node-fetch";
 import { extractAISTargetsFromSignalK } from "./extractAISTargets.js";
 import pkg from "fast-json-patch";
+import { stateManager } from "../../relay/core/state/StateManager.js";
+
 const { compare: jsonPatchCompare } = pkg;
 
 class StateService extends EventEmitter {
@@ -337,9 +339,9 @@ class StateService extends EventEmitter {
     // Then check direct mappings
     const mapping = this._getCanonicalMapping(path);
     if (mapping) {
-      let transformedValue = mapping.transform
-        ? mapping.transform(value)
-        : value;
+      const transformedValue = mapping.transform ? mapping.transform(value) : value;
+      this._queueUpdate(mapping.path, transformedValue, source);
+
       // console.log(
       //   "[DEBUG] Mapping found for",
       //   path,
@@ -348,19 +350,13 @@ class StateService extends EventEmitter {
       //   "Transformed value:",
       //   transformedValue
       // );
-      this._queueUpdate(mapping.path, transformedValue, source);
-      // console.log(
-      //   "[DEBUG] Queued update:",
-      //   mapping.path,
-      //   transformedValue,
-      //   source
-      // );
+
       return;
     }
 
     // Fallback to generic mapping
-    const fallbackPath = `external.signalK.${path.replace(/\./g, "_")}`;
-    this._queueUpdate(fallbackPath, value, source);
+    // const fallbackPath = `external.signalK.${path.replace(/\./g, "_")}`;
+    // this._queueUpdate(fallbackPath, value, source);
     // console.log("[DEBUG] Queued fallback update:", fallbackPath, value, source);
   }
 
@@ -390,12 +386,6 @@ class StateService extends EventEmitter {
             state.navigation.course.heading.true.value + value;
         }
       },
-      // "navigation.position": (value, state) => {
-      //   // Just update position - clean and simple
-      //   state.navigation.position.latitude.value = value.latitude;
-      //   state.navigation.position.longitude.value = value.longitude;
-      //   state.navigation.position.timestamp = new Date().toISOString();
-      // },
     };
 
     return specialTransforms[path];
@@ -403,19 +393,6 @@ class StateService extends EventEmitter {
 
   _getCanonicalMapping(path) {
     const signalKToCanonicalMappings = {
-      // Position Data
-      // "navigation.position": {
-      //   path: "navigation.position",
-      //   transform: (skObj) => {
-      //     console.log("[DEBUG] navigation.position input:", skObj);
-      //     const result = {
-      //       latitude: { value: skObj.latitude ?? null, units: "deg" },
-      //       longitude: { value: skObj.longitude ?? null, units: "deg" },
-      //     };
-      //     console.log("[DEBUG] navigation.position output:", result);
-      //     return result;
-      //   },
-      // },
       "navigation.position": {
         path: "navigation.position",
         transform: (skObj) => ({
@@ -424,19 +401,6 @@ class StateService extends EventEmitter {
           timestamp: new Date().toISOString(),
         }),
       },
-      "navigation.gnss.antennaAltitude": {
-        path: "navigation.position.altitude.value",
-      },
-      "navigation.gnss.satellites": {
-        path: "navigation.position.gnss.satellites.value",
-      },
-      "navigation.gnss.horizontalDilution": {
-        path: "navigation.position.gnss.hdop.value",
-      },
-      "navigation.gnss.positionDilution": {
-        path: "navigation.position.gnss.pdop.value",
-      },
-
       // Course Data
       "navigation.courseOverGroundTrue": {
         path: "navigation.course.cog.value",
@@ -448,6 +412,9 @@ class StateService extends EventEmitter {
         path: "navigation.course.variation.value",
       },
       "navigation.rateOfTurn": { path: "navigation.course.rateOfTurn.value" },
+      "navigation.courseRhumbline.bearingTrackTrue": {
+        path: "navigation.course.cog.value"
+      },  
 
       // Speed Data
       "navigation.speedOverGround": { path: "navigation.speed.sog.value" },
@@ -604,67 +571,96 @@ class StateService extends EventEmitter {
     }, this.config.updateInterval);
   }
 
+  
   _processBatchUpdates() {
     if (this.updateQueue.size === 0) return;
+  
+    // console.log('[StateService] Processing batch updates'); // DEBUG
 
-    const updates = {};
-    const sources = {};
-
-    this.updateQueue.forEach((data, path) => {
-      updates[path] = data.value;
-      sources[path] = data.source;
+    const updates = [];
+    const patches = [];
+    const currentState = stateData.state;
+  
+    this.updateQueue.forEach(({value, source}, path) => {
+      // Skip external paths that aren't mapped to our canonical state
+      if (path.startsWith('external.')) {
+        console.debug(`[StateService] Skipping unmapped external path: ${path}`);
+        return;
+      }
+  
+      try {
+        updates.push({ path, value });
+        
+        const currentValue = this._getValueByPath(currentState, path);
+        if (!this._deepEqual(currentValue, value)) {
+          patches.push({
+            op: 'replace',
+            path: `/${path.replace(/\./g, '/')}`,
+            value: value
+          });
+        }
+      } catch (error) {
+        console.warn(`[StateService] Failed to process update for ${path}:`, error);
+      }
     });
+  
+    this.updateQueue.clear();
+    // console.log('[StateService] After updateQueue clear'); // DEBUG
 
-    // Handle position updates
-    if (
-      updates["navigation.position.latitude"] !== undefined &&
-      updates["navigation.position.longitude"] !== undefined
-    ) {
-      updates["navigation.position"] = {
-        latitude: updates["navigation.position.latitude"],
-        longitude: updates["navigation.position.longitude"],
-      };
-      delete updates["navigation.position.latitude"];
-      delete updates["navigation.position.longitude"];
-    }
-
-    // Process batch update
-    if (Object.keys(updates).length > 0) {
-      const prevState = stateData.state
-        ? JSON.parse(JSON.stringify(stateData.state))
-        : {};
-      const updateResult = stateData.batchUpdate(updates, "signalK");
-
-      if (updateResult) {
-        const newState = stateData.state;
-        const patches = jsonPatchCompare(prevState, newState);
-
+    if (updates.length > 0) {
+      try {
+        // Apply updates to stateData
+        stateData.batchUpdate(updates);
+        
+        // Apply patches to stateManager
         if (patches.length > 0) {
-          // Only run conversions if something actually changed
-          stateData.convert.updateAllDerivedValues();
+          stateManager.applyPatchAndForward(patches);
+        }
+        
+        // Update derived values
+        stateData.convert.updateAllDerivedValues();
+  
+        // console.log("[StateService] After stateData.convert.updateAllDefivedValues", JSON.stringify(stateData, null, 2));
+      
+        // const payload = {
+        //   updates,
+        //   patches,
+        //   timestamp: Date.now()
+        // };
+        // console.log("[StateService] Emitting STATE_UPDATED event: ", payload);
 
-          this.emit(this.EVENTS.STATE_PATCH, {
-            type: "state:patch",
-            data: patches,
+        this.emit(this.EVENTS.STATE_PATCH, {
+          type: "state:patch",
+          data: patches,
+          source: "signalK",
+          timestamp: Date.now(),
+        });
+
+        if (!this._lastFullEmit || Date.now() - this._lastFullEmit > 30000) {
+          this.emit(this.EVENTS.STATE_FULL_UPDATE, {
+            type: "state:full-update",
+            data: stateData.state,
             source: "signalK",
             timestamp: Date.now(),
           });
-
-          if (!this._lastFullEmit || Date.now() - this._lastFullEmit > 30000) {
-            this.emit(this.EVENTS.STATE_FULL_UPDATE, {
-              type: "state:full-update",
-              data: newState,
-              source: "signalK",
-              timestamp: Date.now(),
-            });
-            this._lastFullEmit = Date.now();
-          }
+          this._lastFullEmit = Date.now();
         }
-      }
 
-      this.updateQueue.clear();
+      } catch (error) {
+        console.error('[StateService] Error applying updates:', error);
+      }
     }
   }
+
+  // Helper methods
+  _getValueByPath(obj, path) {
+    return path.split('.').reduce((o, p) => o?.[p], obj);
+  }
+  
+  _deepEqual(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
 
   registerExternalSource(sourceId, initialData = {}, updateHandler = null) {
     try {

@@ -109,6 +109,111 @@ const title = computed(() => {
   }
   else return 'Not Anchored';
 });
+
+
+
+
+// Modal Handlers
+const handleDropAnchor = () => {
+  if (!validateCoordinates(boatPosition.value)) {
+    alert('Valid boat position required to set anchor');
+    return;
+  }
+
+  // Extract latitude and longitude values safely
+  const latitude = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
+  const longitude = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
+
+  try {
+    // Direct update to the anchor state
+    anchorState.value.anchorDeployed = true;
+    
+    // Update the anchor drop location
+    anchorState.value.anchorDropLocation = {
+      position: {
+        latitude: { value: latitude, units: "deg" },
+        longitude: { value: longitude, units: "deg" }
+      },
+      time: new Date().toISOString(),
+      depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
+      distancesFromCurrent: { value: 0, units: "m", nauticalMiles: null },
+      distancesFromDrop: { value: 0, units: "m", nauticalMiles: null },
+      originalBearing: { value: 0, units: "rad", degrees: null },
+      bearing: { value: 0, units: "rad", degrees: null }
+    };
+    
+    // Update the anchor location (same as drop location initially)
+    anchorState.value.anchorLocation = {
+      position: {
+        latitude: { value: latitude, units: "deg" },
+        longitude: { value: longitude, units: "deg" }
+      },
+      time: new Date().toISOString(),
+      depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
+      distancesFromCurrent: { value: 0, units: "m", nauticalMiles: null },
+      distancesFromDrop: { value: 0, units: "m", nauticalMiles: null },
+      originalBearing: { value: 0, units: "rad", degrees: null },
+      bearing: { value: 0, units: "rad", degrees: null }
+    };
+    
+    // Create a clean object for localStorage
+    const storageState = {
+      anchorDeployed: true,
+      anchorDropLocation: anchorState.value.anchorDropLocation,
+      anchorLocation: anchorState.value.anchorLocation,
+      criticalRange: anchorState.value.criticalRange,
+      warningRange: anchorState.value.warningRange,
+      rode: anchorState.value.rode
+    };
+    
+    // Log the state for debugging
+    console.log("Anchor deployed status:", anchorState.value.anchorDeployed);
+    console.log("Full anchor state:", anchorState.value);
+
+    // Persist to localStorage
+    localStorage.setItem(
+      'anchorState',
+      JSON.stringify(storageState)
+    );
+
+    // Show confirmation and log state data
+    console.log("Anchor set successfully");
+    console.log("Full anchor state:", anchorState.value);
+    
+    // Explicitly trigger the critical range circle update
+    updateCriticalRangeCircle();
+    
+    // Close the modal
+    showSetAnchorDialog.value = false;
+
+   } catch (error) {
+    console.error('Failed to save anchor state:', error);
+    alert('Error saving anchor position. See console for details.');
+    // Close the modal even if there's an error
+    showSetAnchorDialog.value = false;
+  }
+};  
+
+const handleUpdateDropLocation = () => {
+  if (!validateCoordinates(boatPosition.value)) return;
+
+  anchorState.value.anchorDropLocation.position = {
+    latitude: boatPosition.value.latitude.value,
+    longitude: boatPosition.value.longitude.value,
+  };
+  showUpdateDialog.value = false;
+};
+
+const confirmUpdateDropLocation = () => {
+  handleUpdateDropLocation();
+  showUpdateDropConfirm.value = false;
+};
+
+const handleCancelAnchor = () => {
+  stateStore.cancelAnchor();
+  showCancelDialog.value = false;
+};
+
 </script>
 
 <style scoped>

@@ -1,33 +1,49 @@
 <template>
   <ion-page>
-    <generic-header title="Alerts" />
+    <generic-header title="AIS Target Details" />
 
     <ion-content class="content-with-header">
-      <ion-card>
-        <ion-card-header>
-          <ion-card-title>{{ target.name || "Unknown Vessel" }}</ion-card-title>
-          <ion-card-subtitle>MMSI: {{ target.mmsi }}</ion-card-subtitle>
-        </ion-card-header>
+      <div v-if="!target">
+        <ion-card>
+          <ion-card-header>
+            <ion-card-title>Loading...</ion-card-title>
+          </ion-card-header>
+          <ion-card-content>
+            <p>Searching for AIS target with MMSI: {{ mmsi }}</p>
+          </ion-card-content>
+        </ion-card>
+      </div>
+      
+      <div v-else>
+        <ion-card>
+          <ion-card-header>
+            <ion-card-title>{{ target.name || "Unknown Vessel" }}</ion-card-title>
+            <ion-card-subtitle>MMSI: {{ target.mmsi }}</ion-card-subtitle>
+          </ion-card-header>
 
-        <ion-card-content>
-          <ul class="data-list">
-            <li class="data-item">
-              <span class="data-label">Callsign</span>
-              <span class="data-value">{{ target.callsign || "N/A" }}</span>
-            </li>
+          <ion-card-content>
+            <ul class="data-list">
+              <li class="data-item">
+                <span class="data-label">Callsign</span>
+                <span class="data-value">{{ target.callsign || "N/A" }}</span>
+              </li>
 
-            <li class="data-item">
-              <span class="data-label">Distance</span>
-              <span class="data-value">{{ target.distance || "N/A" }} nm</span>
-            </li>
+              <li class="data-item">
+                <span class="data-label">Distance</span>
+                <span class="data-value">{{ target.distance || "N/A" }} nm</span>
+              </li>
 
-            <li class="data-item">
-              <span class="data-label">Position</span>
-              <span class="data-value">{{ target.lat }}, {{ target.lon }}</span>
-            </li>
-          </ul>
-        </ion-card-content>
-      </ion-card>
+              <li class="data-item" v-if="target.position">
+                <span class="data-label">Position</span>
+                <span class="data-value">
+                  {{ target.position.latitude.toFixed ? target.position.latitude.toFixed(6) : target.position.latitude }}, 
+                  {{ target.position.longitude.toFixed ? target.position.longitude.toFixed(6) : target.position.longitude }}
+                </span>
+              </li>
+            </ul>
+          </ion-card-content>
+        </ion-card>
+      </div>
     </ion-content>
   </ion-page>
 </template>
@@ -42,15 +58,36 @@ import {
   IonCardSubtitle,
   IonCardContent,
 } from "@ionic/vue";
-import { useAnchorStore } from "@/stores/anchor";
-import { useRouter } from "vue-router";
-import GenericHeader from "@/components/GenericHeader.vue";
-const store = useAnchorStore();
-const route = useRouter();
+import { computed } from "vue";
+import { storeToRefs } from "pinia";
+import { useStateDataStore } from "@client/stores/stateDataStore";
+import { useRoute } from "vue-router";
+import GenericHeader from "@client/components/GenericHeader.vue";
 
-const id = route.currentRoute.value.params.mmsi;
-const target = store.anchorData.aisTargets.find((target) => target.mmsi === Number(id));
-console.log("AIS TARGET : ", target);
+// Get route for params
+const route = useRoute();
+
+// Access state store
+const stateStore = useStateDataStore();
+const { state } = storeToRefs(stateStore);
+
+// Get the MMSI from the route params
+const mmsi = Number(route.params.mmsi);
+
+// Find the AIS target with the matching MMSI
+const target = computed(() => {
+  if (!state.value?.anchor?.aisTargets) {
+    console.log("No AIS targets found in state");
+    return null;
+  }
+  
+  console.log("Available AIS targets:", state.value.anchor.aisTargets.length);
+  
+  // Convert MMSI to number for comparison since it might be stored as string
+  const found = state.value.anchor.aisTargets.find(t => Number(t.mmsi) === mmsi);
+  console.log("AIS TARGET found:", found);
+  return found;
+});
 </script>
 
 <style scoped>

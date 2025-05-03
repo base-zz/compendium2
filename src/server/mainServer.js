@@ -28,6 +28,7 @@ function buildVpsUrl() {
 
 // --- Bridge canonical state into relay state manager ---
 async function bridgeStateToRelay() {
+  console.log("[SERVER] Starting state bridge to relay");
   try {
     const { stateData } = await import("./state/StateData.js");
     const { stateManager } = await import(
@@ -40,16 +41,19 @@ async function bridgeStateToRelay() {
       stateManager.appState = msg.data;
       stateManager.emitFullState();
     });
+    console.log("     [SERVER] Initiated StateService full update listener");
+
     stateService.on("state:patch", (msg) => {
       // console.log("[SERVER] Received patch update from StateService:", msg);
       stateManager.applyPatchAndForward(msg.data);
     });
+    console.log(".    [SERVER] Initiated StateService patch listener");
 
     console.log(
-      "[SERVER] State bridge: canonical stateData -> relay stateManager is active."
+      "     [SERVER] All Server bridges activated."
     );
   } catch (err) {
-    console.error("[SERVER] Failed to set up state bridge:", err);
+    console.error("[SERVER] !!!!!! Failed to set up state bridge:", err);
   }
 }
 

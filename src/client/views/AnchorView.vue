@@ -4,7 +4,7 @@
     <div v-if="showLocationModal" class="acquire-location-modal">
       <div class="acquire-location-content">
         <ion-spinner name="crescent" class="location-spinner"></ion-spinner>
-        <div class="location-modal-message">Acquiring Location...</div>
+        <div class="location-modal-message">Acquiring location...</div>
         <div v-if="locationRequestFailed" class="location-error-message">
           Unable to get your location. Please check your browser permissions.
           <ion-button @click="requestLocationPermission" class="location-retry-button">
@@ -14,6 +14,7 @@
       </div>
     </div>
 
+    <!-- Modal dialogs -->
     <ion-modal :is-open="showSetAnchorDialog" @didDismiss="showSetAnchorDialog = false">
       <div class="modal-content enhanced-modal">
         <h3>Set Anchor</h3>
@@ -30,8 +31,8 @@
         <ion-range
           v-if="anchorState.criticalRange"
           v-model="anchorState.criticalRange.r"
-          :min="10"
-          :max="150"
+          :min="0"
+          :max="100"
           :step="1"
           ticks="true"
           color="primary"
@@ -41,11 +42,11 @@
         <div v-else class="text-danger">Critical range not initialized</div>
         <div class="slider-label">
           <strong>Rode:</strong>
-          <span class="slider-value">{{ stateStore.anchorState.rode.amount }} m</span>
+          <span class="slider-value">{{ anchorState.rode.amount }} m</span>
         </div>
         <ion-range
-          v-model="stateStore.anchorState.rode.amount"
-          :min="5"
+          v-model="anchorState.rode.amount"
+          :min="0"
           :max="100"
           :step="1"
           ticks="true"
@@ -56,11 +57,11 @@
         <div class="slider-label">
           <strong>Bearing:</strong>
           <span class="slider-value"
-            >{{ stateStore.anchorState.anchorDropLocation.originalBearing }}°</span
+            >{{ anchorState.anchorDropLocation.bearing?.degrees || "--" }}°</span
           >
         </div>
         <ion-range
-          v-model="stateStore.anchorState.anchorDropLocation.originalBearing"
+          v-model="anchorState.anchorDropLocation.bearing.degrees"
           :min="0"
           :max="360"
           :step="1"
@@ -121,10 +122,29 @@
         </div>
       </div>
     </IonModal>
+    <!-- Cancel Anchor Dialog -->
+    <ion-modal :is-open="showCancelDialog" @didDismiss="showCancelDialog = false">
+      <div class="modal-content">
+        <h3>Confirm Anchor Retrieval</h3>
+        <p>This will clear all anchor-related data. Continue?</p>
+        <div class="modal-button-group">
+          <ion-button @click="showCancelDialog = false" fill="clear">Cancel</ion-button>
+          <ion-button @click="handleCancelAnchor" color="danger">Retrieve</ion-button>
+        </div>
+      </div>
+    </ion-modal>
 
     <div class="map-wrapper">
-      <AnchorInfoGrid @drop-anchor="handleDropAnchor" />
+      <!-- <AnchorInfoGrid @drop-anchor="handleDropAnchor" /> -->
+      <AnchorInfoGrid />
       <div ref="mapElement" class="openlayers-map"></div>
+      
+      <!-- Custom zoom controls -->
+      <div class="custom-zoom-controls">
+        <button @click="zoomIn" class="zoom-button zoom-in" data-label="Zoom In">+</button>
+        <button @click="zoomOut" class="zoom-button zoom-out" data-label="Zoom Out">−</button>
+      </div>
+      
       <div class="anchor-fab-container">
         <ion-fab-button
           color="secondary"
@@ -149,1571 +169,1304 @@
         </ion-fab-button>
       </div>
     </div>
-    <generic-header title="Anchor"></generic-header>
+    <GenericHeader title="Anchor"></GenericHeader>
   </ion-page>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import GenericHeader from "@client/components/GenericHeader.vue";
-import AnchorInfoGrid from "@client/components/AnchorInfoGrid.vue";
-import debounce from "lodash/debounce";
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue";
+import { storeToRefs } from "pinia";
+import { useRouter } from "vue-router";
+import { useStateDataStore, calculateDistanceMeters } from "@/client/stores/stateDataStore";
+import { debounce } from "lodash-es";
+import { getComputedAnchorLocation } from "@/client/stores/stateDataStore";
+
+// Component imports
+import AnchorInfoGrid from "@/client/components/AnchorInfoGrid.vue";
+import GenericHeader from "@/client/components/GenericHeader.vue";
+
+// Router setup
+const router = useRouter();
+
+// Ionic imports
 import {
   IonPage,
-  IonContent,
-  IonFabButton,
-  IonIcon,
   IonModal,
   IonButton,
   IonRange,
   IonSpinner,
+  IonFabButton,
+  IonIcon,
 } from "@ionic/vue";
 import { chevronUpOutline } from "ionicons/icons";
 
-import { useStateDataStore } from "@/client/stores/stateDataStore.js";
-import { storeToRefs } from "pinia";
-import "ol/ol.css";
+// OpenLayers imports
 import Map from "ol/Map";
-import { defaults as defaultControls } from "ol/control";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
 import OSM from "ol/source/OSM";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
-import { Feature } from "ol";
-import { Point, Circle as CircleGeom, Polygon } from "ol/geom";
-import LineString from "ol/geom/LineString";
-import { Style, Circle as CircleStyle, Fill, Stroke } from "ol/style";
+import Feature from "ol/Feature";
+import Point from "ol/geom/Point";
 import { fromLonLat } from "ol/proj";
+import { Style, Fill, Stroke } from "ol/style";
+import Polygon from "ol/geom/Polygon";
+import LineString from "ol/geom/LineString";
+// Circle is imported but now only used in comments
+// import Circle from "ol/geom/Circle";
+import { defaults as defaultControls } from "ol/control";
+import { defaults as defaultInteractions } from "ol/interaction";
+import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import ScaleLine from "ol/control/ScaleLine";
+import { useMapTools } from "@client/utils/mapUtils.js";
+import { useMapFeatures } from "@client/utils/mapFeatures";
+import { STYLES, createStyle } from "@/client/utils/mapStyles";
+import { useMapPersist } from "@client/utils/mapPersist";
 
+// Constants
+const FEATURE_TYPES = {
+  BOAT: 'boat',
+  AIS: 'ais',
+  BREADCRUMB: 'breadcrumb',
+  CIRCLE: 'circle',
+  BOAT_RANGE: 'boat-range',
+  ANCHOR_DROP_LOCATION: 'anchor-drop-location',
+  ANCHOR_LOCATION: 'anchor-location',
+  RODE: 'rode'
+};
+
+const DEBUG_WHEEL_EVENTS = true; // Set to false in production
+
+// Main component setup
 const mapElement = ref(null);
 const map = ref(null);
-let vectorSource = null;
-let vectorLayer = null;
+const vectorSource = new VectorSource();
+const {
+  updateFeature,
+  updateFeatureGroup,
+  clearFeature,
+  clearAll,
+  perfStats,
+} = useMapFeatures(vectorSource);
 
-function ensureVectorSourceAndLayer() {
-  if (!vectorSource) {
-    vectorSource = new VectorSource();
-    console.log("[AnchorView] vectorSource initialized");
-  }
-  if (!vectorLayer) {
-    vectorLayer = new VectorLayer({
-      source: vectorSource,
-      zIndex: 10 // Ensure vector layer is on top of base layer
-    });
-    console.log("[AnchorView] vectorLayer initialized");
-  }
-}
-
-// Store setup (must be before using anchorState)
+// Store integration
 const stateStore = useStateDataStore();
-const { state } = storeToRefs(stateStore);
+const { state, breadcrumbs } = storeToRefs(stateStore);
 const navigationState = computed(() => state.value.navigation);
-
-// Location request state
-const locationRequestFailed = ref(false);
-const locationRequestAttempts = ref(0);
-
-// Function to explicitly request location permission
-function requestLocationPermission() {
-  locationRequestAttempts.value++;
-  console.log('[AnchorView] Requesting location permission, attempt:', locationRequestAttempts.value);
-  
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        console.log('[AnchorView] Browser geolocation success:', position);
-        locationRequestFailed.value = false;
-        // We don't need to update the state here as the Signal K server will do it
-      },
-      (error) => {
-        console.error('[AnchorView] Browser geolocation error:', error);
-        locationRequestFailed.value = true;
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  } else {
-    console.error('[AnchorView] Browser does not support geolocation');
-    locationRequestFailed.value = true;
-  }
-}
 const anchorState = computed(() => state.value.anchor);
-// const { navigationState, anchorState } = storeToRefs(stateStore);
-
-console.log("stateStore", stateStore);
-console.log("anchorState", anchorState.value);
-console.log("anchorState.value.anchorDeployed", anchorState.value.anchorDeployed);
-console.log("navigationState", navigationState);
-console.log("navigationState.value", navigationState.value);
-console.log("navigationState.value.position", navigationState.value.position);
-console.log(
-  "navigationState.value.position.longitude",
-  navigationState.value.position.longitude
-);
-console.log(
-  "navigationState.value.position.latitude.value",
-  navigationState.value.position.latitude.value
-);
-
-const breadcrumbs = ref([]);
-const AISTargets = ref([]);
-
-// Watch breadcrumbs and update anchorLocation.bearing if anchor is set
-watch(
-  () => breadcrumbs.value.length,
-  () => {
-    console.log(
-      "[WATCHER: breadcrumbs.length] fired:",
-      breadcrumbs.value.length,
-      "anchorDeployed:",
-      anchorState.value.anchorDeployed
-    );
-    if (anchorState.value.anchorDeployed && breadcrumbs.value.length >= 2) {
-      const prev = breadcrumbs.value[breadcrumbs.value.length - 2];
-      const curr = breadcrumbs.value[breadcrumbs.value.length - 1];
-      const bearing = calculateBearing(
-        prev.latitude,
-        prev.longitude,
-        curr.latitude,
-        curr.longitude
-      );
-      anchorState.value.anchorLocation = {
-        ...anchorState.value.anchorLocation,
-        bearing,
-      };
-    }
-  }
-);
-
-function handleDropAnchor() {
-  // Get current position from navigationState
-  const pos = navigationState.value?.position;
-  if (!pos || typeof pos.latitude !== "number" || typeof pos.longitude !== "number") {
-    console.warn("No valid position for dropping anchor");
-    return;
-  }
-  // Set anchor drop location and anchor location
-  anchorState.value.anchorDropLocation = {
-    latitude: pos.latitude,
-    longitude: pos.longitude,
-    // Add other fields as needed
-  };
-  // Calculate bearing from breadcrumbs if possible
-  let bearing = 0;
-  if (breadcrumbs.value.length >= 2) {
-    const prev = breadcrumbs.value[breadcrumbs.value.length - 2];
-    const curr = breadcrumbs.value[breadcrumbs.value.length - 1];
-    bearing = calculateBearing(
-      prev.latitude,
-      prev.longitude,
-      curr.latitude,
-      curr.longitude
-    );
-  }
-  anchorState.value.anchorLocation = {
-    ...anchorState.value.anchorLocation,
-    latitude: pos.latitude,
-    longitude: pos.longitude,
-    bearing,
-    // Add other fields as needed
-  };
-  anchorState.value.anchorDeployed = true;
-}
-
-let outsideSince = null;
-let alarmTimeout = null;
-const showSetAnchorDialog = ref(false);
-
-// Watch for position changes and add to breadcrumbs
-watch(
-  () => navigationState.value.position,
-  (pos) => {
-    if (pos && pos.latitude && pos.longitude) {
-      breadcrumbs.value.push({ latitude: pos.latitude, longitude: pos.longitude });
-      if (breadcrumbs.value.length > 50) breadcrumbs.value.shift();
-    }
-  },
-  { immediate: true, deep: false }
-);
-
-const showUpdateDropConfirm = ref(false);
-function confirmUpdateDropLocation() {
-  updateAnchorDropLocation();
-  showUpdateDropConfirm.value = false;
-  showCancelDialog.value = false;
-}
-
-// Show modal if position is missing or at (0,0)
-const showLocationModal = computed(() => {
-  const pos = navigationState.value?.position;
-  // Check if we have valid position data
-  const hasValidPosition = 
-    pos && 
-    pos.latitude && 
-    pos.longitude && 
-    typeof pos.latitude.value === 'number' && 
-    typeof pos.longitude.value === 'number' && 
-    Math.abs(pos.latitude.value) > 0.0001 && 
-    Math.abs(pos.longitude.value) > 0.0001;
-  
-  const result = !hasValidPosition;
-  console.log("[COMPUTED: showLocationModal] evaluated:", { pos, hasValidPosition, result });
-  return result;
+const aisTargets = computed(() => {
+  const targets = state.value.anchor?.aisTargets || [];
+  return targets;
 });
 
-function checkAnchorAlarm(boatPos, anchorPos, radiusMeters, delaySeconds) {
-  if (
-    !boatPos?.latitude ||
-    !boatPos?.longitude ||
-    !anchorPos?.latitude ||
-    !anchorPos?.longitude
-  ) {
-    outsideSince = null;
-    if (alarmTimeout) clearTimeout(alarmTimeout);
-    anchorState.value.dragging = false;
-    return;
-  }
-  const dist = calculateDistanceMeters(
-    boatPos.latitude,
-    boatPos.longitude,
-    anchorPos.latitude,
-    anchorPos.longitude
-  );
-  if (dist > radiusMeters) {
-    if (!outsideSince) {
-      outsideSince = Date.now();
-      alarmTimeout = setTimeout(() => {
-        if (outsideSince && Date.now() - outsideSince >= delaySeconds * 1000) {
-          anchorState.value.dragging = true;
-        }
-      }, delaySeconds * 1000);
-    }
-  } else {
-    outsideSince = null;
-    if (alarmTimeout) clearTimeout(alarmTimeout);
-    anchorState.value.dragging = false;
-  }
-}
 
-// Watch boat position for anchor alarm
-watch(
-  () => navigationState.value.position,
-  (pos) => {
-    console.log(
-      "[WATCHER: navigationState.position] fired:",
-      JSON.parse(JSON.stringify(pos))
-    );
-    const anchorPos = anchorState.value.anchorDropLocation;
-    const radius =
-      anchorState.value.criticalRange &&
-      typeof anchorState.value.criticalRange.r === "number"
-        ? anchorState.value.criticalRange.r
-        : 30;
-    checkAnchorAlarm(
-      { latitude: pos.latitude, longitude: pos.longitude },
-      { latitude: anchorPos.latitude, longitude: anchorPos.longitude },
-      radius,
-      10 // seconds delay
-    );
-  },
-  { deep: true }
+// Derived state
+const boatPosition = computed(() => navigationState.value?.position);
+const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
+const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
+const anchorLocation = computed(() => anchorState.value?.anchorLocation?.position);
+
+// Determine if anchor is dragging based on its position relative to drop location
+const isAnchorDragging = computed(() => {
+  if (!anchorDeployed.value || !anchorDropLocation.value?.position) return false;
+  
+  const dropLat = anchorDropLocation.value.position.latitude;
+  const dropLon = anchorDropLocation.value.position.longitude;
+  const anchorLat = anchorLocation.value?.position?.latitude;
+  const anchorLon = anchorLocation.value?.position?.longitude;
+  
+  if (!dropLat || !dropLon || !anchorLat || !anchorLon) return false;
+  
+  // Calculate distance between drop location and current anchor position
+  const distance = calculateDistanceMeters(
+    dropLat,
+    dropLon,
+    anchorLat,
+    anchorLon
+  );
+  
+  // If distance exceeds 10 meters, consider it dragging
+  return distance > 2;
+});
+
+const criticalRange = computed(() => anchorState.value?.criticalRange?.r);
+
+console.log("------STATE :  ", state.value);
+console.log("+++++++++[ANCHOR STATE]", anchorState.value);
+
+
+// View persistence
+const { saveViewState, restoreViewState } = useMapPersist(map);
+const savedView = restoreViewState();
+
+// Map tools
+const { fitToFeatures, validateCoordinates, formatPosition } = useMapTools(
+  map,
+  vectorSource
 );
 
-// FAB dialog state
-const showUpdateDialog = ref(false);
-const showCancelDialog = ref(false);
-
-function handleSetAnchor() {
-  // Get current vessel position
-  const pos = navigationState.value.position;
-  console.log("[handleSetAnchor] navigationState.value.position:", pos);
-  if (!pos || typeof pos.latitude !== "number" || typeof pos.longitude !== "number") {
-    console.error("[handleSetAnchor] ERROR: Missing or invalid vessel position!", pos);
-    return;
+// Feature Updates
+const updateBoatPosition = debounce(() => {
+  if (!validateCoordinates(boatPosition.value)) {
+    return clearFeature(FEATURE_TYPES.BOAT);
   }
-  const { latitude, longitude } = pos;
-  const now = Date.now();
 
-  // Set anchorDropLocation
-  Object.assign(anchorState.value.anchorDropLocation, {
-    latitude,
-    longitude,
-    time: now,
-    depth: navigationState.value.depth?.belowTransducer ?? null,
-    distanceFromCurrentLocation: 0,
-    distanceFromDropLocation: 0,
-    originalBearing: 0,
-  });
-  console.log(
-    "[handleSetAnchor] Set anchorDropLocation:",
-    anchorState.value.anchorDropLocation
+  // Safely extract coordinates using same logic as validateCoordinates
+  const coord = boatPosition.value;
+  const lon = coord.longitude?.value ?? coord.longitude;
+  const lat = coord.latitude?.value ?? coord.latitude;
+
+  updateFeature(
+    FEATURE_TYPES.BOAT,
+    new Point(fromLonLat([lon, lat])), // Use extracted values
+    STYLES.BOAT
   );
+}, 100);
 
-  // Set anchorLocation to match anchorDropLocation
-  // Calculate bearing from breadcrumbs if possible
-  let bearing = 0;
-  if (breadcrumbs.value.length >= 2) {
-    const prev = breadcrumbs.value[breadcrumbs.value.length - 2];
-    const curr = breadcrumbs.value[breadcrumbs.value.length - 1];
-    console.log("[handleSetAnchor] Calculating bearing from breadcrumbs:", prev, curr);
-    bearing = calculateBearing(
-      prev.latitude,
-      prev.longitude,
-      curr.latitude,
-      curr.longitude
-    );
-    console.log("[handleSetAnchor] Calculated bearing:", bearing);
-  } else {
-    console.log("[handleSetAnchor] Not enough breadcrumbs to calculate bearing.");
-  }
-  Object.assign(anchorState.value.anchorLocation, anchorState.value.anchorDropLocation, {
-    bearing,
-  });
-  anchorState.value.anchorDeployed = true;
-  anchorState.value.dragging = false;
-  showSetAnchorDialog.value = false;
-}
+// Computed property for location modal visibility
+const showLocationModal = computed(() => {
+  const pos = navigationState.value?.position;
+  return !(pos?.latitude?.value && pos?.longitude?.value);
+});
 
-function handleUpdateDropLocation() {
-  // Replace with your update logic
-  if (typeof updateAnchorDropLocation === "function") {
-    updateAnchorDropLocation();
-  }
-  showUpdateDialog.value = false;
-}
+const updateAnchorPoints = () => {
+  // Clear all anchor-related features
+  clearFeature(FEATURE_TYPES.CIRCLE);
+  clearFeature(FEATURE_TYPES.ANCHOR_DROP_LOCATION);
+  clearFeature(FEATURE_TYPES.ANCHOR_LOCATION);
+  clearFeature(FEATURE_TYPES.RODE);
 
-function handleCancelAnchor() {
-  anchorState.value.anchorDeployed = false;
-  anchorState.value.dragging = false;
-  // Clear anchorDropLocation
-  Object.assign(anchorState.value.anchorDropLocation, {
-    latitude: null,
-    longitude: null,
-    time: null,
-    depth: null,
-    distanceFromCurrentLocation: 0,
-    distanceFromDropLocation: 0,
-    originalBearing: 0,
-  });
-  // Clear anchorLocation
-  Object.assign(anchorState.value.anchorLocation, {
-    latitude: null,
-    longitude: null,
-    time: null,
-    depth: null,
-    distanceFromCurrentLocation: 0,
-    distanceFromDropLocation: 0,
-    originalBearing: 0,
-    bearing: 0,
-  });
-  showCancelDialog.value = false;
-}
+  // Exit if anchor is not deployed
+  if (!anchorDeployed.value) return;
 
-// Utility: Calculate destination lat/lon given start, distance (meters), and bearing (degrees)
-function calculateDestinationLatLon(lat, lon, distanceMeters, bearingDegrees) {
-  const R = 6371000; // Earth radius in meters
-  const φ1 = (lat * Math.PI) / 180;
-  const λ1 = (lon * Math.PI) / 180;
-  const θ = (bearingDegrees * Math.PI) / 180;
-  const δ = distanceMeters / R;
-  const φ2 = Math.asin(
-    Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)
-  );
-  const λ2 =
-    λ1 +
-    Math.atan2(
-      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
-      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)
-    );
-  return {
-    latitude: (φ2 * 180) / Math.PI,
-    longitude: (λ2 * 180) / Math.PI,
-  };
-}
+  // Draw the anchor drop location
+  const dropPos = anchorState.value.anchorDropLocation.position;
+  if (dropPos) {
+    const dropLat = dropPos.latitude?.value || dropPos.latitude;
+    const dropLon = dropPos.longitude?.value || dropPos.longitude;
+    
+    if (typeof dropLat === "number" && typeof dropLon === "number") {
+      // Draw the anchor drop location
+      updateFeature(
+        FEATURE_TYPES.ANCHOR_DROP_LOCATION,
+        new Point(fromLonLat([dropLon, dropLat])),
+        STYLES.ANCHOR_DROP_LOCATION
+      );
 
-// Calculate distance between two lat/lon points in meters (Haversine formula)
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Earth radius in meters
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+      // If we have a current anchor position, draw it
+      const anchorPos = anchorState.value.anchorLocation.position;
+      if (anchorPos) {
+        const anchorLat = anchorPos.latitude?.value || anchorPos.latitude;
+        const anchorLon = anchorPos.longitude?.value || anchorPos.longitude;
 
-// Draw a blue dot for current position
-// --- Animated Boat Feature ---
-let boatFeature = null;
-let boatAnimationFrameId = null;
-
-function animateBoatMove(from, to, duration = 500) {
-  if (boatAnimationFrameId) {
-    cancelAnimationFrame(boatAnimationFrameId);
-  }
-  const start = performance.now();
-  function animate(now) {
-    const elapsed = now - start;
-    const t = Math.min(elapsed / duration, 1);
-    const lon = from[0] + (to[0] - from[0]) * t;
-    const lat = from[1] + (to[1] - from[1]) * t;
-    boatFeature.getGeometry().setCoordinates([lon, lat]);
-    if (t < 1) {
-      boatAnimationFrameId = requestAnimationFrame(animate);
+        if (typeof anchorLat === "number" && typeof anchorLon === "number") {
+          // Draw the current anchor position
+          updateFeature(
+            FEATURE_TYPES.ANCHOR_LOCATION,
+            new Point(fromLonLat([anchorLon, anchorLat])),
+            STYLES.ANCHOR_LOCATION
+          );
+        }
+      }
     }
   }
-  boatAnimationFrameId = requestAnimationFrame(animate);
-}
+};
 
-function drawPositionDot(lat, lon, animate = false) {
-  // Debug logging for parameters
-  console.log("[drawPositionDot] PARAMS:", {
-    lat: lat,
-    lon: lon,
-    animate: animate,
-    latType: typeof lat,
-    lonType: typeof lon,
-    latIsProxy: lat && typeof lat === 'object' && 'value' in lat,
-    lonIsProxy: lon && typeof lon === 'object' && 'value' in lon,
-    latValue: lat?.value,
-    lonValue: lon?.value
+// Helper function to create a circle with an accurate radius in meters
+const createCircleWithRadius = (centerLonLat, radiusInMeters) => {
+  // In Web Mercator (EPSG:3857), the scale factor varies with latitude
+  // At the equator, 1 degree is approximately 111,320 meters
+  // The scale factor is approximately cos(latitude in radians)
+  
+  // Get the latitude in radians
+  const latRad = (centerLonLat[1] * Math.PI) / 180;
+  
+  // Calculate the scale factor at this latitude
+  // This compensates for the distortion in the Web Mercator projection
+  const scaleFactor = Math.cos(latRad);
+  
+  // Adjust the radius to account for the distortion
+  // At higher latitudes, we need a larger radius in projected coordinates
+  // to represent the same physical distance
+  const adjustedRadius = radiusInMeters / scaleFactor;
+  
+  console.log('Circle radius adjustment:', {
+    latitude: centerLonLat[1],
+    originalRadius: radiusInMeters,
+    scaleFactor: scaleFactor,
+    adjustedRadius: adjustedRadius
   });
   
-  // Handle proxy objects from Pinia store
-  if (typeof lat === 'object' && lat?.value !== undefined) lat = lat.value;
-  if (typeof lon === 'object' && lon?.value !== undefined) lon = lon.value;
+  // Convert center from [lon, lat] to projected coordinates
+  const center = fromLonLat(centerLonLat);
   
-  if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
-    console.warn(
-      "[drawPositionDot] Skipping feature with invalid coordinates:",
-      lat,
-      lon
-    );
-    return;
-  }
+  // Create a simple circle with the adjusted radius
+  const numPoints = 60; // More points = smoother circle
+  const points = [];
   
-  console.log("[drawPositionDot] lat:", lat, "lon:", lon, "vectorSource:", vectorSource);
-  
-  // Ensure vector source exists
-  if (!vectorSource) {
-    console.error("[drawPositionDot] Vector source is null or undefined");
-    ensureVectorSourceAndLayer();
-    if (!vectorSource) return;
-  }
-  
-  // Make sure the vector layer is added to the map
-  if (map.value && vectorLayer && !map.value.getLayers().getArray().includes(vectorLayer)) {
-    map.value.addLayer(vectorLayer);
-    console.log("%c ADDING VECTOR LAYER TO MAP", "background: purple; color: white; font-size: 16px;");
-  }
-  
-  const coords = fromLonLat([lon, lat]);
-  console.log("[drawPositionDot] Transformed coords:", coords);
-  
-  // Create a visually appealing boat style
-  const boatStyle = new Style({
-    image: new CircleStyle({
-      radius: 8, // Reasonable size for normal use
-      fill: new Fill({ color: "#2196f3" }), // Blue
-      stroke: new Stroke({ color: "#ffffff", width: 3 }), // White border
-    }),
-    zIndex: 100, // Ensure it's on top of other features
-  });
-  
-  // Create a direct feature without using the boatFeature variable
-  const newBoatFeature = new Feature({
-    geometry: new Point(coords),
-    name: 'boat-position-direct',
-  });
-  
-  // Apply the style directly
-  newBoatFeature.setStyle(boatStyle);
-  
-  // Only remove the existing boat feature, not all features
-  if (vectorSource) {
-    // Find and remove only the boat position feature
-    const existingBoatFeatures = vectorSource.getFeatures()
-      .filter(f => f.get('name') === 'boat-position-direct');
+  for (let i = 0; i < numPoints; i++) {
+    // Calculate angle for this point
+    const angle = (i * 2 * Math.PI) / numPoints;
     
-    existingBoatFeatures.forEach(f => vectorSource.removeFeature(f));
-    vectorSource.addFeature(newBoatFeature);
+    // Calculate point on the circle in projected coordinates
+    const x = center[0] + adjustedRadius * Math.cos(angle);
+    const y = center[1] + adjustedRadius * Math.sin(angle);
     
-    // Don't force a complete redraw during normal operations
-    // This prevents the marker from disappearing during zoom
-    if (map.value && animate) {
-      // Only render if animation is explicitly requested
-      map.value.render();
-    }
+    // Add to points array
+    points.push([x, y]);
   }
   
-  // Store the new feature as the boatFeature for future reference
-  boatFeature = newBoatFeature;
-}
+  // Close the polygon
+  points.push(points[0]);
+  
+  // Create a polygon from the points
+  return new Polygon([points]);
+};
 
-function drawAnchorDropLocationDot(lat, lon) {
-  // Handle proxy objects from Pinia store
-  if (typeof lat === 'object' && lat?.value !== undefined) lat = lat.value;
-  if (typeof lon === 'object' && lon?.value !== undefined) lon = lon.value;
-  
-  if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
-    console.warn(
-      "[drawAnchorDropLocationDot] Skipping feature with invalid coordinates:",
-      lat,
-      lon
-    );
-    return;
-  }
-  console.log("[drawAnchorDropLocationDot] lat:", lat, "lon:", lon);
-  const feature = new Feature({
-    geometry: new Point(fromLonLat([lon, lat])),
+const updateCriticalRangeCircle = debounce(() => {
+  console.log('Updating critical range circle:', {
+    anchorDeployed: anchorState.value.anchorDeployed,
+    anchorLocation: anchorState.value.anchorLocation,
+    criticalRange: anchorState.value.criticalRange
   });
-  feature.setStyle(
-    new Style({
-      image: new CircleStyle({
-        radius: 8,
-        fill: new Fill({ color: "#43a047" }), // Green
-        stroke: new Stroke({ color: "#fff", width: 2 }),
-      }),
-    })
-  );
-  vectorSource.addFeature(feature);
-  console.log("[drawAnchorDropLocationDot] Added feature:", feature);
-  console.log(
-    "[drawAnchorDropLocationDot] vectorSource feature count:",
-    vectorSource.getFeatures().length
-  );
-}
 
-function drawAnchorLocationDot(lat, lon) {
-  // Handle proxy objects from Pinia store
-  if (typeof lat === 'object' && lat?.value !== undefined) lat = lat.value;
-  if (typeof lon === 'object' && lon?.value !== undefined) lon = lon.value;
-  
-  console.log(
-    "[drawAnchorLocationDot] lat:",
-    lat,
-    "lon:",
-    lon,
-    "vectorSource:",
-    vectorSource
-  );
-  
-  if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
-    console.warn(
-      "[drawAnchorLocationDot] Skipping feature with invalid coordinates:",
-      lat,
-      lon
-    );
-    return;
-  }
-  
-  // CURRENT ANCHOR LOCATION: Yellow dot
-  const feature = new Feature({
-    geometry: new Point(fromLonLat([lon, lat])),
-  });
-  feature.setStyle(
-    new Style({
-      image: new CircleStyle({
-        radius: 8,
-        fill: new Fill({ color: "#ffd600" }), // Yellow
-        stroke: new Stroke({ color: "#fff", width: 2 }),
-      }),
-    })
-  );
-  vectorSource.addFeature(feature);
-  console.log("[drawAnchorLocationDot] Added feature:", feature);
-  console.log(
-    "[drawAnchorLocationDot] vectorSource feature count:",
-    vectorSource.getFeatures().length
-  );
-}
-
-// Draw the anchor (orange) circle at a given lat/lon
-function drawAnchorCircle(lat, lon, diameter, units = "meters") {
-  drawCircleOnMap(lat, lon, diameter, units, {
-    strokeColor: "orange",
-    fillColor: "rgba(255,140,0,0.1)",
-  });
-}
-// Draw a debug marker at the original position
-function addDebugMarkers() {
-  const originalPos = navigationState.value?.originalPosition;
-  if (originalPos && originalPos.latitude && originalPos.longitude) {
-    const feature = new Feature({
-      geometry: new Point(fromLonLat([originalPos.longitude, originalPos.latitude])),
-    });
-    feature.setStyle(
-      new Style({
-        image: new CircleStyle({
-          radius: 6,
-          fill: new Fill({ color: "red" }),
-        }),
-      })
-    );
-    vectorSource.addFeature(feature);
-  }
-}
-
-// Draw a breadcrumb at a given lat/lon with a given radius and color
-function addBreadcrumb(lon, lat, styleOpts = {}) {
-  console.log("[addBreadcrumb] lat:", lat, "lon:", lon);
-  if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
-    console.warn(
-      "[addBreadcrumb] Skipping breadcrumb with invalid coordinates:",
-      lat,
-      lon
-    );
-    return;
-  }
-  console.log("[addBreadcrumb] lat:", lat, "lon:", lon);
-  console.log("[addBreadcrumb] lon:", lon, "lat:", lat, "vectorSource:", vectorSource);
-  const breadcrumb = new Feature({
-    geometry: new Point(fromLonLat([lon, lat])),
-  });
-  breadcrumb.setStyle(
-    new Style({
-      image: new CircleStyle({
-        radius: styleOpts.radius || 3,
-        fill: new Fill({ color: styleOpts.fillColor || "white" }),
-        stroke: new Stroke({
-          color: styleOpts.strokeColor || "#888",
-          width: styleOpts.strokeWidth || 1,
-        }),
-      }),
-    })
-  );
-  vectorSource.addFeature(breadcrumb);
-  console.log("[addBreadcrumb] Added breadcrumb feature:", breadcrumb);
-  console.log(
-    "[addBreadcrumb] vectorSource feature count:",
-    vectorSource.getFeatures().length
-  );
-}
-
-function drawCircleOnMap(lat, lon, radiusMeters, units = "meters", styleOpts = {}) {
-  if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) {
-    console.warn("[drawCircleOnMap] Skipping circle with invalid coordinates:", lat, lon);
-    return;
-  }
-  console.log(
-    "[drawCircleOnMap] lat:",
-    lat,
-    "lon:",
-    lon,
-    "radius:",
-    radiusMeters,
-    "units:",
-    units
-  );
-  console.log(
-    "[drawCircleOnMap] lat:",
-    lat,
-    "lon:",
-    lon,
-    "radiusMeters:",
-    radiusMeters,
-    "vectorSource:",
-    vectorSource
-  );
-  // Remove old anchor circle(s) first
-  const featuresToRemove = vectorSource
-    .getFeatures()
-    .filter((f) => f.get("type") === "anchorCircle");
-  featuresToRemove.forEach((f) => vectorSource.removeFeature(f));
-  if (units === "feet") radiusMeters = diameter * 0.3048;
-
-  // Geodesic circle as polygon
-  const circlePoints = [];
-  for (let i = 0; i <= 360; i += 5) {
-    const dest = calculateDestinationLatLon(lat, lon, radiusMeters, i);
-    circlePoints.push(fromLonLat([dest.longitude, dest.latitude]));
-  }
-  const circleFeature = new Feature({
-    geometry: new Polygon([circlePoints]),
-  });
-  circleFeature.set("type", "anchorCircle");
-  circleFeature.setStyle(
-    new Style({
-      stroke: new Stroke({ color: styleOpts.strokeColor || "#2196f3", width: 2 }),
-      fill: new Fill({ color: styleOpts.fillColor || "rgba(33,150,243,0.1)" }),
-    })
-  );
-  vectorSource.addFeature(circleFeature);
-  console.log("[drawCircleOnMap] Added anchorCircle feature:", circleFeature);
-  console.log(
-    "[drawCircleOnMap] vectorSource feature count:",
-    vectorSource.getFeatures().length
-  );
-
-  // Debug logging
-  if (navigationState.value?.position) {
-    const navPos = navigationState.value.position;
-    const bearing = calculateBearing(lat, lon, navPos.latitude, navPos.longitude);
-    // console.log('[drawCircleOnMap] Center:', lat, lon, 'Radius:', radiusMeters, 'm', 'Bearing to position:', bearing.toFixed(2));
-  }
-}
-
-// Helper: Calculate initial bearing from (lat1, lon1) to (lat2, lon2)
-function calculateBearing(lat1, lon1, lat2, lon2) {
-  const φ1 = (lat1 * Math.PI) / 180,
-    φ2 = (lat2 * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-  const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  let θ = Math.atan2(y, x);
-  θ = (θ * 180) / Math.PI;
-  return (θ + 360) % 360;
-}
-
-function drawRodeLine(fromLat, fromLon, toLat, toLon) {
-  // Handle proxy objects from Pinia store
-  if (typeof fromLat === 'object' && fromLat?.value !== undefined) fromLat = fromLat.value;
-  if (typeof fromLon === 'object' && fromLon?.value !== undefined) fromLon = fromLon.value;
-  if (typeof toLat === 'object' && toLat?.value !== undefined) toLat = toLat.value;
-  if (typeof toLon === 'object' && toLon?.value !== undefined) toLon = toLon.value;
-  
   if (
-    fromLat == null ||
-    fromLon == null ||
-    toLat == null ||
-    toLon == null ||
-    isNaN(fromLat) ||
-    isNaN(fromLon) ||
-    isNaN(toLat) ||
-    isNaN(toLon)
+    !anchorState.value.anchorDeployed ||
+    !anchorState.value.anchorLocation ||
+    !anchorState.value.criticalRange
   ) {
-    console.warn(
-      "[drawRodeLine] Skipping line with invalid coordinates:",
-      fromLat,
-      fromLon,
-      toLat,
-      toLon
-    );
+    // Clear any existing critical range circle
+    clearFeature(FEATURE_TYPES.CIRCLE);
     return;
   }
-  console.log(
-    "[drawRodeLine] fromLat:",
-    fromLat,
-    "fromLon:",
-    fromLon,
-    "toLat:",
-    toLat,
-    "toLon:",
-    toLon
-  );
-  console.log(
-    "[drawRodeLine] fromLat:",
-    fromLat,
-    "fromLon:",
-    fromLon,
-    "toLat:",
-    toLat,
-    "toLon:",
-    toLon,
-    "vectorSource:",
-    vectorSource
-  );
-  // Remove old rode lines first
-  const featuresToRemove = vectorSource
-    .getFeatures()
-    .filter((f) => f.get("type") === "rodeLine");
-  featuresToRemove.forEach((f) => vectorSource.removeFeature(f));
-
-  const line = new Feature({
-    geometry: new LineString([
-      fromLonLat([fromLon, fromLat]),
-      fromLonLat([toLon, toLat]),
-    ]),
+  
+  console.log('CRITICAL RANGE DEBUG - Creating circle with:', {
+    anchorLocation: [
+      anchorState.value.anchorLocation.longitude,
+      anchorState.value.anchorLocation.latitude
+    ],
+    criticalRange: anchorState.value.criticalRange.value
   });
-  line.set("type", "rodeLine");
-  line.setStyle(
-    new Style({
-      stroke: new Stroke({ color: "#FFA500", width: 4, lineDash: [8, 8] }), // orange, dashed
-    })
+
+  const position = anchorState.value.anchorLocation.position;
+  const latitude = position.latitude?.value ?? position.latitude;
+  const longitude = position.longitude?.value ?? position.longitude;
+  const radiusInMeters = anchorState.value.criticalRange.r;
+
+  console.log('Drawing circle at:', {
+    center: [longitude, latitude],
+    radius: radiusInMeters
+  });
+  
+  // Create a circle with the correct radius in meters
+  const circleGeometry = createCircleWithRadius([longitude, latitude], radiusInMeters);
+  
+  // Use the circle for the feature
+  updateFeature(
+    FEATURE_TYPES.CIRCLE,
+    circleGeometry,
+    STYLES.CRITICAL_RANGE
   );
-  vectorSource.addFeature(line);
-  console.log("[drawRodeLine] Added rodeLine feature:", line);
-  console.log(
-    "[drawRodeLine] vectorSource feature count:",
-    vectorSource.getFeatures().length
-  );
-}
-
-function addFeatures() {
-  console.log("[addFeatures] vectorSource:", vectorSource);
-  console.log("[addFeatures] navigationState:", navigationState.value);
-  console.log("[addFeatures] anchorState:", anchorState.value);
   
-  // Ensure vector source and layer exist
-  if (!vectorSource || !vectorLayer) {
-    console.warn("[addFeatures] Vector source or layer missing, reinitializing");
-    ensureVectorSourceAndLayer();
-    
-    // Make sure the vector layer is added to the map
-    if (map.value && vectorLayer && !map.value.getLayers().getArray().includes(vectorLayer)) {
-      map.value.addLayer(vectorLayer);
-      console.log("[addFeatures] Added vectorLayer to map");
-    }
-  }
-  
-  // CLEAR ALL old features before adding new ones
-  if (vectorSource && typeof vectorSource.clear === "function") {
-    vectorSource.clear();
-    console.log("[addFeatures] vectorSource cleared");
-  }
-  try {
-    // Draw debug markers for original position
-    addDebugMarkers();
-    // Debug logging
-    const navPos = navigationState.value?.position;
-    const anchorLoc = anchorState.value?.anchorLocation;
-    const drop = anchorState.value?.anchorDropLocation;
-    console.log("[addFeatures] navPos:", navPos);
-    console.log("[addFeatures] anchorLoc:", anchorLoc);
-    console.log("[addFeatures] drop:", drop);
-    // Blue dot: current location from Pinia store
-    if (navPos?.longitude?.value !== undefined && navPos?.latitude?.value !== undefined) {
-      drawPositionDot(navPos.latitude.value, navPos.longitude.value, true); // Animate boat
-    }
-    // Green dot: anchor drop location
-    if (drop && drop.latitude && drop.longitude) {
-      // Access latitude and longitude correctly based on the actual structure
-      const dropLat = typeof drop.latitude === 'object' ? drop.latitude.value : drop.latitude;
-      const dropLon = typeof drop.longitude === 'object' ? drop.longitude.value : drop.longitude;
-      
-      drawAnchorDropLocationDot(dropLat, dropLon);
-      
-      // Use criticalRange.r as the only source of truth for the alarm circle radius
-      const radiusMeters =
-        anchorState.value.criticalRange &&
-        typeof anchorState.value.criticalRange.r === "number"
-          ? anchorState.value.criticalRange.r
-          : 0;
-      
-      drawCircleOnMap(dropLat, dropLon, radiusMeters, "meters", {
-        strokeColor: "#2196f3",
-        fillColor: "rgba(33,150,243,0.1)",
-      });
-    }
-    // Draw AISTargets (yellow, clickable)
-    AISTargets.value.forEach((target, idx) => {
-      const feature = new Feature({
-        geometry: new Point(fromLonLat([target.lon, target.lat])),
-        targetIdx: idx, // store index for click lookup
-      });
-      feature.setStyle(
-        new Style({
-          image: new CircleStyle({
-            radius: 6,
-            fill: new Fill({ color: "yellow" }),
-            stroke: new Stroke({ color: "#222", width: 2 }),
-          }),
-        })
-      );
-      vectorSource.addFeature(feature);
-      console.log("[addFeatures] Added AISTarget feature:", feature);
-      console.log(
-        "[addFeatures] vectorSource feature count:",
-        vectorSource.getFeatures().length
-      );
-    });
-    // Yellow dot: anchor location from anchorState
-    if (
-      anchorLoc &&
-      anchorLoc.position &&
-      anchorLoc.position.latitude &&
-      anchorLoc.position.longitude
-    ) {
-      // Access latitude and longitude correctly based on the actual structure
-      const anchorLat = typeof anchorLoc.position.latitude === 'object' ? anchorLoc.position.latitude.value : anchorLoc.position.latitude;
-      const anchorLon = typeof anchorLoc.position.longitude === 'object' ? anchorLoc.position.longitude.value : anchorLoc.position.longitude;
-      drawAnchorLocationDot(anchorLat, anchorLon);
-      // Draw rode (line) from current position to anchorLocation
-      if (
-        navPos?.latitude &&
-        navPos?.longitude &&
-        anchorLoc?.position?.latitude &&
-        anchorLoc?.position?.longitude
-      ) {
-        // Access latitude and longitude correctly for both positions
-        const boatLat = typeof navPos.latitude === 'object' ? navPos.latitude.value : navPos.latitude;
-        const boatLon = typeof navPos.longitude === 'object' ? navPos.longitude.value : navPos.longitude;
-        const anchorLat = typeof anchorLoc.position.latitude === 'object' ? anchorLoc.position.latitude.value : anchorLoc.position.latitude;
-        const anchorLon = typeof anchorLoc.position.longitude === 'object' ? anchorLoc.position.longitude.value : anchorLoc.position.longitude;
-        
-        drawRodeLine(
-          boatLat,
-          boatLon,
-          anchorLat,
-          anchorLon
-        );
-        // Calculate and log distance in feet between your position and anchor drop
-        const distanceMeters = calculateDistance(
-          boatLat,
-          boatLon,
-          anchorLat,
-          anchorLon
-        );
-        const distanceFeet = distanceMeters / 0.3048;
-        console.log(
-          `[AnchorView] Distance from position to anchorLoc: ${distanceFeet.toFixed(
-            2
-          )} feet (${distanceMeters.toFixed(2)} meters)`
-        );
-      }
-    } else {
-      if (anchorLoc) {
-        console.warn(
-          "[AnchorView] anchorLocation.position is missing or incomplete:",
-          anchorLoc.position
-        );
-      }
-    }
-    // Draw breadcrumbs: older = lighter
-    breadcrumbs.value.forEach((crumb, idx) => {
-      console.log("[addFeatures] Drawing breadcrumb:", crumb);
-      // Most recent is last, oldest is first
-      const age = idx / breadcrumbs.value.length;
-      // Fade from blue (recent) to transparent (old)
-      const alpha = 0.8 * (1 - age) + 0.1; // 0.9 (new) to 0.1 (old)
-      
-      // Access latitude and longitude correctly based on the actual structure
-      const lat = typeof crumb.latitude === 'object' ? crumb.latitude.value : crumb.latitude;
-      const lon = typeof crumb.longitude === 'object' ? crumb.longitude.value : crumb.longitude;
-      
-      addBreadcrumb(lon, lat, {
-        fillColor: `rgba(33,150,243,${alpha})`,
-        radius: 4,
-        strokeColor: `rgba(33,150,243,${alpha + 0.1})`,
-      });
-      
-    });
-
-  } catch (e) {
-    console.error("[AnchorView] Exception inside addFeatures:", e);
-    console.trace();
-  }
-}
-
-// Zoom functions removed - using native OpenLayers pinch-to-zoom functionality
-
-// Helper function to get initial zoom level from localStorage or use default
-function getInitialZoom() {
-  try {
-    // console.log('[AnchorView][getInitialZoom] Checking for saved zoom level in localStorage');
-    const savedZoom = localStorage.getItem("anchorMapZoom");
-    // console.log('[AnchorView][getInitialZoom] Raw saved zoom value:', savedZoom);
-    
-    if (savedZoom !== null) {
-      const parsedZoom = Number(savedZoom);
-      // console.log('[AnchorView][getInitialZoom] Parsed zoom value:', parsedZoom);
-      
-      // Validate zoom level is reasonable (between 5 and 19.5)
-      if (!isNaN(parsedZoom) && parsedZoom >= 5 && parsedZoom <= 22) {
-        // console.log(`[AnchorView][getInitialZoom] Restoring saved zoom level: ${parsedZoom}`);
-        return parsedZoom;
-      } else {
-        // console.log(`[AnchorView] Saved zoom level out of range: ${parsedZoom}, using default`);
-        localStorage.removeItem("anchorMapZoom"); // Clear invalid value
-      }
-    } else {
-      console.log('[AnchorView] No saved zoom level found in localStorage');
-    }
-  } catch (error) {
-    console.error('[AnchorView] Error retrieving zoom level from localStorage:', error);
-  }
-  
-  // Default zoom level if nothing valid in localStorage
-  console.log('[AnchorView] Using default zoom level: 15');
-  return 15; // Default zoom level
-}
-
-// Watch anchorDropLocation, rode, and bearing to update anchorLocation
-watch(
-  [
-    () => anchorState.value.anchorDropLocation?.position?.latitude,
-    () => anchorState.value.anchorDropLocation?.position?.longitude,
-    () => anchorState.value.anchorDropLocation?.originalBearing,
-    () => anchorState.value.rode?.amount,
-    () => anchorState.value.rode?.units,
-  ],
-  ([latitude, longitude, bearing, rodeAmount, rodeUnits]) => {
-    console.log("[WATCHER: anchorDropLocation/rode/originalBearing] fired:", {
+  // Calculate distance between boat and anchor for verification
+  if (boatPosition.value) {
+    const boatLat = boatPosition.value.latitude;
+    const boatLon = boatPosition.value.longitude;
+    const distanceToAnchor = calculateDistanceMeters(
+      boatLat,
+      boatLon,
       latitude,
-      longitude,
-      bearing,
-      rodeAmount,
-      rodeUnits,
+      longitude
+    );
+    
+    console.log('CRITICAL RANGE DEBUG - Distance verification:', {
+      boatPosition: [boatLon, boatLat],
+      anchorPosition: [longitude, latitude],
+      criticalRange: radiusInMeters,
+      actualDistance: distanceToAnchor,
+      difference: Math.abs(distanceToAnchor - radiusInMeters),
+      percentError: (Math.abs(distanceToAnchor - radiusInMeters) / radiusInMeters) * 100
     });
-    if (latitude && longitude) {
-      // Calculate bearing from breadcrumbs if possible
-      let computedBearing = anchorState.value.anchorLocation?.bearing || 0;
-      if (breadcrumbs.value.length >= 2) {
-        const prev = breadcrumbs.value[breadcrumbs.value.length - 2];
-        const curr = breadcrumbs.value[breadcrumbs.value.length - 1];
-        // Fix: use correct property names (latitude/longitude)
-        computedBearing = calculateBearing(
-          prev.latitude,
-          prev.longitude,
-          curr.latitude,
-          curr.longitude
-        );
+  }
+  
+  console.log('Circle created with radius:', radiusInMeters, 'meters at latitude', latitude);
+}, 50);
+
+const updateRodeLine = debounce(() => {
+  console.log('RODE LINE DEBUG - Starting updateRodeLine function');
+  
+  // First, clear any existing rode line
+  clearFeature(FEATURE_TYPES.RODE);
+  
+  // Exit if anchor is not deployed
+  if (!anchorState.value.anchorDeployed) {
+    console.log('RODE LINE DEBUG - Anchor not deployed, exiting');
+    return;
+  }
+  
+  // Get positions
+  const boatPos = boatPosition.value;
+  const anchorPos = anchorState.value.anchorLocation?.position;
+  
+  // Validate positions
+  if (!boatPos || !anchorPos) {
+    console.log('RODE LINE DEBUG - Missing position data');
+    return;
+  }
+  
+  // Extract coordinates
+  const boatLon = boatPos.longitude?.value ?? boatPos.longitude;
+  const boatLat = boatPos.latitude?.value ?? boatPos.latitude;
+  const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
+  const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+  
+  // Validate coordinates
+  if (typeof boatLon !== 'number' || typeof boatLat !== 'number' || 
+      typeof anchorLon !== 'number' || typeof anchorLat !== 'number') {
+    console.log('RODE LINE DEBUG - Invalid coordinates');
+    return;
+  }
+  
+  try {
+    // Create a direct feature without using the helper functions
+    const startCoord = fromLonLat([boatLon, boatLat]);
+    const endCoord = fromLonLat([anchorLon, anchorLat]);
+    
+    console.log('RODE LINE DEBUG - Transformed coordinates:', {
+      start: startCoord,
+      end: endCoord
+    });
+    
+    // Calculate the actual distance between boat and anchor
+    const actualDistance = calculateDistanceMeters(
+      boatLat,
+      boatLon,
+      anchorLat,
+      anchorLon
+    );
+    
+    // Get the rode length from the state
+    const rodeLength = anchorState.value.rode?.value || 0;
+    
+    console.log('RODE LINE DEBUG - Distance verification:', {
+      boatPosition: [boatLon, boatLat],
+      anchorPosition: [anchorLon, anchorLat],
+      rodeLength: rodeLength,
+      actualDistance: actualDistance,
+      difference: Math.abs(actualDistance - rodeLength),
+      percentError: rodeLength > 0 ? (Math.abs(actualDistance - rodeLength) / rodeLength) * 100 : 0
+    });
+    
+    // Create a custom style with high visibility
+    const rodeStyle = new Style({
+      stroke: new Stroke({
+        color: '#FF5722', // Deep orange
+        width: 4,
+        lineDash: [10, 5],
+      }),
+      zIndex: 100 // Ensure it's on top
+    });
+    
+    // Create a line feature directly
+    const rodeFeature = new Feature({
+      geometry: new LineString([startCoord, endCoord])
+    });
+    
+    // Set the feature type and style
+    rodeFeature.set('type', FEATURE_TYPES.RODE);
+    rodeFeature.setStyle(rodeStyle);
+    
+    // Add the feature directly to the source
+    vectorSource.addFeature(rodeFeature);
+    
+    // We don't need to store the feature reference manually
+    
+    // Inspect the vector source
+    console.log('RODE LINE DEBUG - Vector source:', vectorSource);
+    console.log('RODE LINE DEBUG - Vector source features:', vectorSource.getFeatures().length);
+    console.log('RODE LINE DEBUG - Vector source feature types:', vectorSource.getFeatures().map(f => f.get('type')));
+    
+    // Force the map to render
+    if (map.value) {
+      console.log('RODE LINE DEBUG - Map object:', map.value);
+      map.value.renderSync();
+      
+      // Get the layers and check their visibility
+      const layers = map.value.getLayers().getArray();
+      console.log('RODE LINE DEBUG - Map layers:', layers);
+      layers.forEach((layer, i) => {
+        console.log(`RODE LINE DEBUG - Layer ${i} visible:`, layer.getVisible());
+      });
+    }
+    
+    console.log('RODE LINE DEBUG - Rode line created with direct approach');
+  } catch (error) {
+    console.error('RODE LINE DEBUG - Error creating rode line:', error);
+  }
+}, 100);
+
+// Function to select the appropriate AIS style based on target type
+const getAisStyle = (target) => {
+  // Determine target type based on shipType or name
+  if (target.shipType === 36 || target.shipType === 37) {
+    // Pleasure craft
+    return STYLES.AIS_VESSEL;
+  } else if (target.shipType >= 70 && target.shipType <= 79) {
+    // Cargo vessels
+    return STYLES.AIS_HAZARD;
+  } else if (target.name && target.name.includes("LION")) {
+    // Example of name-based classification - for demo purposes
+    return STYLES.AIS_VESSEL;
+  } else {
+    // Default style for all other vessels
+    return STYLES.AIS_DEFAULT;
+  }
+};
+
+const updateAisTargets = debounce(() => {
+  console.log("updateAisTargets called", {
+    hasTargets: !!aisTargets.value,
+    targetsLength: aisTargets.value?.length || 0,
+    featureType: FEATURE_TYPES.AIS,
+  });
+
+  // Skip if no targets
+  if (!aisTargets.value || aisTargets.value.length === 0) {
+    console.log("No AIS targets, clearing feature");
+    clearFeature(FEATURE_TYPES.AIS);
+    return;
+  }
+
+  console.log("Updating AIS targets:", aisTargets.value.length, aisTargets.value);
+
+  // Filter for valid targets and create features
+  const validTargets = aisTargets.value
+    .filter((target) => {
+      // Check if target has valid coordinates
+      if (!target || !target.position) return false;
+
+      const lat = target.position.latitude;
+      const lon = target.position.longitude;
+
+      const isValid = typeof lat === "number" && typeof lon === "number";
+      if (!isValid) {
+        console.log("Invalid AIS target coordinates:", target);
       }
-      anchorState.value.anchorLocation = {
-        ...anchorState.value.anchorLocation,
-        position: {
-          latitude,
-          longitude,
-        },
-        time: Date.now(),
-        distanceFromCurrentLocation: 0,
-        originalBearing: bearing,
-        bearing: computedBearing,
+      return isValid;
+    })
+    .map((target) => {
+      // Extract coordinates from the position structure
+      const lon = target.position.longitude;
+      const lat = target.position.latitude;
+
+      // Create a feature with the target's data
+      const feature = new Feature({
+        geometry: new Point(fromLonLat([lon, lat])),
+        mmsi: target.mmsi,
+        name: target.name || 'Unknown Vessel',
+        type: FEATURE_TYPES.AIS
+      });
+      
+      // Set the style
+      feature.setStyle(getAisStyle(target));
+      
+      return feature;
+    });
+
+  console.log("Valid AIS targets:", validTargets.length);
+
+  // Clear existing AIS features
+  clearFeature(FEATURE_TYPES.AIS);
+  
+  // Add each feature to the source directly
+  validTargets.forEach(feature => {
+    vectorSource.addFeature(feature);
+  });
+  
+  // No need to store features manually - they're managed by the vectorSource
+}, 200);
+
+const updateBreadcrumbs = debounce(() => {
+  // Skip if no breadcrumbs
+  if (!breadcrumbs.value || breadcrumbs.value.length === 0) {
+    clearFeature(FEATURE_TYPES.BREADCRUMB);
+    return;
+  }
+
+  console.log("Updating breadcrumbs:", breadcrumbs.value.length);
+
+  // Filter for valid breadcrumbs and create features
+  const validCrumbs = breadcrumbs.value
+    .filter((crumb) => {
+      // Check if crumb has valid coordinates
+      if (!crumb) return false;
+      const lat = crumb.latitude?.value ?? crumb.latitude;
+      const lon = crumb.longitude?.value ?? crumb.longitude;
+      return typeof lat === "number" && typeof lon === "number";
+    })
+    .map((crumb, idx, array) => {
+      // Calculate age factor (0 = newest, 1 = oldest)
+      const age = idx / Math.max(array.length - 1, 1);
+
+      // Extract coordinates
+      const lon = crumb.longitude?.value ?? crumb.longitude;
+      const lat = crumb.latitude?.value ?? crumb.latitude;
+
+      return {
+        geometry: new Point(fromLonLat([lon, lat])),
+        style: createStyle({
+          circle: {
+            radius: 3,
+            fill: { color: `rgba(33,150,243,${0.9 - age * 0.8})` },
+            stroke: {
+              color: `rgba(21,101,192,${0.9 - age * 0.7})`,
+              width: 1,
+            },
+          },
+        }),
       };
+    });
+
+  console.log("Valid breadcrumbs:", validCrumbs.length);
+
+  // Update the feature group
+  updateFeatureGroup(FEATURE_TYPES.BREADCRUMB, validCrumbs);
+}, 300);
+
+// Map Initialization
+const initializeMap = () => {
+  const pos = navigationState.value?.position;
+  const defaultCenter =
+    pos?.latitude?.value && pos?.longitude?.value
+      ? fromLonLat([pos.longitude.value, pos.latitude.value])
+      : fromLonLat([0, 0]);
+
+  // Create the map with minimal interactions initially
+  map.value = new Map({
+    target: mapElement.value,
+    layers: [
+      new TileLayer({ source: new OSM() }),
+      new VectorLayer({ source: vectorSource, zIndex: 5 }),
+    ],
+    view: new View({
+      center: savedView?.center || defaultCenter,
+      zoom: savedView?.zoom || 15,
+      rotation: savedView?.rotation || 0,
+      minZoom: 5,
+      maxZoom: 22,
+    }),
+    controls: defaultControls({ zoom: true }),
+    interactions: defaultInteractions({
+      // Start with minimal interactions
+      dragPan: true,
+      pinchZoom: true,
+      mouseWheelZoom: false // Disable default and add our custom one below
+    }),
+    pixelRatio: window.devicePixelRatio,
+  });
+
+  // Set willReadFrequently attribute on the canvas for better performance
+  const canvas = map.value.getViewport().querySelector('canvas');
+  if (canvas) {
+    canvas.getContext('2d', { willReadFrequently: true });
+  }
+
+  // Add mouse wheel zoom interaction manually with custom options
+  const mouseWheelZoom = new MouseWheelZoom({
+    duration: 250,
+    timeout: 80,
+    useAnchor: true
+  });
+  map.value.addInteraction(mouseWheelZoom);
+
+  map.value.addControl(new ScaleLine({ units: "metric" }));
+  map.value.on("moveend", saveViewState);
+  
+  // Add click handler for features
+  map.value.on('click', handleMapClick);
+  
+  // Add debug logging for interactions
+  if (DEBUG_WHEEL_EVENTS) {
+    console.log('Map interactions:', map.value.getInteractions().getArray());
+    console.log('MouseWheelZoom interaction exists:', 
+      map.value.getInteractions().getArray().some(i => i instanceof MouseWheelZoom));
+  }
+
+  // Add both passive and non-passive event listeners as fallback
+  mapElement.value.addEventListener('wheel', handleWheelEvent, { passive: false });
+  document.addEventListener('wheel', handleWheelEvent, { passive: false, capture: true });
+  
+  // Focus management
+  mapElement.value.tabIndex = 0; // Make focusable
+  mapElement.value.style.outline = 'none';
+  mapElement.value.focus();
+  
+  console.log('Map initialized with enhanced wheel zoom handling');
+};
+
+// Watchers
+watch(boatPosition, updateBoatPosition, { immediate: true });
+
+// Watch for anchor state changes
+watch(anchorState, () => {
+  console.log('WATCH DEBUG - Anchor state changed:', anchorState.value);
+  if (anchorState.value.anchorDeployed) {
+    updateAnchorPoints();
+    updateCriticalRangeCircle();
+    updateRodeLine();
+  } else {
+    clearFeature(FEATURE_TYPES.ANCHOR_DROP_LOCATION);
+    clearFeature(FEATURE_TYPES.ANCHOR_LOCATION);
+    clearFeature(FEATURE_TYPES.RODE);
+    clearFeature(FEATURE_TYPES.CIRCLE);
+  }
+}, { deep: true, immediate: true });
+
+// Watch boat position to update rode line when anchor is deployed
+watch(boatPosition, () => {
+  console.log('WATCH DEBUG - Boat position changed');
+  if (anchorState.value.anchorDeployed) {
+    updateRodeLine();
+  }
+}, { deep: true });
+
+// Removed duplicate watch as it's now handled by the anchor state watch
+
+// Auto-center map when position updates
+watch(
+  () => navigationState.value?.position,
+  (newPos) => {
+    if (map.value && newPos?.latitude?.value && newPos?.longitude?.value) {
+      const center = fromLonLat([newPos.longitude.value, newPos.latitude.value]);
+      map.value.getView().setCenter(center);
     }
   },
   { immediate: true }
 );
 
-onMounted(() => {
-  ensureVectorSourceAndLayer();
-  
-  // Request location permission on mount
-  setTimeout(() => {
-    // Check if we already have location data
-    const pos = navigationState.value?.position;
-    const hasValidPosition = 
-      pos && 
-      pos.latitude && 
-      pos.longitude && 
-      typeof pos.latitude.value === 'number' && 
-      typeof pos.longitude.value === 'number' && 
-      Math.abs(pos.latitude.value) > 0.0001 && 
-      Math.abs(pos.longitude.value) > 0.0001;
-      
-    if (!hasValidPosition) {
-      console.log('[AnchorView] No valid position on mount, requesting location permission');
-      requestLocationPermission();
-      
-      // Set a timeout to check if we got location data
-      setTimeout(() => {
-        const newPos = navigationState.value?.position;
-        const nowHasValidPosition = 
-          newPos && 
-          newPos.latitude && 
-          newPos.longitude && 
-          typeof newPos.latitude.value === 'number' && 
-          typeof newPos.longitude.value === 'number' && 
-          Math.abs(newPos.latitude.value) > 0.0001 && 
-          Math.abs(newPos.longitude.value) > 0.0001;
-          
-        if (!nowHasValidPosition) {
-          console.log('[AnchorView] Still no valid position after delay, marking as failed');
-          locationRequestFailed.value = true;
-        }
-      }, 5000); // Check after 5 seconds
+// Watch for critical anchor state changes
+watch(
+  [criticalRange, () => anchorState.value?.dragging],
+  ([range, isDragging]) => {
+    console.log('WATCH DEBUG - Critical anchor state changed:', {
+      criticalRange: range,
+      isDragging: isDragging
+    });
+    
+    // If anchor is deployed, fit the map to show both boat and anchor
+    if (anchorState.value.anchorDeployed) {
+      fitToFeatures([FEATURE_TYPES.BOAT, FEATURE_TYPES.ANCHOR_LOCATION]);
     }
-  }, 1000); // Small delay to allow any existing location data to load
-  // Defensive: remove any old map instance
-  if (map.value && typeof map.value.setTarget === "function") {
-    map.value.setTarget(null);
-    map.value = null;
-    console.log("[AnchorView] Old map instance detached");
-  }
+    
+    // Get the anchor location from the state (not the drop location)
+    // This is where the anchor is currently located, which should be the center of the circle
+    const anchorLoc = anchorState.value.anchorLocation;
+    
+    console.log("CIRCLE DEBUG - Circle center:", [
+      anchorLoc?.position?.longitude?.value,
+      anchorLoc?.position?.latitude?.value,
+    ]);
+    console.log("CIRCLE DEBUG - Radius:", range);
+    console.log("CIRCLE DEBUG - Anchor deployed:", anchorState.value.anchorDeployed);
+    console.log("CIRCLE DEBUG - Anchor dragging:", isDragging);
 
-  // Always ensure the map container exists
-  if (!mapElement.value) {
-    console.error("[AnchorView] mapElement ref is missing!");
+    if (!anchorState.value.anchorDeployed || range === undefined || !anchorLoc?.position) {
+      console.log("CIRCLE DEBUG - Missing required data, clearing circle");
+      clearFeature(FEATURE_TYPES.CIRCLE);
+      return;
+    }
+
+    // Make sure we have valid coordinates
+    if (!validateCoordinates(anchorLoc.position)) {
+      console.log("CIRCLE DEBUG - Invalid coordinates for circle");
+      clearFeature(FEATURE_TYPES.CIRCLE);
+      return;
+    }
+
+    // Get the position coordinates
+    const position = anchorLoc.position;
+    const latitude = position.latitude?.value || position.latitude;
+    const longitude = position.longitude?.value || position.longitude;
+
+    // Create the center point
+    const center = fromLonLat([longitude, latitude]);
+    console.log("Processed center:", center);
+
+    // Get the radius value (range is already the r value from the computed property)
+    const radius = range;
+    console.log("Processed radius:", radius);
+
+    // Choose the appropriate style based on the dragging state
+    const rangeStyle = isAnchorDragging.value ? STYLES.CRITICAL_RANGE : STYLES.NORMAL_RANGE;
+    console.log(
+      "Using style:",
+      isDragging ? "CRITICAL_RANGE (red)" : "NORMAL_RANGE (blue)"
+    );
+
+    // Clear any existing critical range circle
+    clearFeature(FEATURE_TYPES.CIRCLE);
+    
+    // Create a circle with the correct radius in meters using our accurate function
+    const circleGeometry = createCircleWithRadius([longitude, latitude], radius);
+    
+    // Create a new feature with the circle geometry
+    const feature = new Feature({
+      geometry: circleGeometry
+    });
+    feature.set('type', 'critical-range');
+    feature.setStyle(rangeStyle);
+    
+    // Add the feature to the vector source
+    vectorSource.addFeature(feature);
+    
+    console.log('Range circle created with radius:', radius, 'meters at latitude', latitude);
+    
+    // Also update the boat-centered range circle
+    updateBoatRangeCircle();
+  },
+  { immediate: true, deep: true }
+);
+
+// Function to update the boat-centered normal range circle
+const updateBoatRangeCircle = debounce(() => {
+  console.log('BOAT RANGE DEBUG - Function called');
+  
+  // Clear any existing boat range circle
+  clearFeature(FEATURE_TYPES.BOAT_RANGE);
+  
+  // Exit if anchor is not deployed or we don't have boat position
+  if (!anchorState.value.anchorDeployed || !boatPosition.value || !anchorState.value.criticalRange) {
+    console.log('BOAT RANGE DEBUG - Early exit:', {
+      anchorDeployed: anchorState.value.anchorDeployed,
+      hasBoatPosition: !!boatPosition.value,
+      hasCriticalRange: !!anchorState.value.criticalRange
+    });
+    return;
+  }
+  
+  // Get boat position - properly extract numeric values from potentially nested objects
+  const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
+  const boatLon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
+  
+  console.log('BOAT RANGE DEBUG - Extracted boat position:', {
+    rawLatitude: boatPosition.value.latitude,
+    rawLongitude: boatPosition.value.longitude,
+    extractedLatitude: boatLat,
+    extractedLongitude: boatLon,
+    isLatitudeNumber: typeof boatLat === 'number',
+    isLongitudeNumber: typeof boatLon === 'number'
+  });
+  
+  // Use the same radius as the critical range
+  const radius = anchorState.value.criticalRange.r;
+  
+  console.log('BOAT RANGE DEBUG - Creating circle with:', {
+    boatPosition: [boatLon, boatLat],
+    radius: radius
+  });
+  
+  // Create a circle with the correct radius in meters using our accurate function
+  const circleGeometry = createCircleWithRadius([boatLon, boatLat], radius);
+  
+  // Use the updateFeature function to create and add the feature
+  updateFeature(
+    FEATURE_TYPES.BOAT_RANGE,
+    circleGeometry,
+    STYLES.NORMAL_RANGE
+  );
+  
+  console.log('Boat range circle created with radius:', radius, 'meters at latitude', boatLat);
+}, 50);
+
+// Also watch for boat position changes to update the boat range circle
+watch(
+  () => boatPosition.value,
+  () => {
+    updateBoatRangeCircle();
+  },
+  { deep: true }
+);
+
+// Watch for critical range changes
+watch(
+  criticalRange,
+  (newVal) => {
+    console.log("Critical range changed:", newVal);
+    console.log("Anchor drop location:", anchorDropLocation.value);
+    console.log("Anchor deployed:", anchorDeployed.value);
+  },
+  { immediate: true }
+);
+
+// Watch for AIS targets changes
+watch(
+  aisTargets,
+  (newTargets) => {
+    console.log("AIS targets changed:", newTargets?.length || 0);
+    updateAisTargets();
+  },
+  { immediate: true, deep: true }
+);
+
+// Watch for breadcrumbs changes
+watch(breadcrumbs, updateBreadcrumbs, { immediate: true });
+
+// Modal State
+const showSetAnchorDialog = ref(false);
+const showUpdateDialog = ref(false);
+const showCancelDialog = ref(false);
+const showUpdateDropConfirm = ref(false);
+const locationRequestFailed = ref(false);
+
+// Modal Handlers
+const handleSetAnchor = () => {
+  if (!validateCoordinates(boatPosition.value)) {
+    console.log("Cannot set anchor: Invalid boat position");
     return;
   }
 
-  // Re-initialize vectorSource/layer if needed
-  ensureVectorSourceAndLayer();
-
-  // Remove all features before re-adding
-  if (vectorSource && typeof vectorSource.clear === "function") {
-    vectorSource.clear();
-    console.log("[AnchorView] vectorSource cleared on mount");
-  }
-
-  // Compose layers: base + vector
-  const layers = [new TileLayer({ source: new OSM() })];
-  
-  // Make sure vectorLayer exists and is properly initialized
-  if (vectorLayer) {
-    layers.push(vectorLayer);
-    console.log("[AnchorView] vectorLayer added to layers array");
-  } else {
-    console.error("[AnchorView] vectorLayer is not initialized!");
-    // Re-initialize if needed
-    ensureVectorSourceAndLayer();
-    if (vectorLayer) {
-      layers.push(vectorLayer);
-      console.log("[AnchorView] vectorLayer re-initialized and added to layers");
-    }
-  }
-
-  // Determine map center
-  let mapCenter = [0, 0];
-  const pos = navigationState.value?.position;
-  if (pos?.longitude?.value !== undefined && pos?.latitude?.value !== undefined) {
-    mapCenter = [pos.longitude.value, pos.latitude.value];
-    console.log("[AnchorView] Using Pinia position for map center:", mapCenter);
-  } else if (
-    anchorState.value?.anchorLocation?.position?.longitude !== undefined &&
-    anchorState.value?.anchorLocation?.position?.latitude !== undefined
-  ) {
-    mapCenter = [
-      anchorState.value.anchorLocation.position.longitude,
-      anchorState.value.anchorLocation.position.latitude,
-    ];
-    console.log("[AnchorView] Using anchorLocation.position for map center:", mapCenter);
-  } else {
-    console.log("[AnchorView] Using fallback [0,0] for map center");
-  }
-
-  // Create map
-  map.value = new Map({
-    target: mapElement.value,
-    layers,
-    view: new View({
-      center: fromLonLat(mapCenter),
-      zoom: getInitialZoom() || 18.9,
-    }),
-    controls: defaultControls({ zoom: false }),
-  });
-  console.log("[AnchorView] map created:", map.value);
-  console.log(
-    "[AnchorView] vectorLayer in map?",
-    map.value.getLayers().getArray().includes(vectorLayer)
-  );
-  // --- DIAGNOSTIC LOGS ---
-  if (vectorLayer) {
-    console.log("[AnchorView] vectorLayer source:", vectorLayer.getSource());
-    console.log(
-      "[AnchorView] vectorSource === vectorLayer.getSource():",
-      vectorSource === vectorLayer.getSource()
-    );
-  }
-  if (map.value) {
-    console.log("[AnchorView] map layers:", map.value.getLayers().getArray());
-  }
-
-  // Restore zoom level from localStorage
-  const savedZoom = localStorage.getItem("anchorMapZoom");
-  if (savedZoom && map.value && map.value.getView) {
-    map.value.getView().setZoom(Number(savedZoom));
-  }
-  if (map.value && map.value.getView) {
-    map.value.getView().on("change:resolution", () => {
-      const currentZoom = map.value.getView().getZoom();
-      localStorage.setItem("anchorMapZoom", currentZoom);
-    });
-  }
-
-  // Remove default zoom control and add ScaleLine
-  map.value.getControls().forEach((control) => {
-    if (control && control.constructor && control.constructor.name === "Zoom") {
-      map.value.removeControl(control);
-    }
-  });
-  const scaleLineControl = new ScaleLine({
-    units: "metric",
-    bar: true,
-    steps: 4,
-    text: true,
-  });
-  map.value.addControl(scaleLineControl);
-
-  // Always recenter map view when features are updated
-  if (pos?.longitude?.value !== undefined && pos?.latitude?.value !== undefined) {
-    map.value.getView().setCenter(fromLonLat([pos.longitude.value, pos.latitude.value]));
-    console.log(
-      "[AnchorView] map view recentered to:",
-      pos.longitude.value,
-      pos.latitude.value
-    );
-  }
-  // Add features after map is ready
-  nextTick(() => {
-    // Ensure the map is fully rendered before adding features
-    addFeatures();
-    console.log("[AnchorView] Features added after nextTick");
+  try {
+    // Extract values safely
+    const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
+    const boatLon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
     
-    // Force refresh the map to ensure features are rendered
-    if (map.value) {
-      map.value.updateSize();
-      console.log("[AnchorView] Map size updated");
-    }
+    // Use a default bearing of 180 degrees (south) if not set
+    // This ensures the anchor is placed in a different location than the boat
+    const bearing = anchorState.value.bearing?.value ?? 180;
     
-    // Verify features were added
-    if (vectorSource) {
-      console.log("[AnchorView] Feature count:", vectorSource.getFeatures().length);
-      vectorSource.getFeatures().forEach(feature => {
-        console.log("[AnchorView] Feature:", feature.get('name'), feature);
-      });
-    }
-  });
-  
-  // Watch for position changes
-  stateStore.$subscribe(() => {
-    if (map.value && vectorLayer && vectorSource) {
-      addFeatures();
-    } else {
-      console.error("[AnchorView] Map or vector components missing in subscription");
-    }
-  });
+    // IMPORTANT: The bearing needs to be in radians for the calculation
+    // The bearing is the direction FROM the boat TO the anchor
+    const bearingRad = bearing * Math.PI / 180; // Convert degrees to radians
+    
+    // Make sure we have a non-zero rode length (default to 50m if not set)
+    const rode = anchorState.value.rode?.amount ?? 50;
+    const depth = navigationState.value?.depth?.value ?? 0; // Use 0 as default if no depth
 
-  // Add click handler for AIS target features
-  map.value.on("singleclick", function (evt) {
-    map.value.forEachFeatureAtPixel(evt.pixel, function (feature) {
-      if (feature.get("targetIdx") !== undefined) {
-        const idx = feature.get("targetIdx");
-        const target = AISTargets.value[idx];
-        if (target) {
-          console.log("AISTarget clicked:", target);
-        }
-      }
+    // Debug the values being passed to getComputedAnchorLocation
+    console.log('ANCHOR DEBUG - Computing anchor location with:', {
+      dropLocation: { latitude: boatLat, longitude: boatLon },
+      rode: rode,
+      bearing: bearingRad,
+      depth: depth
     });
-  });
-
-  console.log("[AnchorView] onMounted complete");
-
-  onUnmounted(() => {
-    if (vectorSource && typeof vectorSource.clear === "function") {
-      vectorSource.clear();
-      console.log("[AnchorView] vectorSource cleared on unmount");
-    }
-    if (typeof boatAnimationFrameId !== "undefined" && boatAnimationFrameId) {
-      cancelAnimationFrame(boatAnimationFrameId);
-    }
-    if (map.value && typeof map.value.setTarget === "function") {
-      map.value.setTarget(null);
-      map.value = null;
-      console.log("[AnchorView] map instance detached on unmount");
-    }
-    console.trace("[AnchorView] onUnmounted called");
-  });
-});
-// --- Watch for map disappearance and LOG if it happens (no patching) ---
-// (Removed stray watcher and commented code to fix SFC parse error)
-// If you need this watcher, place it INSIDE onMounted or another function, not at the root.
-
-watch(
-  () => anchorState.value.rode?.amount,
-  (newRodeLength) => {
-    if (newRodeLength) updateAnchorPosition();
-  }
-);
-
-function updateAnchorPosition() {
-  // TODO: Implement logic to update anchor/boat position based on anchor drag
-  // This function should NOT update navigationState.value.position if it would cause recursion
-  // Add your update logic here
-}
-
-function updateAnchorDropLocation() {
-  // Update the anchor drop location. If anchor drags, user can use this location
-  //  as the new drop location.
-  anchorState.value.anchorDropLocation = anchorState.value.anchorLocation;
-  anchorState.value.anchorDropLocation.time = Date.now();
-}
-
-// Utility to check if map is visible and log errors if not
-function checkMapVisibility() {
-  if (!map.value) {
-    console.error("[ANCHOR MAP] Map instance is null!");
-    console.trace("[AnchorView] map.value is null (checked in checkMapVisibility)");
-    return false;
-  }
-  const el = mapElement.value;
-  if (!el) {
-    console.error("[ANCHOR MAP] Map DOM element is missing!");
-    return false;
-  }
-  const style = window.getComputedStyle(el);
-  if (
-    style.display === "none" ||
-    style.visibility === "hidden" ||
-    el.offsetWidth === 0 ||
-    el.offsetHeight === 0
-  ) {
-    console.error("[ANCHOR MAP] Map DOM element is not visible!");
-    return false;
-  }
-  const canvas = el.querySelector("canvas");
-  if (!canvas) {
-    console.error("[ANCHOR MAP] Map canvas is missing!");
-    return false;
-  }
-  return true;
-}
-
-// Watch for relevant state changes to update map features
-watch(
-  [
-    () => navigationState.value.position,
-    () => anchorState.value.anchorLocation,
-    () => anchorState.value.anchorDropLocation,
-  ],
-  debounce(([pos, anchorLoc, anchorDropLoc]) => {
-    console.log("[WATCHER: map features update] fired:", {
-      navPos: pos,
-      anchorLoc,
-      anchorDropLoc,
+    
+    // Calculate anchor position using the state store's function
+    const computedAnchorLocation = getComputedAnchorLocation(
+      { latitude: boatLat, longitude: boatLon },
+      rode,
+      bearingRad,
+      depth
+    );
+    
+    console.log('ANCHOR DEBUG - Computed anchor location:', computedAnchorLocation);
+    
+    // Calculate the distance between boat and anchor positions
+    const distanceToAnchor = calculateDistanceMeters(
+      boatLat,
+      boatLon,
+      computedAnchorLocation.latitude,
+      computedAnchorLocation.longitude
+    );
+    
+    console.log('ANCHOR DEBUG - Distance calculations:', {
+      boatPosition: [boatLon, boatLat],
+      anchorPosition: [computedAnchorLocation.longitude, computedAnchorLocation.latitude],
+      rodeLength: rode,
+      calculatedDistance: distanceToAnchor,
+      difference: Math.abs(rode - distanceToAnchor)
     });
+
+    // Update the anchor state in the store
+    state.value.anchor = {
+      anchorDropLocation: {
+        position: {
+          latitude: { value: boatLat, units: "deg" },
+          longitude: { value: boatLon, units: "deg" },
+        },
+        time: new Date().toISOString(),
+        depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
+        bearing: { value: bearing, units: "rad", degrees: bearing * 180 / Math.PI }
+      },
+      anchorLocation: {
+        position: {
+          latitude: { value: computedAnchorLocation.latitude, units: "deg" },
+          longitude: { value: computedAnchorLocation.longitude, units: "deg" },
+        },
+        time: new Date().toISOString(),
+        depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
+        distancesFromCurrent: {
+          value: 0,
+          units: "m",
+          nauticalMiles: null,
+        },
+        distancesFromDrop: {
+          value: 0,
+          units: "m",
+          nauticalMiles: null,
+        },
+        originalBearing: { value: bearing, units: "rad", degrees: bearing * 180 / Math.PI },
+        bearing: { value: bearing, units: "rad", degrees: bearing * 180 / Math.PI }
+      },
+      aisTargets: state.value.anchor.aisTargets || [], // Preserve existing AIS targets,
+      rode: {
+        amount: rode,
+        units: "m",
+      },
+      criticalRange: {
+        r: anchorState.value.criticalRange?.r || rode, // Use the value from the range slider, or rode as fallback
+        units: "m",
+      },
+      warningRange: {
+        r: rode * 0.75, // 75% of rode length as warning range
+        units: "m",
+      },
+      defaultScope: {
+        value: 5,
+        units: "ratio",
+      },
+      dragging: false,
+      anchorDeployed: true,
+      history: [],
+      useDeviceGPS: true
+    };
+
+    // Create a clean object for localStorage
+    const storageState = {
+      anchorDeployed: true,
+      anchorDropLocation: state.value.anchor.anchorDropLocation,
+      anchorLocation: state.value.anchor.anchorLocation,
+      criticalRange: state.value.anchor.criticalRange,
+      warningRange: state.value.anchor.warningRange,
+      rode: state.value.anchor.rode,
+    };
+
+    // Log the state for debugging
+    console.log("Anchor deployed status:", anchorState.value.anchorDeployed);
+    console.log("Full anchor state:", anchorState.value);
+
     try {
-      if (map.value?.getTarget()) addFeatures();
+      // Save to local storage
+      localStorage.setItem("anchorState", JSON.stringify(storageState));
+      console.log("Anchor state saved to local storage");
     } catch (e) {
-      console.error("[AnchorView] Exception in addFeatures:", e);
-      console.trace();
+      console.error("Failed to save anchor state:", e);
     }
-    checkMapVisibility();
-  }, 100),
-  { deep: true, immediate: true }
-);
 
-// Watch for changes to the critical radius and update the map immediately
-watch(
-  () =>
-    anchorState.value.criticalRange &&
-    typeof anchorState.value.criticalRange.r === "number"
-      ? anchorState.value.criticalRange.r
-      : 0,
-  (newRadius) => {
-    console.log("[WATCHER: criticalRange.r] fired:", newRadius);
-    addFeatures();
-    checkMapVisibility();
+    // Close the dialog
+    showSetAnchorDialog.value = false;
+
+    // Update the map - force immediate updates in the correct order
+    updateAnchorPoints();
+    updateCriticalRangeCircle();
+    
+    // Force update the rode line with a slight delay to ensure other updates are complete
+    console.log('FORCE UPDATE - Calling updateRodeLine directly');
+    updateRodeLine();
+    
+    // Force update the boat range circle
+    console.log('FORCE UPDATE - Calling updateBoatRangeCircle directly');
+    updateBoatRangeCircle();
+
+    // Close the modal
+    showSetAnchorDialog.value = false;
+  } catch (error) {
+    console.error("Failed to save anchor state:", error);
+    alert("Error saving anchor position. See console for details.");
+    // Close the modal even if there's an error
+    showSetAnchorDialog.value = false;
   }
-);
+};
 
-onMounted(() => {
-  // Watch for position changes to update breadcrumbs
-  watch(
-    () => navigationState.value?.position,
-    (newPos, oldPos) => {
-      if (oldPos && oldPos.latitude && oldPos.longitude) {
-        // Add previous position to breadcrumbs
-        // Log the structure of the position object for debugging
-        console.log("[breadcrumb watcher] Adding position to breadcrumbs:", oldPos);
-        breadcrumbs.value.push({
-          latitude: oldPos.latitude,
-          longitude: oldPos.longitude,
-        });
-        // Limit to 50
-        if (breadcrumbs.value.length > 50) breadcrumbs.value.shift();
-      }
-    },
-    { deep: true }
-  );
+const handleUpdateDropLocation = () => {
+  if (!validateCoordinates(boatPosition.value)) return;
 
-  // Recenter map when current position changes
-  watch(
-    () => navigationState.value?.position,
-    (newPos) => {
-      if (map.value && newPos?.longitude && newPos?.latitude) {
-        map.value.getView().setCenter(fromLonLat([newPos.longitude, newPos.latitude]));
-      }
-    },
-    { immediate: false }
-  );
+  anchorState.value.anchorDropLocation.position = {
+    latitude: boatPosition.value.latitude.value,
+    longitude: boatPosition.value.longitude.value,
+  };
+  showUpdateDialog.value = false;
+};
 
-  // Add click handler for AIS target features
-  map.value?.on("singleclick", function (evt) {
-    map.value.forEachFeatureAtPixel(evt.pixel, function (feature) {
-      if (feature.get("targetIdx") !== undefined) {
-        const idx = feature.get("targetIdx");
-        const target = AISTargets.value[idx];
-        if (target) {
-          // For now, log info. Replace with navigation or event as needed.
-          console.log("AISTarget clicked:", target);
-        }
-      }
-    });
+const confirmUpdateDropLocation = () => {
+  handleUpdateDropLocation();
+  showUpdateDropConfirm.value = false;
+};
+
+const handleCancelAnchor = () => { 
+  // First, identify all features we want to keep
+  const boatFeatures = [];
+  const aisFeatures = [];
+  
+  // Get all boat and AIS features
+  vectorSource.forEachFeature(feature => {
+    const featureType = feature.get('type');
+    if (featureType === FEATURE_TYPES.BOAT) {
+      boatFeatures.push(feature);
+    } else if (featureType === FEATURE_TYPES.AIS) {
+      aisFeatures.push(feature);
+    }
   });
-  // Debug: log position from Pinia store at mount
-  // console.log('[AnchorView] navigationState.position onMounted:', navigationState.value?.position);
-  const pos = navigationState.value?.position;
-  // Use anchorState.value.anchorLocation for fallback map center
-  let mapCenter;
-  if (pos?.longitude?.value !== undefined && pos?.latitude?.value !== undefined) {
-    mapCenter = [pos.longitude.value, pos.latitude.value];
-    console.log("[AnchorView] Using Pinia position for map center:", mapCenter);
-    console.log("[AnchorView] fromLonLat result for map center:", fromLonLat(mapCenter));
-  } else if (
-    anchorState.value?.anchorLocation?.position?.longitude !== undefined &&
-    anchorState.value?.anchorLocation?.position?.latitude !== undefined
-  ) {
-    mapCenter = [
-      anchorState.value.anchorLocation.position.longitude,
-      anchorState.value.anchorLocation.position.latitude,
-    ];
-    console.log("[AnchorView] Using anchorLocation.position for map center:", mapCenter);
-    console.log(
-      "[AnchorView] fromLonLat result for anchorLocation.position:",
-      fromLonLat(mapCenter)
-    );
-  } else {
-    mapCenter = [0, 0]; // fallback to (0,0) if nothing available
-    console.log("[AnchorView] Using fallback [0,0] for map center");
-  }
-  // Only initialize the map if we have valid location data
-  const hasValidLocation = 
-    pos && 
-    pos.latitude && 
-    pos.longitude && 
-    typeof pos.latitude.value === 'number' && 
-    typeof pos.longitude.value === 'number' && 
-    Math.abs(pos.latitude.value) > 0.0001 && 
-    Math.abs(pos.longitude.value) > 0.0001;
   
-  // Ensure we have a clean map initialization
-  if (map.value && typeof map.value.setTarget === "function") {
-    console.log("[AnchorView] Cleaning up existing map instance");
-    map.value.setTarget(null);
-    map.value = null;
+  console.log('Found features to preserve:', {
+    boatFeatures: boatFeatures.length,
+    aisFeatures: aisFeatures.length
+  });
+  
+  // Clear ALL features from the vector source
+  vectorSource.clear();
+  
+  // Re-add the boat features
+  boatFeatures.forEach(feature => {
+    vectorSource.addFeature(feature);
+  });
+  
+  // Re-add the AIS features
+  aisFeatures.forEach(feature => {
+    vectorSource.addFeature(feature);
+  });
+  
+  // If no boat feature was found, force an update of the boat position
+  if (boatFeatures.length === 0 && boatPosition.value) {
+    updateBoatPosition();
   }
+  
+  // Reset the anchor state in the store
+  stateStore.cancelAnchor();
+  
+  // Close the dialog
+  showCancelDialog.value = false;
+  
+  console.log('All anchor-related features have been cleared from the map');
+};
 
-  if (hasValidLocation) {
-    console.log("[AnchorView] Creating new map instance with valid location data");
-    const initialZoom = getInitialZoom();
-    console.log(`[AnchorView] Using initial zoom level: ${initialZoom}`);
+const degreesToRadians = (degrees) => degrees * (Math.PI / 180);
+
+// Handle map clicks to detect feature clicks
+const handleMapClick = (event) => {
+  // Get features at the click position
+  const clickedFeatures = map.value.getFeaturesAtPixel(event.pixel);
+  
+  if (clickedFeatures && clickedFeatures.length > 0) {
+    // Check if any of the features is an AIS target
+    const aisFeature = clickedFeatures.find(feature => feature.get('type') === FEATURE_TYPES.AIS);
     
-    // Create the map with the initial zoom level
-    map.value = new Map({
-      target: mapElement.value,
-      layers: [new TileLayer({ source: new OSM() }), vectorLayer],
-      view: new View({
-        center: fromLonLat([pos.longitude.value, pos.latitude.value]),
-        zoom: initialZoom,
-      }),
-      controls: defaultControls({ zoom: false }), // Disable default zoom control
-    });
-  } else {
-    console.log("[AnchorView] Waiting for valid location data before initializing map");
-  }
-
-  // Set up a single event listener for zoom changes only if map is initialized
-  if (map.value && map.value.getView) {
-    // Use a simple throttled approach instead of debounce
-    let lastSaveTime = Date.now();
-    map.value.getView().on("change:resolution", () => {
-      const now = Date.now();
-      // Only save at most once per second
-      if (now - lastSaveTime > 1000) {
-        const currentZoom = map.value.getView().getZoom();
-        localStorage.setItem("anchorMapZoom", currentZoom.toString());
-        console.log(`[AnchorView] Saved zoom level: ${currentZoom}`);
-        lastSaveTime = now;
+    if (aisFeature) {
+      const mmsi = aisFeature.get('mmsi');
+      const name = aisFeature.get('name');
+      
+      console.log(`Clicked on AIS target: ${name} (MMSI: ${mmsi})`);
+      
+      // Navigate to the AIS target detail page
+      if (mmsi) {
+        router.push(`/aistarget/${mmsi}`);
       }
-    });
-  }
-  
-  // Use a separate function to initialize the map with valid location data
-  function initializeMapWithLocation(locationData) {
-    if (!locationData?.longitude?.value || !locationData?.latitude?.value) {
-      console.log("[AnchorView] Cannot initialize map: invalid location data", locationData);
-      return;
     }
-    
-    // Clean up any existing map
-    if (map.value && typeof map.value.setTarget === "function") {
-      map.value.setTarget(null);
-      map.value = null;
-    }
-    
-    const mapCenterFromPos = [locationData.longitude.value, locationData.latitude.value];
-    const initialZoom = getInitialZoom();
-    console.log(`[AnchorView] Initializing map with location: ${mapCenterFromPos} and zoom: ${initialZoom}`);
-    
-    map.value = new Map({
-      target: mapElement.value,
-      layers: [new TileLayer({ source: new OSM() }), vectorLayer],
-      view: new View({
-        center: fromLonLat(mapCenterFromPos),
-        zoom: initialZoom,
-      }),
-      controls: defaultControls({ zoom: false }),
-    });
-    
-    // Set up zoom change listener
-    let lastSaveTime = Date.now();
-    map.value.getView().on("change:resolution", () => {
-      const now = Date.now();
-      if (now - lastSaveTime > 1000) {
-        const currentZoom = map.value.getView().getZoom();
-        localStorage.setItem("anchorMapZoom", currentZoom.toString());
-        console.log(`[AnchorView] Saved zoom level: ${currentZoom}`);
-        lastSaveTime = now;
-      }
-    });
-    
-    // Add features to the map
-    addFeatures();
-    return true;
   }
-  
-  // Set up a watcher to initialize the map when location data becomes available
-  watch(
-    () => navigationState.value?.position,
-    (newPos) => {
-      if (!map.value && newPos?.longitude?.value && newPos?.latitude?.value) {
-        console.log("[AnchorView] Location data available, initializing map");
-        initializeMapWithLocation(newPos);
-      }
-    },
-    { immediate: true }
-  );
+};
 
-  // Always recenter map view when features are updated
-  if (pos?.longitude?.value !== undefined && pos?.latitude?.value !== undefined) {
-    map.value.getView().setCenter(fromLonLat([pos.longitude.value, pos.latitude.value]));
-    console.log(
-      "[AnchorView] map view recentered to:",
-      pos.longitude.value,
-      pos.latitude.value
+// Wheel event handler for map zooming
+const handleWheelEvent = (event) => {
+  if (DEBUG_WHEEL_EVENTS) {
+    console.log('Wheel event detected', {
+      target: event.target,
+      deltaY: event.deltaY,
+      isOverMap: mapElement.value?.contains(event.target)
+    });
+  }
+
+  // Only handle events on the map element
+  if (!mapElement.value?.contains(event.target)) {
+    return;
+  }
+
+  event.preventDefault();
+  
+  if (!map.value) return;
+  
+  const view = map.value.getView();
+  if (!view) return;
+  
+  const currentZoom = view.getZoom();
+  const delta = event.deltaY < 0 ? 0.5 : -0.5;
+  const newZoom = Math.min(Math.max(currentZoom + delta, view.getMinZoom()), view.getMaxZoom());
+  
+  view.animate({
+    zoom: newZoom,
+    duration: 250,
+    center: view.getCenter() // Keep current center
+  });
+};
+
+// Custom zoom functions
+const zoomIn = () => {
+  if (!map.value) return;
+  const view = map.value.getView();
+  if (!view) return;
+  
+  const currentZoom = view.getZoom();
+  const newZoom = currentZoom + 1;
+  
+  // Get boat position for centering
+  if (boatPosition.value?.latitude?.value && boatPosition.value?.longitude?.value) {
+    const boatCoords = fromLonLat([
+      boatPosition.value.longitude.value,
+      boatPosition.value.latitude.value
+    ]);
+    
+    // Animate to new zoom level centered on boat
+    view.animate({
+      zoom: newZoom,
+      center: boatCoords,
+      duration: 250
+    });
+    
+    console.log('Zooming in to boat position:', { newZoom, boatCoords });
+  } else {
+    // If no boat position, just change zoom without changing center
+    view.animate({
+      zoom: newZoom,
+      duration: 250
+    });
+  }
+};
+
+const zoomOut = () => {
+  if (!map.value) return;
+  const view = map.value.getView();
+  if (!view) return;
+  
+  const currentZoom = view.getZoom();
+  const newZoom = currentZoom - 1;
+  
+  // Get boat position for centering
+  if (boatPosition.value?.latitude?.value && boatPosition.value?.longitude?.value) {
+    const boatCoords = fromLonLat([
+      boatPosition.value.longitude.value,
+      boatPosition.value.latitude.value
+    ]);
+    
+    // Animate to new zoom level centered on boat
+    view.animate({
+      zoom: newZoom,
+      center: boatCoords,
+      duration: 250
+    });
+    
+    console.log('Zooming out to boat position:', { newZoom, boatCoords });
+  } else {
+    // If no boat position, just change zoom without changing center
+    view.animate({
+      zoom: newZoom,
+      duration: 250
+    });
+  }
+};
+
+// Lifecycle hooks
+onMounted(() => {
+  initializeMap();
+
+  // EXTREME DEBUG LOGGING
+  console.log('WHEEL DEBUG - Starting wheel event setup');
+  console.log('WHEEL DEBUG - Map element reference:', mapElement.value);
+  console.log('WHEEL DEBUG - Map container query result:', document.querySelector('.openlayers-map'));
+  
+  // Using the built-in OpenLayers mouseWheelZoom interaction
+  // No need for custom event handlers
+
+  if (import.meta.env.DEV) {
+    watch(
+      () => perfStats.featureCounts,
+      (counts) => console.log("[Perf] Feature counts:", counts),
+      { deep: true }
     );
   }
-  addFeatures();
-  // Watch for position changes
-  stateStore.$subscribe(() => addFeatures());
+});
+
+onUnmounted(() => {
+  clearAll();
+  map.value?.dispose();
 });
 </script>
-
-<style scoped>
-.anchor-fab-container {
-  position: absolute;
-  left: 20px;
-  bottom: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  z-index: 10;
-  pointer-events: auto;
-}
-</style>
 
 <style scoped>
 .openlayers-map {
   width: 100vw;
   height: 100vh;
   min-height: 0;
+  /* Ensure these properties are set */
+  touch-action: none;
+  overscroll-behavior: none;
+  position: relative;
+  z-index: 0;
 }
 .map-wrapper {
   width: 100vw;
   height: 100vh;
   min-height: 0;
-  position: relative;
+  position: fixed; /* Changed from relative to fixed */
   top: 0;
   left: 0;
   z-index: 1;
+  /* Ensure these properties are set */
+  touch-action: none;
+  overscroll-behavior: none;
 }
+
+/* Custom zoom controls */
+.custom-zoom-controls {
+  position: fixed;
+  left: 20px;
+  bottom: 80px; /* Aligned with the anchor-fab-container */
+  display: flex;
+  flex-direction: column;
+  gap: 10px; /* Matched gap with anchor-fab-container */
+  z-index: 1000; /* Same z-index as anchor-fab-container */
+}
+
+.zoom-button {
+  width: 56px; /* Match --size: 56px from .custom-fab-size */
+  height: 56px; /* Match --size: 56px from .custom-fab-size */
+  margin: 5px; /* Match margin from .custom-fab-size */
+  border-radius: 50%;
+  background-color: rgba(0, 120, 215, 0.9); /* Blue background with slight transparency */
+  color: white;
+  font-size: 28px;
+  font-weight: bold;
+  border: none;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+}
+
+.zoom-button:hover {
+  background-color: rgba(0, 140, 240, 1);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.zoom-button:active {
+  background-color: rgba(0, 100, 190, 1);
+  transform: scale(0.95);
+}
+
+/* Add a subtle animation to draw attention to the buttons */
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.zoom-button.zoom-in {
+  animation: pulse 2s infinite;
+}
+
+
 ion-page.page-container {
   width: 100vw;
   height: 100vh;
@@ -1727,6 +1480,26 @@ ion-page.page-container {
   overflow: hidden;
 }
 /* Zoom buttons removed - using native OpenLayers pinch-to-zoom functionality */
+
+.anchor-fab-container {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1000;
+}
+
+.custom-fab-size {
+  --size: 56px;
+  margin: 5px;
+}
+
+.custom-icon {
+  width: 24px;
+  height: 24px;
+}
 
 .map-wrapper .ol-scale-line {
   position: absolute !important;

@@ -52,7 +52,6 @@ export const stateData = {
     position: {
       latitude: { value: null, units: "deg" },
       longitude: { value: null, units: "deg" },
-      altitude: { value: null, units: "m", feet: null },
       timestamp: null,
       source: null,
       gnss: {
@@ -79,7 +78,11 @@ export const stateData = {
       lastReset: null,
     },
     depth: {
-      belowTransducer: { value: null, units: "m", feet: null },
+      belowTransducer: {
+        value: null,
+        units: "m",
+        feet: { value: null }, // Initialize with feet structure
+      },
       belowKeel: { value: null, units: "m", feet: null },
       belowSurface: { value: null, units: "m", feet: null },
     },
@@ -212,50 +215,51 @@ export const stateData = {
     history: [],
     useDeviceGPS: true,
   },
+  alerts: { active: [], processingQueue: [] },
   convert: {
     // Length/Distance
     mToFeet(m) {
-      return m !== null ? m * 3.28084 : null;
+      return m !== null ? Math.round(m * 3.28084 * 10) / 10 : null;
     },
     mToNauticalMiles(m) {
-      return m !== null ? m / 1852 : null;
+      return m !== null ? Math.round((m / 1852) * 10) / 10 : null;
     },
 
-    // Speed
+    // Speed (1 decimal)
     mpsToKnots(mps) {
-      return mps !== null ? mps * 1.94384 : null;
+      return mps !== null ? Math.round(mps * 1.94384 * 10) / 10 : null;
     },
 
-    // Angle
+    // Angle (1 decimal for degrees)
     radToDeg(rad) {
-      return rad !== null ? rad * (180 / Math.PI) : null;
+      return rad !== null ? Math.round(rad * (180 / Math.PI) * 10) / 10 : null;
     },
 
-    // Temperature
+    // Temperature (1 decimal)
     cToF(c) {
-      return c !== null ? (c * 9) / 5 + 32 : null;
+      return c !== null ? Math.round(((c * 9) / 5 + 32) * 10) / 10 : null;
     },
 
-    // Pressure
+    // Pressure (1 decimal)
     paToHpa(pa) {
-      return pa !== null ? pa / 100 : null;
+      return pa !== null ? Math.round((pa / 100) * 10) / 10 : null;
     },
     paToInHg(pa) {
-      return pa !== null ? pa / 3386.39 : null;
+      return pa !== null ? Math.round((pa / 3386.39) * 10) / 10 : null;
     },
 
-    // Volume
+    // Volume (1 decimal)
     litersToGallons(l) {
-      return l !== null ? l * 0.264172 : null;
+      return l !== null ? Math.round(l * 0.264172 * 10) / 10 : null;
     },
 
     updateAllDerivedValues() {
-      // Navigation conversions
       this.convertPositionValues();
       this.convertCourseValues();
       this.convertSpeedValues();
       this.convertWindValues();
       this.convertAnchorValues();
+      this.convertDepthValues(); // Add this line
     },
 
     convertAnchorValues() {
@@ -287,92 +291,146 @@ export const stateData = {
     },
 
     convertCourseValues() {
-      const course = this.navigation && this.navigation.course;
+      const course = stateData.navigation?.course;
       if (!course) return;
 
       // COG
       if (course.cog.value !== null) {
-        course.cog.degrees = this.radToDeg(course.cog.value);
+        course.cog.degrees = stateData.convert.radToDeg(course.cog.value);
       }
 
       // Heading
       if (course.heading.magnetic.value !== null) {
-        course.heading.magnetic.degrees = this.radToDeg(
+        course.heading.magnetic.degrees = stateData.convert.radToDeg(
           course.heading.magnetic.value
         );
       }
       if (course.heading.true.value !== null) {
-        course.heading.true.degrees = this.radToDeg(course.heading.true.value);
+        course.heading.true.degrees = stateData.convert.radToDeg(
+          course.heading.true.value
+        );
       }
 
       // Rate of turn
       if (course.rateOfTurn.value !== null) {
         course.rateOfTurn.degPerMin =
-          this.radToDeg(course.rateOfTurn.value) * 60;
+          Math.round(
+            stateData.convert.radToDeg(course.rateOfTurn.value) * 60 * 10
+          ) / 10;
+      }
+    },
+
+    convertDepthValues() {
+      const depth = stateData.navigation?.depth;
+      if (!depth) return;
+
+      // Ensure feet structure exists
+      const ensureFeet = (obj) => {
+        if (obj && !obj.feet) obj.feet = { value: null };
+        return obj;
+      };
+
+      [depth.belowTransducer, depth.belowKeel, depth.belowSurface]
+        .filter(Boolean)
+        .forEach(ensureFeet);
+
+      if (depth.belowTransducer?.value !== null) {
+        depth.belowTransducer.feet.value = stateData.convert.mToFeet(
+          depth.belowTransducer.value
+        );
       }
     },
 
     convertSpeedValues() {
-      const speed = this.navigation && this.navigation.speed;
+      const speed = stateData.navigation?.speed;
       if (!speed) return;
 
       if (speed.sog.value !== null) {
-        speed.sog.knots = this.mpsToKnots(speed.sog.value);
+        speed.sog.knots = stateData.convert.mpsToKnots(speed.sog.value);
       }
 
       if (speed.stw.value !== null) {
-        speed.stw.knots = this.mpsToKnots(speed.stw.value);
+        speed.stw.knots = stateData.convert.mpsToKnots(speed.stw.value);
       }
     },
 
     convertPositionValues() {
-      const pos = this.navigation && this.navigation.position;
+      const pos = stateData.navigation?.position;
       if (!pos) return;
-      if (pos.altitude && pos.altitude.value !== null) {
-        pos.altitude.feet = this.mToFeet(pos.altitude.value);
-      }
-      // Add other position conversions
+ 
     },
 
     convertWindValues() {
-      const wind = this.navigation && this.navigation.wind;
+      const wind = stateData.navigation?.wind;
       if (!wind) return;
 
       // Apparent wind
-      if (wind.apparent.angle.value !== null) {
-        wind.apparent.angle.degrees = this.radToDeg(wind.apparent.angle.value);
+      if (wind.apparent?.angle?.value !== undefined) {
+        wind.apparent.angle.degrees = stateData.convert.radToDeg(
+          wind.apparent.angle.value
+        );
         wind.apparent.angle.side =
           wind.apparent.angle.value >= 0 ? "starboard" : "port";
+
+        if (wind.apparent?.speed?.value !== undefined) {
+          wind.apparent.speed.knots = stateData.convert.mpsToKnots(
+            wind.apparent.speed.value
+          );
+        }
       }
 
-      if (wind.apparent.speed.value !== null) {
-        wind.apparent.speed.knots = this.mpsToKnots(wind.apparent.speed.value);
-      }
-
-      // True wind (similar conversions)
-      if (wind.true.angle.value !== null) {
-        wind.true.angle.degrees = this.radToDeg(wind.true.angle.value);
+      // True wind
+      if (wind.true?.angle?.value !== undefined) {
+        wind.true.angle.degrees = stateData.convert.radToDeg(
+          wind.true.angle.value
+        );
         wind.true.angle.side =
           wind.true.angle.value >= 0 ? "starboard" : "port";
-      }
 
-      if (wind.true.speed.value !== null) {
-        wind.true.speed.knots = this.mpsToKnots(wind.true.speed.value);
+        if (wind.true?.speed?.value !== undefined) {
+          wind.true.speed.knots = stateData.convert.mpsToKnots(
+            wind.true.speed.value
+          );
+        }
       }
     },
-  },
+  }, // Close the methods object
 
   batchUpdate(updates) {
+    // First ensure all required structures exist
+    this.ensureDataStructures();
+
+    // Process updates
     if (Array.isArray(updates)) {
-      updates.forEach(({ path, value }) => setDeep(this, path, value));
-    } else if (typeof updates === "object" && updates !== null) {
-      Object.entries(updates).forEach(([path, value]) =>
-        setDeep(this, path, value)
-      );
-    } else {
-      throw new TypeError("batchUpdate expects an array or object");
+      updates.forEach(({ path, value }) => {
+        try {
+          setDeep(this, path, value);
+        } catch (error) {
+          console.warn(`Failed to update path ${path}:`, error);
+        }
+      });
+    } else if (typeof updates === "object") {
+      Object.entries(updates).forEach(([path, value]) => {
+        try {
+          setDeep(this, path, value);
+        } catch (error) {
+          console.warn(`Failed to update path ${path}:`, error);
+        }
+      });
     }
     return true;
+  },
+
+  ensureDataStructures() {
+    // Depth measurements
+    ["belowTransducer", "belowKeel", "belowSurface"].forEach((key) => {
+      if (!this.navigation.depth[key]) {
+        this.navigation.depth[key] = { value: null, units: "m" };
+      }
+      if (!this.navigation.depth[key].feet) {
+        this.navigation.depth[key].feet = { value: null };
+      }
+    });
   },
 
   get state() {

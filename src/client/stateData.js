@@ -171,6 +171,7 @@ class StateData extends EventEmitter {
         history: [],
         useDeviceGPS: true,
       },      
+      alerts: { active: [], processingQueue: [] },
     };
 
   }

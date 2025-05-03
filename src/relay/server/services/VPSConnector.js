@@ -17,7 +17,6 @@ export class VPSConnector extends EventEmitter {
     this.connected = false;
     this.retryCount = 0;
     this.reconnectTimer = null;
-    this._clientCount = 0; // Track number of connected clients
     // Ensure sensible defaults
     this.config.reconnectInterval = this.config.reconnectInterval || 5000;
     this.config.maxRetries = this.config.maxRetries || 10;
@@ -172,7 +171,7 @@ export class VPSConnector extends EventEmitter {
               
               // Update our internal client count
               this._clientCount = clientCount;
-              
+
               // Emit a new event type for connection status
               this.emit("connectionStatus", { boatId, clientCount });
             } else {
