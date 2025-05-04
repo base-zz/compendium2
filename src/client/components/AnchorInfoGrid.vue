@@ -2,7 +2,7 @@
   <div class="anchor-grid-div">
     <div v-if="anchorState && !anchorState.anchorDeployed" class="info-rect-div drop-anchor-rect"
       style="cursor:pointer;width:90%;height:48px;display:flex;flex-direction:row;align-items:center;justify-content:center;border-radius:8px;margin:16px auto 20px auto;padding:0;background:rgba(0,0,0,0.10);"
-      @click="$emit('drop-anchor')">
+      @click="handleDropAnchor">
       <img src="/img/anchor2.svg" alt="Anchor Icon" style="height:1.7em;width:1.7em;margin-right:12px;vertical-align:middle;filter:var(--ion-color-primary-filter, none);" />
       <span style="font-size:1.25em;font-weight:600;color:var(--ion-color-primary)">Drop Anchor</span>
     </div>
@@ -62,10 +62,29 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, defineEmits } from 'vue';
 import { IonModal, IonButton, IonRange, IonIcon } from '@ionic/vue';
 import { useStateDataStore } from '@/client/stores/stateDataStore.js';
 import { storeToRefs } from 'pinia';
+
+const emit = defineEmits(['anchor-dropped']);
+
+// Simple validateCoordinates function without map dependencies
+const validateCoordinates = (coord) => {
+  if (!coord) return false;
+  const lat = coord.latitude?.value ?? coord.latitude;
+  const lon = coord.longitude?.value ?? coord.longitude;
+  
+  // If we have a number but it's NaN, return false
+  if (typeof lat === 'number' && Number.isNaN(lat)) return false;
+  if (typeof lon === 'number' && Number.isNaN(lon)) return false;
+  
+  // If we don't have valid numbers, return false
+  if (typeof lat !== 'number' || typeof lon !== 'number') return false;
+  
+  // Check range for valid numbers
+  return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+};
 
 const showEditRadiusModal = ref(false);
 const editRadiusValue = ref(0);
@@ -87,6 +106,8 @@ function confirmEditRadius() {
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 const anchorState = computed(() => state.value.anchor);
+const navigationState = computed(() => state.value.navigation);
+const boatPosition = computed(() => navigationState.value?.position);
   
 console.log("AnchorInfoGrid.vue anchorState:", anchorState.value);
 
@@ -113,94 +134,25 @@ const title = computed(() => {
 
 
 
-// Modal Handlers
+// Simple handler that just emits the event to the parent
 const handleDropAnchor = () => {
-  if (!validateCoordinates(boatPosition.value)) {
-    alert('Valid boat position required to set anchor');
-    return;
-  }
-
-  // Extract latitude and longitude values safely
-  const latitude = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
-  const longitude = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
-
-  try {
-    // Direct update to the anchor state
-    anchorState.value.anchorDeployed = true;
-    
-    // Update the anchor drop location
-    anchorState.value.anchorDropLocation = {
-      position: {
-        latitude: { value: latitude, units: "deg" },
-        longitude: { value: longitude, units: "deg" }
-      },
-      time: new Date().toISOString(),
-      depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
-      distancesFromCurrent: { value: 0, units: "m", nauticalMiles: null },
-      distancesFromDrop: { value: 0, units: "m", nauticalMiles: null },
-      originalBearing: { value: 0, units: "rad", degrees: null },
-      bearing: { value: 0, units: "rad", degrees: null }
-    };
-    
-    // Update the anchor location (same as drop location initially)
-    anchorState.value.anchorLocation = {
-      position: {
-        latitude: { value: latitude, units: "deg" },
-        longitude: { value: longitude, units: "deg" }
-      },
-      time: new Date().toISOString(),
-      depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
-      distancesFromCurrent: { value: 0, units: "m", nauticalMiles: null },
-      distancesFromDrop: { value: 0, units: "m", nauticalMiles: null },
-      originalBearing: { value: 0, units: "rad", degrees: null },
-      bearing: { value: 0, units: "rad", degrees: null }
-    };
-    
-    // Create a clean object for localStorage
-    const storageState = {
-      anchorDeployed: true,
-      anchorDropLocation: anchorState.value.anchorDropLocation,
-      anchorLocation: anchorState.value.anchorLocation,
-      criticalRange: anchorState.value.criticalRange,
-      warningRange: anchorState.value.warningRange,
-      rode: anchorState.value.rode
-    };
-    
-    // Log the state for debugging
-    console.log("Anchor deployed status:", anchorState.value.anchorDeployed);
-    console.log("Full anchor state:", anchorState.value);
-
-    // Persist to localStorage
-    localStorage.setItem(
-      'anchorState',
-      JSON.stringify(storageState)
-    );
-
-    // Show confirmation and log state data
-    console.log("Anchor set successfully");
-    console.log("Full anchor state:", anchorState.value);
-    
-    // Explicitly trigger the critical range circle update
-    updateCriticalRangeCircle();
-    
-    // Close the modal
-    showSetAnchorDialog.value = false;
-
-   } catch (error) {
-    console.error('Failed to save anchor state:', error);
-    alert('Error saving anchor position. See console for details.');
-    // Close the modal even if there's an error
-    showSetAnchorDialog.value = false;
-  }
-};  
+  // Simply emit the event to the parent component (AnchorView)
+  // AnchorView will handle all the state updates and map features
+  emit('anchor-dropped');
+  console.log("AnchorInfoGrid: Emitted anchor-dropped event");
+  
+  // Close the modal
+  showSetAnchorDialog.value = false;
+};
 
 const handleUpdateDropLocation = () => {
   if (!validateCoordinates(boatPosition.value)) return;
-
-  anchorState.value.anchorDropLocation.position = {
-    latitude: boatPosition.value.latitude.value,
-    longitude: boatPosition.value.longitude.value,
-  };
+  
+  // Emit an event to let AnchorView handle the update
+  emit('update-drop-location');
+  console.log("AnchorInfoGrid: Emitted update-drop-location event");
+  
+  // Close the dialog
   showUpdateDialog.value = false;
 };
 
@@ -210,7 +162,11 @@ const confirmUpdateDropLocation = () => {
 };
 
 const handleCancelAnchor = () => {
-  stateStore.cancelAnchor();
+  // Emit an event to let AnchorView handle the cancellation
+  emit('cancel-anchor');
+  console.log("AnchorInfoGrid: Emitted cancel-anchor event");
+  
+  // Close the dialog
   showCancelDialog.value = false;
 };
 

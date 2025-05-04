@@ -215,7 +215,39 @@ export const stateData = {
     history: [],
     useDeviceGPS: true,
   },
-  alerts: { active: [], processingQueue: [] },
+  // Alert datum structure reference:
+  // {
+  //   id: string,
+  //   type: string,              // 'signalk', 'user', 'system', 'weather', etc.
+  //   category: string,          // 'navigation', 'anchor', etc.
+  //   source: string,            // Origin system/module
+  //   level: string,             // 'info', 'warning', 'critical', 'emergency', etc.
+  //   label: string,             // Short title
+  //   message: string,           // Main user-facing message
+  //   timestamp: string,         // ISO8601
+  //   acknowledged: boolean,
+  //   muted: boolean,
+  //   mutedUntil: string,        // ISO8601 or null
+  //   mutedBy: string,           // Who/what muted this alert
+  //   status: string,            // 'active', 'resolved', etc.
+  //   trigger: string,           // Human-readable trigger
+  //   ruleId: string,            // Rule/definition id
+  //   data: object,              // Source/type-specific data
+  //   actions: string[],         // e.g. ['acknowledge', 'mute']
+  //   phoneNotification: boolean,// Should trigger phone notification?
+  //   sticky: boolean,           // Persist until handled?
+  //   externalId: string,        // External system id
+  //   deviceTargets: string[],   // Device ids to notify
+  //   expiresAt: string          // ISO8601, auto-expiry
+  // }
+  alerts: {
+    active: [],           // Currently active alerts/notifications
+    history: [],          // Past/resolved alerts (optional)
+    definitions: [],      // User/system-defined alert rules (optional)
+    processingQueue: [],  // Alert ids currently being processed (optional)
+    muted: [],            // Alert ids currently muted (optional)
+    deviceSubscriptions: {} // deviceId => [alert types/categories] (optional)
+  },
   convert: {
     // Length/Distance
     mToFeet(m) {

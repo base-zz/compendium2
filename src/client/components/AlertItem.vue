@@ -39,9 +39,10 @@ import {
 } from "@ionic/vue";
 import { trashBin } from "ionicons/icons";
 import { ref, onMounted, computed } from "vue";
-import { useAlertStore } from "../stores/alerts";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import { useStateDataStore } from "../stores/stateDataStore";
+
 dayjs.extend(relativeTime);
 
 const props = defineProps({
@@ -51,7 +52,8 @@ const props = defineProps({
   },
 });
 
-const alertStore = useAlertStore();
+const stateStore = useStateDataStore();
+const alerts = computed(() => stateStore.alerts);
 
 // Function to delete an alert
 const deleteAlert = (alertId) => {

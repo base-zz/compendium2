@@ -135,8 +135,11 @@
     </ion-modal>
 
     <div class="map-wrapper">
-      <!-- <AnchorInfoGrid @drop-anchor="handleDropAnchor" /> -->
-      <AnchorInfoGrid />
+      <AnchorInfoGrid 
+        @anchor-dropped="handleAnchorDropped"
+        @update-drop-location="handleUpdateDropLocation"
+        @cancel-anchor="handleCancelAnchor"
+      />
       <div ref="mapElement" class="openlayers-map"></div>
       
       <!-- Custom zoom controls -->
@@ -824,10 +827,112 @@ watch(anchorState, () => {
   }
 }, { deep: true, immediate: true });
 
-// Watch boat position to update rode line when anchor is deployed
+// Watch boat position to update rode line when anchor is deployed and detect anchor dragging
 watch(boatPosition, () => {
   console.log('WATCH DEBUG - Boat position changed');
   if (anchorState.value.anchorDeployed) {
+    // Get current boat position
+    const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
+    const boatLon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
+    
+    // Get anchor location
+    const anchorLat = anchorState.value.anchorLocation?.position?.latitude?.value;
+    const anchorLon = anchorState.value.anchorLocation?.position?.longitude?.value;
+    
+    // Get rode length
+    const rodeLength = anchorState.value.rode?.amount ?? 0;
+    
+    // Calculate distance from boat to anchor
+    const distanceToAnchor = calculateDistanceMeters(
+      boatLat, boatLon,
+      anchorLat, anchorLon
+    );
+    
+    console.log('ANCHOR DEBUG - Distance to anchor:', distanceToAnchor, 'Rode length:', rodeLength);
+    
+    // Check if the anchor is dragging (distance > rode length)
+    if (distanceToAnchor > rodeLength) {
+      console.warn('ANCHOR DRAGGING DETECTED! Distance exceeds rode length');
+      
+      // Calculate new anchor position based on boat position and bearing
+      // We need to move the anchor in the direction from boat to anchor
+      // First, calculate the bearing from boat to anchor
+      const dx = anchorLon - boatLon;
+      const dy = anchorLat - boatLat;
+      const bearing = Math.atan2(dx, dy);
+      const bearingDegrees = (bearing * 180 / Math.PI + 360) % 360; // Convert to degrees (0-360)
+      
+      // Store the previous anchor location before updating it
+      const previousAnchorLocation = {
+        latitude: anchorLat,
+        longitude: anchorLon,
+        time: anchorState.value.anchorLocation.time
+      };
+      
+      // Calculate new anchor position that's exactly rode length away from boat
+      const computedAnchorLocation = getComputedAnchorLocation(
+        { latitude: boatLat, longitude: boatLon },
+        rodeLength,
+        bearing,
+        anchorState.value.anchorLocation?.depth?.value ?? 0
+      );
+      
+      // Update anchor location
+      anchorState.value.anchorLocation.position.latitude.value = computedAnchorLocation.latitude;
+      anchorState.value.anchorLocation.position.longitude.value = computedAnchorLocation.longitude;
+      
+      // Update the bearing in the anchor state
+      anchorState.value.anchorLocation.bearing = {
+        value: bearing,
+        units: "rad",
+        degrees: bearingDegrees
+      };
+      
+      // Update the timestamp to reflect the change
+      const currentTime = new Date().toISOString();
+      anchorState.value.anchorLocation.time = currentTime;
+      
+      // Set dragging state
+      anchorState.value.dragging = true;
+      
+      // Add the previous anchor location to breadcrumbs
+      if (breadcrumbs.value) {
+        breadcrumbs.value.push({
+          latitude: { value: previousAnchorLocation.latitude },
+          longitude: { value: previousAnchorLocation.longitude },
+          time: previousAnchorLocation.time,
+          type: 'anchor_drag'
+        });
+        
+        // Limit the number of breadcrumbs to prevent performance issues
+        if (breadcrumbs.value.length > 100) {
+          // Keep the most recent 100 breadcrumbs
+          breadcrumbs.value = breadcrumbs.value.slice(-100);
+        }
+        
+        // Update breadcrumbs visualization
+        updateBreadcrumbs();
+      }
+      
+      // Persist to localStorage
+      const storageState = {
+        anchorDeployed: true,
+        anchorDropLocation: anchorState.value.anchorDropLocation,
+        anchorLocation: anchorState.value.anchorLocation,
+        criticalRange: anchorState.value.criticalRange,
+        warningRange: anchorState.value.warningRange,
+        rode: anchorState.value.rode,
+        dragging: true
+      };
+      
+      localStorage.setItem('anchorState', JSON.stringify(storageState));
+      
+      // Update all anchor-related features
+      updateAnchorPoints();
+      updateCriticalRangeCircle();
+    }
+    
+    // Always update the rode line
     updateRodeLine();
   }
 }, { deep: true });
@@ -845,6 +950,54 @@ watch(
   },
   { immediate: true }
 );
+
+// Function to update the boat-centered normal range circle
+const updateBoatRangeCircle = debounce(() => {
+  console.log('BOAT RANGE DEBUG - Function called');
+  
+  // Clear any existing boat range circle
+  clearFeature(FEATURE_TYPES.BOAT_RANGE);
+  
+  // Skip if anchor is not deployed
+  if (!anchorState.value.anchorDeployed) {
+    console.log('BOAT RANGE DEBUG - Anchor not deployed, skipping');
+    return;
+  }
+  
+  // Skip if no boat position
+  if (!boatPosition.value) {
+    console.log('BOAT RANGE DEBUG - No boat position, skipping');
+    return;
+  }
+  
+  // Get the boat position
+  const lat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
+  const lon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
+  
+  // Skip if invalid coordinates
+  if (!validateCoordinates({ latitude: lat, longitude: lon })) {
+    console.log('BOAT RANGE DEBUG - Invalid boat coordinates, skipping');
+    return;
+  }
+  
+  // Get the critical range radius (to match the critical circle)
+  const radius = anchorState.value.criticalRange?.r ?? anchorState.value.rode?.amount ?? 0;
+  
+  // Create a circle with the same radius as the critical circle
+  const circleGeometry = createCircleWithRadius([lon, lat], radius);
+  
+  // Create a feature with the circle geometry
+  const feature = new Feature({
+    geometry: circleGeometry
+  });
+  feature.set('type', FEATURE_TYPES.BOAT_RANGE);
+  feature.setStyle(STYLES.BOAT_RANGE);
+  
+  // Add the feature to the vector source
+  vectorSource.addFeature(feature);
+  
+  console.log('Boat range circle created with radius:', radius, 'meters');
+}, 200);
 
 // Watch for critical anchor state changes
 watch(
@@ -929,57 +1082,6 @@ watch(
   { immediate: true, deep: true }
 );
 
-// Function to update the boat-centered normal range circle
-const updateBoatRangeCircle = debounce(() => {
-  console.log('BOAT RANGE DEBUG - Function called');
-  
-  // Clear any existing boat range circle
-  clearFeature(FEATURE_TYPES.BOAT_RANGE);
-  
-  // Exit if anchor is not deployed or we don't have boat position
-  if (!anchorState.value.anchorDeployed || !boatPosition.value || !anchorState.value.criticalRange) {
-    console.log('BOAT RANGE DEBUG - Early exit:', {
-      anchorDeployed: anchorState.value.anchorDeployed,
-      hasBoatPosition: !!boatPosition.value,
-      hasCriticalRange: !!anchorState.value.criticalRange
-    });
-    return;
-  }
-  
-  // Get boat position - properly extract numeric values from potentially nested objects
-  const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
-  const boatLon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
-  
-  console.log('BOAT RANGE DEBUG - Extracted boat position:', {
-    rawLatitude: boatPosition.value.latitude,
-    rawLongitude: boatPosition.value.longitude,
-    extractedLatitude: boatLat,
-    extractedLongitude: boatLon,
-    isLatitudeNumber: typeof boatLat === 'number',
-    isLongitudeNumber: typeof boatLon === 'number'
-  });
-  
-  // Use the same radius as the critical range
-  const radius = anchorState.value.criticalRange.r;
-  
-  console.log('BOAT RANGE DEBUG - Creating circle with:', {
-    boatPosition: [boatLon, boatLat],
-    radius: radius
-  });
-  
-  // Create a circle with the correct radius in meters using our accurate function
-  const circleGeometry = createCircleWithRadius([boatLon, boatLat], radius);
-  
-  // Use the updateFeature function to create and add the feature
-  updateFeature(
-    FEATURE_TYPES.BOAT_RANGE,
-    circleGeometry,
-    STYLES.NORMAL_RANGE
-  );
-  
-  console.log('Boat range circle created with radius:', radius, 'meters at latitude', boatLat);
-}, 50);
-
 // Also watch for boat position changes to update the boat range circle
 watch(
   () => boatPosition.value,
@@ -1032,13 +1134,13 @@ const handleSetAnchor = () => {
     const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
     const boatLon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
     
-    // Use a default bearing of 180 degrees (south) if not set
+    // Get the bearing from the anchor drop location or use a default of 180 degrees (south)
     // This ensures the anchor is placed in a different location than the boat
-    const bearing = anchorState.value.bearing?.value ?? 180;
+    const bearingDegrees = anchorState.value.anchorDropLocation?.bearing?.degrees ?? 180;
     
     // IMPORTANT: The bearing needs to be in radians for the calculation
     // The bearing is the direction FROM the boat TO the anchor
-    const bearingRad = bearing * Math.PI / 180; // Convert degrees to radians
+    const bearingRad = bearingDegrees * Math.PI / 180; // Convert degrees to radians
     
     // Make sure we have a non-zero rode length (default to 50m if not set)
     const rode = anchorState.value.rode?.amount ?? 50;
@@ -1087,7 +1189,7 @@ const handleSetAnchor = () => {
         },
         time: new Date().toISOString(),
         depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
-        bearing: { value: bearing, units: "rad", degrees: bearing * 180 / Math.PI }
+        bearing: { value: bearingRad, units: "rad", degrees: bearingDegrees }
       },
       anchorLocation: {
         position: {
@@ -1106,8 +1208,8 @@ const handleSetAnchor = () => {
           units: "m",
           nauticalMiles: null,
         },
-        originalBearing: { value: bearing, units: "rad", degrees: bearing * 180 / Math.PI },
-        bearing: { value: bearing, units: "rad", degrees: bearing * 180 / Math.PI }
+        originalBearing: { value: bearingRad, units: "rad", degrees: bearingDegrees },
+        bearing: { value: bearingRad, units: "rad", degrees: bearingDegrees }
       },
       aisTargets: state.value.anchor.aisTargets || [], // Preserve existing AIS targets,
       rode: {
@@ -1178,6 +1280,16 @@ const handleSetAnchor = () => {
     showSetAnchorDialog.value = false;
   }
 };
+
+// Handler for the anchor-dropped event from AnchorInfoGrid
+const handleAnchorDropped = () => {
+  console.log('AnchorView: Received anchor-dropped event');
+  
+  // Call the handleSetAnchor method to perform all the necessary operations
+  handleSetAnchor();
+};
+
+
 
 const handleUpdateDropLocation = () => {
   if (!validateCoordinates(boatPosition.value)) return;
@@ -1364,9 +1476,23 @@ const zoomOut = () => {
   }
 };
 
+// Handler for the custom anchor-dropped event
+const handleAnchorDroppedEvent = (event) => {
+  console.log('Received anchor-dropped event:', event.detail);
+  
+  // Update the map features
+  updateAnchorPoints();
+  updateCriticalRangeCircle();
+  updateRodeLine();
+  updateBoatRangeCircle();
+};
+
 // Lifecycle hooks
 onMounted(() => {
   initializeMap();
+  
+  // Add event listener for the anchor-dropped event
+  document.addEventListener('anchor-dropped', handleAnchorDroppedEvent);
 
   // EXTREME DEBUG LOGGING
   console.log('WHEEL DEBUG - Starting wheel event setup');

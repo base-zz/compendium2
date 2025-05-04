@@ -12,12 +12,46 @@ import { stateData } from "./StateData.js";
 import { signalKAdapterRegistry } from "../../relay/server/adapters/SignalKAdapterRegistry.js";
 import fetch from "node-fetch";
 import { extractAISTargetsFromSignalK } from "./extractAISTargets.js";
+import { convertSignalKNotifications } from '@shared/convertSignalK.js';
 import pkg from "fast-json-patch";
 import { stateManager } from "../../relay/core/state/StateManager.js";
 
 const { compare: jsonPatchCompare } = pkg;
 
 class StateService extends EventEmitter {
+  // Set to collect unique notification paths
+  notificationPathsSeen = new Set();
+  notificationPathLoggingStarted = false;
+
+  startNotificationPathLogging() {
+    if (this.notificationPathLoggingStarted) return;
+    this.notificationPathLoggingStarted = true;
+    console.log('[StateService] Starting 10-minute SignalK notification path logging.');
+    setTimeout(() => {
+      console.log('[StateService] Unique SignalK notification paths seen in last 10 minutes:');
+      for (const path of this.notificationPathsSeen) {
+        console.log('  -', path);
+      }
+      // Optionally reset for future runs
+      this.notificationPathsSeen.clear();
+      this.notificationPathLoggingStarted = false;
+    }, 10 * 60 * 1000); // 10 minutes
+  }
+
+  logNotificationPathsFromDelta(delta) {
+    if (!this.notificationPathLoggingStarted) return;
+    if (delta.updates) {
+      for (const update of delta.updates) {
+        if (update.values) {
+          for (const valueObj of update.values) {
+            if (valueObj.path && valueObj.path.startsWith('notifications.')) {
+              this.notificationPathsSeen.add(valueObj.path);
+            }
+          }
+        }
+      }
+    }
+  }
   _debug(...args) {
     // console.debug('[StateService]', ...args);
   }
@@ -99,6 +133,8 @@ class StateService extends EventEmitter {
 
     this._setupBatchProcessing();
     await this._discoverSignalKServer();
+    // Start notification path logging when service initializes
+    this.startNotificationPathLogging();
     await this._connectToSignalK();
 
     try {
@@ -166,6 +202,49 @@ class StateService extends EventEmitter {
         console.warn("[StateService] Invalid SignalK data received for AIS update");
         return;
       }
+
+      // Log notification paths from full SignalK data if present
+      if (fullSignalKData && typeof this.logNotificationPathsFromDelta === 'function') {
+        this.logNotificationPathsFromDelta(fullSignalKData);
+      }
+      // --- SignalK Notification Handling ---
+    // Extract notifications from any update values with paths like 'notifications.category.key'
+    if (fullSignalKData && fullSignalKData.updates) {
+      const notifications = {};
+      for (const update of fullSignalKData.updates) {
+        if (update.values) {
+          for (const valueObj of update.values) {
+            if (valueObj.path && valueObj.path.startsWith('notifications.')) {
+              // Parse category/key from path, e.g. 'notifications.instrument.NoFix'
+              const pathParts = valueObj.path.split('.');
+              if (pathParts.length === 3) {
+                const [, category, key] = pathParts;
+                if (!notifications[category]) notifications[category] = {};
+                notifications[category][key] = {
+                  meta: {},
+                  value: valueObj.value,
+                  $source: valueObj.$source || '',
+                  timestamp: valueObj.value?.timestamp || '',
+                  pgn: valueObj.pgn || undefined
+                };
+              }
+            }
+          }
+        }
+      }
+      if (Object.keys(notifications).length > 0) {
+        const alerts = convertSignalKNotifications(notifications);
+        stateData.alerts.active = alerts;
+        this.emit(this.EVENTS.STATE_UPDATED, {
+          type: 'state:updated',
+          path: 'alerts.active',
+          value: alerts,
+          source: 'signalK',
+          timestamp: Date.now(),
+        });
+      }
+    }
+    // --- End SignalK Notification Handling ---
 
       // Extract AIS targets from SignalK data
       const extractStartTime = Date.now();

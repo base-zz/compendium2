@@ -68,6 +68,16 @@ export const STYLES = {
       color: "rgba(33,150,243,0.05)", // Very subtle fill
     }),
   }),
+  BOAT_RANGE: new Style({
+    stroke: new Stroke({
+      color: "rgba(255,255,255,0.2)", // White color with 0.2 opacity
+      width: 2,
+      lineDash: [4, 4], // Dotted line pattern
+    }),
+    fill: new Fill({
+      color: "rgba(33,150,243,0.05)", // Very subtle fill
+    }),
+  }),
   RODE: new Style({
     stroke: new Stroke({
       color: "#FF5722", // Deep orange color for better visibility

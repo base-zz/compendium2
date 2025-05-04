@@ -49,6 +49,7 @@ export const useMapFeatures = (vectorSource) => {
   };
 
   const clearFeature = (type) => {
+    // First, remove any tracked features of this type
     if (features.value[type]) {
       if (Array.isArray(features.value[type])) {
         features.value[type].forEach(f => vectorSource.removeFeature(f));
@@ -57,6 +58,23 @@ export const useMapFeatures = (vectorSource) => {
       }
       features.value[type] = null;
     }
+    
+    // Additionally, find and remove ALL features of this type from the source
+    // This ensures we catch any features that might have been added directly
+    // without being tracked in the features object
+    const featuresToRemove = [];
+    vectorSource.forEachFeature(feature => {
+      if (feature.get('type') === type) {
+        featuresToRemove.push(feature);
+      }
+    });
+    
+    // Remove the collected features
+    featuresToRemove.forEach(feature => {
+      vectorSource.removeFeature(feature);
+    });
+    
+    console.log(`Cleared ${featuresToRemove.length} features of type: ${type}`);
   };
 
   const clearAll = () => {

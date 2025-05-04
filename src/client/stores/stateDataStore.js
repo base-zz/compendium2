@@ -35,11 +35,19 @@ export function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
  * Uses Haversine formula for accurate distance calculations
  */
 export function calculateDestinationLatLon(lat1, lon1, distance, bearing) {
+  // Input validation
+  if (lat1 < -90 || lat1 > 90 || isNaN(lat1)) throw new Error("Invalid latitude");
+  if (lon1 < -180 || lon1 > 180 || isNaN(lon1)) throw new Error("Invalid longitude");
+  if (distance < 0 || isNaN(distance)) throw new Error("Distance must be non-negative");
+  if (isNaN(bearing)) throw new Error("Invalid bearing");
+
   const R = 6371000; // Earth's radius in meters
   const toRad = (deg) => (deg * Math.PI) / 180;
   
   const lat1Rad = toRad(lat1);
   const lon1Rad = toRad(lon1);
+  // Use standard navigation bearing directly
+  // 0° = North, 90° = East, 180° = South, 270° = West
   const bearingRad = toRad(bearing);
   
   const angularDistance = distance / R;
@@ -53,10 +61,13 @@ export function calculateDestinationLatLon(lat1, lon1, distance, bearing) {
     Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(lat1Rad),
     Math.cos(angularDistance) - Math.sin(lat1Rad) * Math.sin(lat2)
   );
-  
+
+  // Normalize longitude to [-180, 180]
+  const normalizeLon = (lon) => ((lon % 360) + 540) % 360 - 180;
+
   return {
     latitude: lat2 * 180 / Math.PI,
-    longitude: lon2 * 180 / Math.PI
+    longitude: normalizeLon(lon2 * 180 / Math.PI)
   };
 }
 
@@ -85,11 +96,18 @@ export function getComputedAnchorLocation(
     horizontalRode = Math.sqrt(rode * rode - depth * depth);
   }
   // Calculate anchor location from drop point, distance, and bearing
+  // Convert bearing from radians to degrees if it's in radians
+  const bearingDegrees = bearing * 180 / Math.PI; // Convert from radians to degrees
+  
+  // Log the bearing for debugging
+  console.log('BEARING DEBUG - Original bearing (rad):', bearing);
+  console.log('BEARING DEBUG - Converted bearing (deg):', bearingDegrees);
+  
   const dest = calculateDestinationLatLon(
     anchorDropLocation.latitude,
     anchorDropLocation.longitude,
     horizontalRode,
-    bearing
+    bearingDegrees
   );
   // Calculate distance from drop
   const distanceFromDrop = calculateDistanceMeters(
@@ -233,12 +251,40 @@ export const useStateDataStore = defineStore("stateData", () => {
   };
 
   // --- Alerts Logic ---
-  console.log('DEBUG - Before alerts check:', state.alerts);
+  // Alert datum structure reference:
+  // {
+  //   id: string,
+  //   type: string,              // 'signalk', 'user', 'system', 'weather', etc.
+  //   category: string,          // 'navigation', 'anchor', etc.
+  //   source: string,            // Origin system/module
+  //   level: string,             // 'info', 'warning', 'critical', 'emergency', etc.
+  //   label: string,             // Short title
+  //   message: string,           // Main user-facing message
+  //   timestamp: string,         // ISO8601
+  //   acknowledged: boolean,
+  //   muted: boolean,
+  //   mutedUntil: string,        // ISO8601 or null
+  //   mutedBy: string,           // Who/what muted this alert
+  //   status: string,            // 'active', 'resolved', etc.
+  //   trigger: string,           // Human-readable trigger
+  //   ruleId: string,            // Rule/definition id
+  //   data: object,              // Source/type-specific data
+  //   actions: string[],         // e.g. ['acknowledge', 'mute']
+  //   phoneNotification: boolean,// Should trigger phone notification?
+  //   sticky: boolean,           // Persist until handled?
+  //   externalId: string,        // External system id
+  //   deviceTargets: string[],   // Device ids to notify
+  //   expiresAt: string          // ISO8601, auto-expiry
+  // }
   if (!state.alerts) {
-    console.log('DEBUG - Creating alerts field because it does not exist');
-    state.alerts = { active: [], processingQueue: [] };
-  } else {
-    console.log('DEBUG - Alerts field already exists with structure:', state.alerts);
+    state.alerts = {
+      active: [],           // Currently active alerts/notifications
+      history: [],          // Past/resolved alerts (optional)
+      definitions: [],      // User/system-defined alert rules (optional)
+      processingQueue: [],  // Alert ids currently being processed (optional)
+      muted: [],            // Alert ids currently muted (optional)
+      deviceSubscriptions: {} // deviceId => [alert types/categories] (optional)
+    };
   }
 
   const hasActiveAlerts = computed(() => state.alerts.active?.length > 0);
