@@ -1,28 +1,5 @@
 <template>
-  <div
-    style="
-      width: 100%;
-      height: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 0;
-      margin: 0;
-      background-color: var(--ion-color-primary);
-      border-radius: 8px;
-      -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
-      -webkit-touch-callout: none !important;
-      user-select: none !important;
-      pointer-events: auto;
-      touch-action: manipulation;
-      -webkit-user-drag: none;
-      -webkit-appearance: none;
-      appearance: none;
-      outline: none !important;
-    "
-    class="instrument-container no-tap-highlight"
-    @touchstart.prevent
-  >
+  <div class="instrument-container no-tap-highlight" @touchstart.prevent>
     <svg
       height="100%"
       width="100%"
@@ -30,20 +7,6 @@
       class="instrument display-component no-tap-highlight"
       viewBox="0 0 300 300"
       preserveAspectRatio="xMidYMid meet"
-      style="
-        max-width: 100%;
-        max-height: 100%;
-        -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
-        -webkit-touch-callout: none !important;
-        user-select: none !important;
-        pointer-events: none;
-        touch-action: manipulation;
-        -webkit-user-drag: none;
-        -webkit-appearance: none;
-        appearance: none;
-        outline: none !important;
-      "
-      @touchstart.prevent
     >
       <text class="title" x="150" y="45" ref="titleRef">
         {{ props.label || instrumentData.label || props.dataSource }}
@@ -55,8 +18,8 @@
         {{ instrumentData.value || "--" }}
       </text>
 
-      <InstrumentBarGraph v-if="props.graph === 'bar'" :data="instrumentData.history" />
-      <InstrumentLineGraph v-else :data="instrumentData.history" />
+      <InstrumentBarGraph v-if="props.graph === 'bar'" :data="history" />
+      <InstrumentLineGraph v-else :data="history" />
     </svg>
   </div>
 </template>
@@ -80,6 +43,7 @@ const props = defineProps({
       value: "",
       units: "",
       label: "",
+      // history is now managed locally
       history: [],
     }),
   },
@@ -175,6 +139,29 @@ onMounted(() => {
     emit("mounted");
   }, 100);
 });
+// Local history tracking
+const history = ref([]);
+
+watch(
+  () => props.data,
+  (newVal, oldVal) => {
+    console.log('InstrumentComponent data changed:', oldVal, '→', newVal);
+  }
+);
+
+watch(
+  () => props.data.value,
+  (newVal) => {
+    if (typeof newVal === 'number' && !isNaN(newVal)) {
+      history.value.push(newVal);
+      if (history.value.length > 100) history.value.shift();
+      console.log("history", history.value);
+    }
+  },
+  { immediate: true }
+);
+
+// Use local history for graphs
 </script>
 
 <style scoped>

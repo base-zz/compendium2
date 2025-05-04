@@ -258,6 +258,8 @@ const stateStore = useStateDataStore();
 const { state, breadcrumbs } = storeToRefs(stateStore);
 const navigationState = computed(() => state.value.navigation);
 const anchorState = computed(() => state.value.anchor);
+const alertState = computed(() => state.value.alerts?.active);
+
 const aisTargets = computed(() => {
   const targetsObj = state.value.anchor?.aisTargets || {};
   // Convert object to array for component compatibility
@@ -298,7 +300,7 @@ const criticalRange = computed(() => anchorState.value?.criticalRange?.r);
 
 console.log("------STATE :  ", state.value);
 console.log("+++++++++[ANCHOR STATE]", anchorState.value);
-
+console.log("!!!!!!!!!!!!!![ALERT STATE]", alertState.value);
 
 // View persistence
 const { saveViewState, restoreViewState } = useMapPersist(map);

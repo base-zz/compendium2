@@ -60,10 +60,10 @@
 
 <script setup>
 import { IonPage, IonContent, IonIcon, IonFab, IonFabButton } from "@ionic/vue";
-import Page from "../components/PageComponent.vue";
-import LoadingContent from "../components/LoadingContent.vue";
-import GenericHeader from "@/components/GenericHeader.vue";
-import { usePageStore } from "../stores/pages.js";
+import Page from "@client/components/PageComponent.vue";
+import LoadingContent from "@client/components/LoadingContent.vue";
+import GenericHeader from "@client/components/GenericHeader.vue";
+import { usePageStore } from "@client/stores/pages.js";
 import { computed, onMounted, ref } from "vue";
 import { Swiper, SwiperSlide } from "swiper/vue";
 import { Pagination } from "swiper/modules";

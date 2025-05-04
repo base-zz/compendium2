@@ -12,7 +12,7 @@ import { stateData } from "./StateData.js";
 import { signalKAdapterRegistry } from "../../relay/server/adapters/SignalKAdapterRegistry.js";
 import fetch from "node-fetch";
 import { extractAISTargetsFromSignalK } from "./extractAISTargets.js";
-import { convertSignalKNotifications } from '@shared/convertSignalK.js';
+import { convertSignalKNotifications } from '../../shared/convertSignalK.js';
 import pkg from "fast-json-patch";
 import { stateManager } from "../../relay/core/state/StateManager.js";
 
@@ -35,7 +35,7 @@ class StateService extends EventEmitter {
       // Optionally reset for future runs
       this.notificationPathsSeen.clear();
       this.notificationPathLoggingStarted = false;
-    }, 10 * 60 * 1000); // 10 minutes
+    }, 5 * 60 * 1000); // 10 minutes
   }
 
   logNotificationPathsFromDelta(delta) {
@@ -194,7 +194,6 @@ class StateService extends EventEmitter {
    */
   async updateAISTargetsFromSignalK(fullSignalKData) {
     try {
-      console.log("[StateService] Starting AIS targets update...");
       const startTime = Date.now();
       
       // Ensure we have valid data to work with
@@ -234,25 +233,18 @@ class StateService extends EventEmitter {
       }
       if (Object.keys(notifications).length > 0) {
         const alerts = convertSignalKNotifications(notifications);
-        stateData.alerts.active = alerts;
-        this.emit(this.EVENTS.STATE_UPDATED, {
-          type: 'state:updated',
-          path: 'alerts.active',
-          value: alerts,
-          source: 'signalK',
-          timestamp: Date.now(),
-        });
+        this._queueUpdate('alerts.active', alerts, 'signalK');
       }
     }
     // --- End SignalK Notification Handling ---
 
       // Extract AIS targets from SignalK data
-      const extractStartTime = Date.now();
       const newAisTargetsArray = extractAISTargetsFromSignalK(
         fullSignalKData.vessels,
         this.selfMmsi
       );
-      console.log(`[StateService] Extracted ${newAisTargetsArray.length} AIS targets in ${Date.now() - extractStartTime}ms`);
+      // Only log if needed: comment out verbose logs
+      // console.log(`[StateService] Extracted ${newAisTargetsArray.length} AIS targets in ${Date.now() - extractStartTime}ms`);
       
       // Convert array to object with MMSI keys
       const newAisTargets = {};
@@ -311,8 +303,10 @@ class StateService extends EventEmitter {
       
       const totalChanges = addedTargets.length + removedTargets.length + updatedTargets.length;
       const totalTargets = Object.keys(newAisTargets).length;
-      
-      console.log(`[StateService] AIS changes: ${addedTargets.length} added, ${removedTargets.length} removed, ${updatedTargets.length} updated, ${unchangedTargets.length} unchanged (${totalChanges} total changes out of ${totalTargets} targets)`);
+      // Only log a single summary if there are significant changes
+      // if (totalChanges > 0) {
+      //   console.log(`[StateService] AIS changes: ${addedTargets.length} added, ${removedTargets.length} removed, ${updatedTargets.length} updated (${totalChanges} total changes out of ${totalTargets} targets)`);
+      // }
       
       // Only proceed if there are actual changes
       if (totalChanges > 0) {
@@ -320,19 +314,7 @@ class StateService extends EventEmitter {
         stateData.anchor.aisTargets = newAisTargets;
         
         // Log sample changes
-        if (addedTargets.length > 0) {
-          const sample = addedTargets.slice(0, Math.min(2, addedTargets.length));
-          console.log(`[StateService] Sample ADDED targets:\n${JSON.stringify(sample, null, 2)}`);
-        }
-        
-        if (updatedTargets.length > 0) {
-          const sample = updatedTargets.slice(0, Math.min(2, updatedTargets.length));
-          console.log(`[StateService] Sample UPDATED targets:\n${JSON.stringify(sample, null, 2)}`);
-          
-          // Analyze what properties are changing most frequently
-          const propertyChanges = this._analyzeTargetChanges(oldAisTargets, updatedTargets);
-          console.log(`[StateService] Property change frequency: ${JSON.stringify(propertyChanges)}`);
-        }
+        // Removed verbose target sample and property change logs
         
         // Determine update strategy based on change volume
         // If changes exceed 30% of total targets or there are more than 20 changes, send full update
@@ -342,7 +324,6 @@ class StateService extends EventEmitter {
         
         if (useFullUpdate) {
           // Emit a full update event for AIS targets
-          console.log(`[StateService] Emitting full AIS targets update (change ratio: ${(changeRatio * 100).toFixed(1)}%)`);
           this.emit(this.EVENTS.STATE_UPDATED, {
             type: 'state:updated',
             path: 'anchor.aisTargets',
@@ -358,7 +339,6 @@ class StateService extends EventEmitter {
           });
         } else {
           // Emit individual patches for each change
-          console.log(`[StateService] Emitting individual AIS target patches (change ratio: ${(changeRatio * 100).toFixed(1)}%)`);
           
           // Create patches for each type of change
           const patches = [];
@@ -404,11 +384,7 @@ class StateService extends EventEmitter {
             }
           });
         }
-      } else {
-        console.log('[StateService] No significant changes detected in AIS targets');
       }
-      
-      console.log(`[StateService] AIS update process completed in ${Date.now() - startTime}ms`);
     } catch (error) {
       console.error('[StateService] Error in AIS target update process:', error);
     }
@@ -496,13 +472,12 @@ class StateService extends EventEmitter {
     
     this._aisRefreshTimer = setInterval(async () => {
       try {
-        console.log("[StateService] Fetching SignalK data for AIS refresh...");
         const startTime = Date.now();
         
         const fullSignalKData = await fetchSignalKFullState();
         const vesselCount = Object.keys(fullSignalKData?.vessels || {}).length;
         
-        console.log(`[StateService] Received SignalK data with ${vesselCount} vessels in ${Date.now() - startTime}ms`);
+        // console.log(`[StateService] Received SignalK data with ${vesselCount} vessels in ${Date.now() - startTime}ms`);
         
         await this.updateAISTargetsFromSignalK(fullSignalKData);
       } catch (err) {
@@ -510,7 +485,7 @@ class StateService extends EventEmitter {
       }
     }, intervalMs);
     
-    console.log("[StateService] AIS refresh timer started");
+    // console.log("[StateService] AIS refresh timer started");
   }
 
   stopAISPeriodicRefresh() {

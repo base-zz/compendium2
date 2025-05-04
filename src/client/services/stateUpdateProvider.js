@@ -2,11 +2,10 @@
 // Handles hot swapping between direct (connectionBridge) and relay (relayConnectionAdapter)
 
 import { relayConnectionAdapter } from './relayConnectionAdapter';
-import DirectConnectionAdapter from './directConnectionAdapter.js';
+import { directConnectionAdapter } from './directConnectionAdapter';
 
 class StateUpdateProvider {
   constructor() {
-    console.log('[StateUpdateProvider] Constructed');
     this.mode = null;
     this.subscribers = new Set();
     this.currentAdapter = null;
@@ -15,47 +14,87 @@ class StateUpdateProvider {
   }
 
   subscribe(cb) {
-    console.log('[StateUpdateProvider] New subscriber added');
     this.subscribers.add(cb);
   }
 
   unsubscribe(cb) {
-    console.log('[StateUpdateProvider] Subscriber removed');
     this.subscribers.delete(cb);
   }
 
   _notify(evt) {
-    // console.log('[StateUpdateProvider] Notifying subscribers:', evt);
     for (const cb of this.subscribers) {
-      cb(evt);
+      try {
+        cb(evt);
+      } catch (err) {
+        console.error('[StateUpdateProvider] Error in subscriber:', err);
+      }
     }
   }
 
   switchSource(mode) {
-    console.log('[StateUpdateProvider] Switching source to', mode);
     // Cleanup previous listeners
     this._cleanupListeners();
     this.mode = mode;
     if (mode === 'relay') {
       this.currentAdapter = relayConnectionAdapter;
     } else if (mode === 'direct') {
-      console.log('[StateUpdateProvider] switchSource called with direct');
-      this.currentAdapter = new DirectConnectionAdapter();
-      this.currentAdapter.connect();
-      console.log('[StateUpdateProvider] Assigned directConnectionAdapter:', this.currentAdapter);
+      this.currentAdapter = directConnectionAdapter;
+      if (this.currentAdapter.connectionState.status !== 'connected') {
+        this.currentAdapter.connect();
+      }
     } else {
       // fallback to direct
-      this.currentAdapter = new DirectConnectionAdapter();
-      this.currentAdapter.connect();
+      this.currentAdapter = directConnectionAdapter;
+      if (this.currentAdapter.connectionState.status !== 'connected') {
+        this.currentAdapter.connect();
+      }
     }
-    console.log('[StateUpdateProvider] switchSource called with', mode);
 
+    this._setupListeners();
+  }
+  
+  // New method to switch source with an existing connection
+  switchSourceWithConnection(mode, existingConnection) {
+    // Cleanup previous listeners
+    this._cleanupListeners();
+    this.mode = mode;
+    
+    if (mode === 'direct') {
+      this.currentAdapter = directConnectionAdapter;
+      
+      // Set the existing connection on the adapter
+      if (this.currentAdapter.ws !== existingConnection) {
+        // Close any existing connection first
+        if (this.currentAdapter.ws) {
+          this.currentAdapter._manualClose = true;
+          this.currentAdapter.ws.close();
+        }
+        
+        // Assign the existing connection
+        this.currentAdapter.ws = existingConnection;
+        this.currentAdapter.connectionState.status = 'connected';
+        
+        // Add a message listener directly to the connection
+        existingConnection.addEventListener('message', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            this._notify(data);
+          } catch (err) {
+            console.error('[StateUpdateProvider] Error processing message');
+          }
+        });
+      }
+    } else {
+      // For other modes, just use the regular switchSource
+      this.switchSource(mode);
+      return;
+    }
+    
     this._setupListeners();
   }
  
 
   _setupListeners() {
-    console.log('[StateUpdateProvider] Setting up listeners for', this.mode, this.currentAdapter);
     // Listen for unified navigation updates
     const navListener = (data) => this._notify({ type: 'navigation', data });
     this.currentAdapter.on('navigation', navListener);
@@ -100,7 +139,6 @@ class StateUpdateProvider {
 
   _cleanupListeners() {
     if (!this.currentAdapter) return;
-    console.log('[StateUpdateProvider] Cleaning up listeners for', this.mode, this.currentAdapter);
     this._listenerRefs.forEach(({ event, fn }) => {
       this.currentAdapter.off(event, fn);
     });

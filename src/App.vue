@@ -10,6 +10,7 @@ import { cloudUploadOutline, cloudOfflineOutline } from 'ionicons/icons';
 import { computed, onMounted } from 'vue';
 import { useStateDataStore } from './client/stores/stateDataStore';
 import { useRelayPiniaSync } from './client/services/useRelayPiniaSync';
+import { useDirectPiniaSync } from './client/services/useDirectPiniaSync';
 import ConnectionStatusIndicator from './client/components/ConnectionStatusIndicator.vue';
 import RealDataViewer from './client/examples/RealDataViewer.vue';
 
@@ -18,6 +19,9 @@ const isConnected = computed(() => stateDataStore.isConnected);
 
 // Start relay-to-pinia data sync
 useRelayPiniaSync();
+
+// Start direct-to-pinia data sync
+useDirectPiniaSync();
 
 onMounted(() => {
   // Removed: stateDataStore.init();

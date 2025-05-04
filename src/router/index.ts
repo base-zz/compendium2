@@ -43,14 +43,13 @@ const routes = [
     component: () => import("@client/views/AISTargetView.vue"),
   },
 
-  // Sail route commented out due to import issues
-  // {
-  //   path: "/sail",
-  //   name: "Sail",
-  //   props: false,
-  //   component: SailView,
-  //   meta: { title: "Sail" },
-  // },
+ {
+    path: "/sail",
+    name: "Sail",
+    props: false,
+    component: SailView,
+    meta: { title: "Sail" },
+  },
 
   // Settings route commented out due to import issues
   {
@@ -116,12 +115,26 @@ const routes = [
     component: () => import("@client/views/AlertView.vue"),
     meta: { title: "Alerts" },
   },
+  // Alert Rules Management
   {
-    path: "/alertdetails/:id",
-    name: "AlertDetails",
-    props: true,
-    component: () => import("@client/views/AlertDetailView.vue"),
-    meta: { title: "Alert Details" },
+    path: "/alert-rules",
+    component: () => import("@client/views/AlertRulesView.vue"),
+    meta: { title: "Alert Rules" },
+    children: [
+      {
+        path: "",
+        name: "alert-rules",
+        component: () => import("@client/components/AlertRuleList.vue"),
+        meta: { title: "Alert Rules" },
+      },
+      {
+        path: ":mode(create|edit)/:id?",
+        name: "alert-rule-editor",
+        component: () => import("@client/components/AlertRuleEditor.vue"),
+        props: true,
+        meta: { title: "Edit Alert Rule" },
+      },
+    ],
   },
   // UserInfo route commented out due to import issues
   {

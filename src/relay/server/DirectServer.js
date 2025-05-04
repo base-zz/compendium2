@@ -1,8 +1,5 @@
 import { WebSocketServer } from "ws";
 import { stateManager } from "../core/state/StateManager.js";
-import { getOrCreateAppUuid } from "../../server/uniqueAppId.js";
-
-const boatId = getOrCreateAppUuid();
 
 async function startDirectServer(options = {}) {
   const PORT = options.port || parseInt(process.env.DIRECT_WS_PORT, 10);
@@ -17,17 +14,27 @@ async function startDirectServer(options = {}) {
 
   // Broadcast to all clients except specified ones
   function broadcast(payload, exclude = new Set()) {
+    console.log(`[DIRECT] Broadcasting ${payload.type} to ${wss.clients.size} clients`);
     const message = JSON.stringify(payload);
+    let sentCount = 0;
+    
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN && !exclude.has(client)) {
         client.send(message, (err) => {
           if (err) {
             console.warn("[DIRECT] Broadcast failed:", err);
             client.terminate();
+          } else {
+            sentCount++;
           }
         });
       }
     });
+    
+    // Log after a short delay to allow send callbacks to complete
+    setTimeout(() => {
+      console.log(`[DIRECT] Broadcast complete: ${sentCount}/${wss.clients.size} clients received ${payload.type}`);
+    }, 50);
   };
 
   // Store handler references for proper cleanup
@@ -38,14 +45,39 @@ async function startDirectServer(options = {}) {
   // stateManager
   // .on('state:full-update', fullUpdateHandler)
   // .on('state:patch', patchHandler);
-  const stateEventHandler = (payload) => broadcast(payload);
+  const stateEventHandler = (payload) => {
+    console.log(`[DIRECT] State event received: ${payload.type}`);
+    if (payload.type === 'state:patch') {
+      console.log(`[DIRECT] Patch contains ${payload.data.length} operations:`, JSON.stringify(payload.data));
+    }
+    broadcast(payload);
+    
+    // Log after broadcast
+    setTimeout(() => {
+      console.log(`[DIRECT] Active clients after broadcast: ${getActiveClientCount()}`);
+    }, 100);
+  };
 
   stateManager.on('state:full-update', stateEventHandler);
   stateManager.on('state:patch', stateEventHandler);
   
 
+  // Log active client count for debugging
+  function getActiveClientCount() {
+    let count = 0;
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        count++;
+      }
+    });
+    return count;
+  }
+  
   wss.on("connection", (ws, req) => {
     console.log(`[DIRECT] New connection from ${req.socket.remoteAddress}`);
+    
+    // Log active client count
+    console.log(`[DIRECT] Active clients: ${getActiveClientCount()}`);
 
     // Send initial state ONLY to this client
     ws.send(
@@ -65,6 +97,24 @@ async function startDirectServer(options = {}) {
       }
     );
 
+    // Handle incoming messages
+    ws.on("message", (data) => {
+      try {
+        const message = JSON.parse(data);
+        console.log(`[DIRECT] Received message from client: ${message.type}`);
+        
+        // Handle ping messages
+        if (message.type === 'ping') {
+          ws.send(JSON.stringify({
+            type: 'pong',
+            timestamp: Date.now()
+          }));
+        }
+      } catch (e) {
+        console.warn("[DIRECT] Invalid message from client:", e);
+      }
+    });
+
     // Setup heartbeat
     const heartbeat = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.ping();
@@ -74,6 +124,9 @@ async function startDirectServer(options = {}) {
     ws.on("close", () => {
       clearInterval(heartbeat);
       console.log("[DIRECT] Client disconnected");
+      
+      // Log active client count
+      console.log(`[DIRECT] Active clients: ${getActiveClientCount()}`);
     });
 
     ws.on("error", (err) => {

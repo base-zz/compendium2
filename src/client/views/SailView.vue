@@ -4,30 +4,32 @@
     <ion-content class="content-with-header">
       <div id="container" class="container">
         <div class="top-left quad" ref="topLeft">
-          <InstrumentView :data="navigationState.depth" :maintainSquareRatio="false" />
+          <InstrumentView :data="depthData" :maintainSquareRatio="false" />
         </div>
         <div class="top-right quad" ref="topRight">
-          <InstrumentView :data="navigationState.speed.speedOverGround" :maintainSquareRatio="false" />
+          <InstrumentView :data="sogData" :maintainSquareRatio="false" />
         </div>
+       
         <div class="mid-section sail quad" ref="sail360">
           <SailComponent />
         </div>
+
         <div class="bottom-left quad" ref="bottomLeft">
-          <InstrumentView :data="navigationState.wind.speedTrue" :maintainSquareRatio="false" />
+          <InstrumentView :data="trueWindSpeedData" :maintainSquareRatio="false" />
         </div>
         <div class="bottom-right quad" ref="bottomRight">
           <InstrumentView
-            :data="navigationState.wind.speedApparent"
+            :data="apparentWindSpeedData"
             :maintainSquareRatio="false"
           />
-        </div>
+        </div> 
       </div>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup>
-import { onMounted, ref, onUnmounted } from "vue";
+import { onMounted, ref, onUnmounted, computed } from "vue";
 import InstrumentView from "../components/InstrumentComponent.vue";
 import SailComponent from "../components/Sail360View.vue";
 import { useStateDataStore } from "../stores/stateDataStore.js";
@@ -36,7 +38,18 @@ import { IonPage, IonContent } from "@ionic/vue";
 import GenericHeader from "../components/GenericHeader.vue";
 
 const stateStore = useStateDataStore();
-const { navigationState } = storeToRefs(stateStore);
+const { state } = storeToRefs(stateStore);
+
+const navigationState = computed(() => state?.value?.navigation);
+
+// Computed wrappers to force reactivity for instrument props
+const depthData = computed(() => ({ ...navigationState.value?.depth?.belowTransducer }));
+const sogData = computed(() => ({ ...navigationState.value?.speed?.sog }));
+const trueWindSpeedData = computed(() => ({ ...navigationState.value?.wind?.true?.speed }));
+const apparentWindSpeedData = computed(() => ({ ...navigationState.value?.wind?.apparent?.speed }));
+
+console.log("stateStore", stateStore );
+console.log("navigationState", navigationState.value);
 
 const topLeft = ref(null);
 const topRight = ref(null);

@@ -18,7 +18,7 @@
 import { ref, watch, onMounted, computed } from "vue";
 import { usePageStore } from "../stores/pages.js";
 import SelectTemplate from "./SelectTemplate.vue";
-import AnchorComponent from "./AnchorComponent.vue";
+// import AnchorComponent from "./AnchorComponent.vue";
 import Template1 from "./TemplateLayout1.vue";
 import Template2 from "./TemplateLayout2.vue";
 import Template3 from "./TemplateLayout3.vue";
@@ -44,7 +44,6 @@ const templates = {
   5: Template5,
   6: Template6,
   8: Template8,
-  anchor: AnchorComponent,
 };
 
 // Resolve template component

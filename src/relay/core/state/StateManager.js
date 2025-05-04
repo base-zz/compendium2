@@ -77,14 +77,13 @@ export class StateManager extends EventEmitter {
       
       this.updateState(this.appState);
       
-      if (this._clientCount > 0) {
-        this.emit("state:patch", {
-          type: "state:patch",
-          data: validPatch,
-          boatId: this._boatId,
-          timestamp: Date.now(),
-        });
-      }
+      // Always emit patch events for direct server
+      this.emit("state:patch", {
+        type: "state:patch",
+        data: validPatch,
+        boatId: this._boatId,
+        timestamp: Date.now(),
+      });
     } catch (error) {
       console.error("[StateManager] Patch error:", error);
       this.emit("error:patch-error", { error, patch });
@@ -110,11 +109,8 @@ export class StateManager extends EventEmitter {
    * Emits 'state:full-update' with the full appState object.
    */
   emitFullState() {
-    // Only emit if clients are connected, unless explicitly forced
-    if (this._clientCount <= 0) {
-      console.log('[StateManager] Suppressing full state emission - no clients connected');
-      return;
-    }
+    // Always emit full state updates regardless of client count
+    console.log('[StateManager] Emitting full state update');
     
     // Emit with boatId and timestamp at the base
     const payload = {

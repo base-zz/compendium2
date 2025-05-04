@@ -1,5 +1,6 @@
 // directConnectionAdapter.js
 import { EventEmitter } from "events";
+import { stateUpdateProvider } from './stateUpdateProvider.js';
 
 // Adjust this to your on-boat server's WebSocket endpoint or HTTP API as needed
 const LOCAL_SERVER_WS_URL =
@@ -52,11 +53,15 @@ class DirectConnectionAdapter extends EventEmitter {
           let msg = event.data;
           if (typeof msg === 'string') {
             msg = JSON.parse(msg);
-            // If after parsing, msg is still a string, parse again (handles double-encoded JSON)
             if (typeof msg === 'string') {
               msg = JSON.parse(msg);
             }
           }
+          // First notify stateUpdateProvider
+          if (msg.type === 'state:full-update' || msg.type === 'state:patch') {
+            stateUpdateProvider._notify(msg);
+          }
+          // Then emit events as before
           if (msg.type === 'state:full-update') {
             this.emit('state:full-update', msg);
           } else if (msg.type === 'state:patch') {

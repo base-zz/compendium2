@@ -1,20 +1,9 @@
 import { defineStore } from "pinia";
-import { Storage, Drivers } from "@ionic/storage";
+import { Preferences } from "@capacitor/preferences";
 import { ref } from "vue";
 
-// Create a singleton storage instance
-let localstore = null;
-
-const initStorage = async () => {
-  if (!localstore) {
-    localstore = new Storage({
-      name: "__navcc",
-      driverOrder: [Drivers.IndexedDB, Drivers.LocalStorage],
-    });
-    await localstore.create();
-  }
-  return localstore;
-};
+// Storage key constant
+const PAGES_STORAGE_KEY = "navcc_pages";
 
 /* 
  * the pages store
@@ -37,25 +26,32 @@ export const usePageStore = defineStore("pages", () => {
     return pagedata.value[index];
   };
 
-  /* init local store */
+  /* init from preferences */
   const init = async () => {
     if (isInitialized.value) return;
     
-    const storage = await initStorage();
-    const storedPages = await storage.get("pages");
-    
-    if (storedPages) {
-      pagedata.value = storedPages;
+    try {
+      const { value } = await Preferences.get({ key: PAGES_STORAGE_KEY });
+      
+      if (value) {
+        pagedata.value = JSON.parse(value);
+      }
+      isInitialized.value = true;
+    } catch (error) {
+      console.error('Error loading pages from preferences:', error);
+      isInitialized.value = true;
     }
-    isInitialized.value = true;
   };
 
   const getPages = async () => {
     await init();
-    const storage = await initStorage();
-    const storedPages = await storage.get("pages");
-    if (storedPages) {
-      pagedata.value = storedPages;
+    try {
+      const { value } = await Preferences.get({ key: PAGES_STORAGE_KEY });
+      if (value) {
+        pagedata.value = JSON.parse(value);
+      }
+    } catch (error) {
+      console.error('Error getting pages from preferences:', error);
     }
     return pagedata.value;
   };
@@ -64,16 +60,20 @@ export const usePageStore = defineStore("pages", () => {
     await init();
     const cleanPage = JSON.parse(JSON.stringify(p));
     pagedata.value.push(cleanPage);
-    const storage = await initStorage();
-    await storage.set("pages", getCleanPages());
+    await Preferences.set({
+      key: PAGES_STORAGE_KEY,
+      value: JSON.stringify(getCleanPages())
+    });
   };
 
   const newPage = async () => {
     await init();
     const myNewPage = { template: null, title: "", widgets: {} };
     pagedata.value.push(myNewPage);
-    const storage = await initStorage();
-    await storage.set("pages", getCleanPages());
+    await Preferences.set({
+      key: PAGES_STORAGE_KEY,
+      value: JSON.stringify(getCleanPages())
+    });
     return myNewPage;
   };
 
@@ -81,16 +81,20 @@ export const usePageStore = defineStore("pages", () => {
     await init();
     if (index > -1) {
       pagedata.value.splice(index, 1);
-      const storage = await initStorage();
-      await storage.set("pages", getCleanPages());
+      await Preferences.set({
+        key: PAGES_STORAGE_KEY,
+        value: JSON.stringify(getCleanPages())
+      });
     }
   };
 
   const deleteAllPages = async () => {
     await init();
     pagedata.value = [];
-    const storage = await initStorage();
-    await storage.set("pages", []);
+    await Preferences.set({
+      key: PAGES_STORAGE_KEY,
+      value: JSON.stringify([])
+    });
   };
 
   const updatePage = async (index, page) => {
@@ -113,14 +117,16 @@ export const usePageStore = defineStore("pages", () => {
       
       // Save to storage
       try {
-        const storage = await initStorage();
         const cleanPages = getCleanPages();
         // console.log('Saving pages to storage:', cleanPages);
-        await storage.set("pages", cleanPages);
+        await Preferences.set({
+          key: PAGES_STORAGE_KEY,
+          value: JSON.stringify(cleanPages)
+        });
         pagedata.value = cleanPages;
         // console.log('Pages updated successfully');
       } catch (error) {
-        console.error('Error saving pages to storage:', error);
+        console.error('Error saving pages to preferences:', error);
       }
     } else {
       console.error('Invalid page index:', index);
@@ -129,9 +135,11 @@ export const usePageStore = defineStore("pages", () => {
 
   const savePages = async () => {
     await init();
-    const storage = await initStorage();
     const cleanPages = getCleanPages();
-    await storage.set("pages", cleanPages);
+    await Preferences.set({
+      key: PAGES_STORAGE_KEY,
+      value: JSON.stringify(cleanPages)
+    });
     pagedata.value = cleanPages;
   };
 
@@ -145,8 +153,10 @@ export const usePageStore = defineStore("pages", () => {
     });
 
     pagedata.value = ar;
-    const storage = await initStorage();
-    await storage.set("pages", getCleanPages());
+    await Preferences.set({
+      key: PAGES_STORAGE_KEY,
+      value: JSON.stringify(getCleanPages())
+    });
   };
 
   return { 

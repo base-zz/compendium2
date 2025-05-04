@@ -31,24 +31,6 @@
       class="instrument display-component sail360 no-tap-highlight"
       viewBox="0 0 1000 1000"
       preserveAspectRatio="xMidYMid meet"
-      style="
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        margin: auto;
-        -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
-        -webkit-touch-callout: none !important;
-        -webkit-user-select: none !important;
-        user-select: none !important;
-        pointer-events: none;
-        touch-action: manipulation;
-        -webkit-user-drag: none;
-        -webkit-appearance: none;
-        appearance: none;
-        outline: none !important;
-      "
       @touchstart.prevent
     >
       <defs>
@@ -65,12 +47,12 @@
       <!-- Current lines component -->
       <CurrentLinesG
         v-if="
-          navigationState.current &&
-          navigationState.current.speed &&
-          navigationState.current.angle
+          navData?.current &&
+          navData?.current?.speed &&
+          navData?.current?.angle
         "
-        :currentSpeed="navigationState.current.speed"
-        :currentAngle="navigationState.current.angle"
+        :currentSpeed="navData?.current?.speed"
+        :currentAngle="navData?.current?.angle"
       />
 
       <!-- Rest of the SVG content -->
@@ -106,12 +88,12 @@
       </g>
       <text class="tidal-direction centerable" ref="tidalDirection">&#10513;</text>
       <text class="tidal-speed" ref="tidalSpeed">
-        {{ navigationState.current && navigationState.current.speed }}
+        {{ navData.current && navData.current.speed }}
       </text>
 
       <rect class="heading-panel" ref="headingPanel" />
       <text class="heading" ref="heading">
-        {{ navigationState.course && navigationState.course.headingTrue }}
+        {{ navData.course && navData.course.headingTrue }}
       </text>
       <g ref="trueWindAngle" class="true-wind-angle wind-angle centerable">
         <text ref="trueWindAngleIcon" class="wind-angle true-wind-angle-icon">
@@ -161,9 +143,19 @@ const trueWindAngleLabelRef = useTemplateRef("trueWindAngleLabel");
 const apparentWindAngleRef = useTemplateRef("apparentWindAngle");
 const apparentWindAngleIconRef = useTemplateRef("apparentWindAngleIcon");
 const apparentWindAngleLabelRef = useTemplateRef("apparentWindAngleLabel");
-
+ 
+// Store integration
 const stateStore = useStateDataStore();
-const { navigationState } = storeToRefs(stateStore);
+const { state } = storeToRefs(stateStore);
+const navData = computed(() => state.value.navigation);
+const anchorState = computed(() => state.value.anchor);
+const alertState = computed(() => state.value.alerts?.active);
+
+
+setTimeout(() => {
+console.log("--------Sail360] state", state.value)
+console.log("--------Sail360] navData", navData.value)
+}, 5000);
 
 const radius = 350,
   x = 500,

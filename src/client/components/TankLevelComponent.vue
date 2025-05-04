@@ -113,8 +113,8 @@
 </template>
 
 <script setup>
-import { ref, computed, useTemplateRef, watch, onMounted } from "vue";
-import { useAlertStore } from "../stores/alerts.js";
+import { computed, useTemplateRef, watch, onMounted } from "vue";
+import { useStateDataStore } from "../stores/stateDataStore.js";
 import { scaleLinear } from "d3";
 
 const props = defineProps({
@@ -144,7 +144,7 @@ const props = defineProps({
 
 const emit = defineEmits(["mounted"]);
 
-const alertStore = useAlertStore();
+const stateStore = useStateDataStore();
 
 console.log("tank props", props);
 /* ****************************************
@@ -249,41 +249,93 @@ watch(
     setFluidLevel();
 
     let alert;
+    const tankId = props.widget?.id || 'unknown-tank';
+    const tankLabel = props.label || props.widget?.widgetTitle || 'Tank';
+    const tankValue = props.data.value;
 
-    if (props.data.value === props.threshold) {
-      alert = alertStore.newAlert();
-
+    // For tank levels, STATE_TRACKING is ideal since we only want to alert
+    // when crossing from normal to alert state
+    
+    // Warning threshold (e.g. 20%)
+    if (tankValue <= props.threshold && tankValue > props.threshold / 2) {
+      alert = stateStore.newAlert();
       alert.title = "Tank Warning";
-      alert.label = props.label;
-      alert.message = `Tank level is ${props.threshold}%`;
+      alert.label = tankLabel;
+      alert.message = `Tank level is ${tankValue}%`;
       alert.type = "warning";
-      alert.widget = "tank";
-      alert.variable = "pct";
-      alert.value = props.data.value;
-      alert.critical = false;
-      alertStore.addAlert(alert);
-    } else if (props.data.value === props.threshold / 2) {
-      alert = alertStore.newAlert();
-      alert.title = "Tank Warning";
-      alert.label = props.label;
-      alert.message = `Tank level is ${props.threshold / 2}%`;
+      alert.category = "tank";
+      alert.level = "warning";
+      alert.data = {
+        widget: "tank",
+        variable: "pct",
+        value: tankValue,
+        tankId: tankId,
+        threshold: props.threshold
+      };
+      
+      stateStore.addAlertWithPrevention(alert, {
+        strategies: stateStore.AlertPreventionStrategy.STATE_TRACKING,
+        signature: `tank-${tankId}-warning`,
+        value: tankValue,
+        threshold: props.threshold,
+        isHigherBad: false // For tanks, lower values are bad
+      });
+      
+    // Low threshold (e.g. 10%)
+    } else if (tankValue <= props.threshold / 2 && tankValue > props.threshold / 4) {
+      alert = stateStore.newAlert();
+      alert.title = "Tank Low";
+      alert.label = tankLabel;
+      alert.message = `Tank level is low at ${tankValue}%`;
       alert.type = "error";
-      alert.widget = "tank";
-      alert.variable = "pct";
-      alert.value = props.data.value;
-      alert.critical = true;
-      alertStore.addAlert(alert);
-    } else if (props.data.value === props.threshold / 4) {
-      alert = alertStore.newAlert();
-      alert.title = "Tank Warning";
-      alert.label = props.label;
-      alert.message = `Tank level is ${props.threshold / 4}%`;
+      alert.category = "tank";
+      alert.level = "error";
+      alert.data = {
+        widget: "tank",
+        variable: "pct",
+        value: tankValue,
+        tankId: tankId,
+        threshold: props.threshold / 2
+      };
+      
+      stateStore.addAlertWithPrevention(alert, {
+        strategies: stateStore.AlertPreventionStrategy.STATE_TRACKING,
+        signature: `tank-${tankId}-low`,
+        value: tankValue,
+        threshold: props.threshold / 2,
+        isHigherBad: false
+      });
+      
+    // Critical threshold (e.g. 5%)
+    } else if (tankValue <= props.threshold / 4) {
+      alert = stateStore.newAlert();
+      alert.title = "Critical Tank Level";
+      alert.label = tankLabel;
+      alert.message = `Tank level is critically low at ${tankValue}%`;
       alert.type = "error";
-      alert.widget = "tank";
-      alert.variable = "pct";
-      alert.value = props.data.value;
-      alert.critical = true;
-      alertStore.addAlert(alert);
+      alert.category = "tank";
+      alert.level = "critical";
+      alert.data = {
+        widget: "tank",
+        variable: "pct",
+        value: tankValue,
+        tankId: tankId,
+        threshold: props.threshold / 4
+      };
+      
+      stateStore.addAlertWithPrevention(alert, {
+        // For critical alerts, we might want both state tracking and a cooldown
+        // to remind the user periodically even if they don't refill
+        strategies: [
+          stateStore.AlertPreventionStrategy.STATE_TRACKING,
+          stateStore.AlertPreventionStrategy.COOLDOWN
+        ],
+        signature: `tank-${tankId}-critical`,
+        value: tankValue,
+        threshold: props.threshold / 4,
+        isHigherBad: false,
+        cooldownMs: 1800000 // Remind every 30 minutes for critical levels
+      });
     }
   }
 );
@@ -300,7 +352,7 @@ onMounted(() => {
 text {
   font-weight: bold;
   fill: var(--ion-color-primary-contrast);
-  alignment-baseline: middle;
+  dominant-baseline: middle;
   text-anchor: middle;
 }
 

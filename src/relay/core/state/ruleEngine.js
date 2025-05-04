@@ -20,7 +20,7 @@ export class RuleEngine {
       try {
         // Check if the rule's condition is met
         if (rule.condition(state, env)) {
-          console.log(`[RULE-ENGINE] Rule matched: ${rule.name}`);
+          // console.log(`[RULE-ENGINE] Rule matched: ${rule.name}`);
           actions.push(rule.action);
         }
       } catch (error) {
