@@ -221,6 +221,26 @@ class RelayConnectionAdapter extends EventEmitter {
     relayConnectionBridge._sendMessage(typeof message === 'string' ? JSON.parse(message) : message);
   }
   
+  /**
+   * Send an alert to the server
+   * @param {Object} alertData - Alert data to send
+   * @param {string} alertData.type - Alert type (e.g., 'critical_range', 'anchor_dragging')
+   * @param {string} alertData.status - Alert status ('triggered' or 'resolved')
+   * @param {Object} alertData.data - Additional alert data
+   */
+  sendAlert(alertData) {
+    console.log('[RELAY-ADAPTER] Sending alert to server:', alertData);
+    
+    // Send the alert data to the server
+    relayConnectionBridge.sendCommand('alert', 'update', {
+      type: alertData.type,
+      status: alertData.status,
+      data: alertData.data,
+      timestamp: new Date().toISOString(),
+      autoResolvable: alertData.autoResolvable !== undefined ? alertData.autoResolvable : true
+    });
+  }
+  
   cleanup() {
     // Disconnect from the relay server
     relayConnectionBridge.disconnect();

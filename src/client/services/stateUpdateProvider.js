@@ -74,15 +74,10 @@ class StateUpdateProvider {
         this.currentAdapter.ws = existingConnection;
         this.currentAdapter.connectionState.status = 'connected';
         
-        // Add a message listener directly to the connection
-        existingConnection.addEventListener('message', (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            this._notify(data);
-          } catch (err) {
-            console.error('[StateUpdateProvider] Error processing message');
-          }
-        });
+        // We don't need to add a new message listener here
+        // The directConnectionAdapter already has its own onmessage handler
+        // Adding another one would cause duplicate events and potential issues
+        // Just make sure the connection is properly set up
       }
     } else {
       // For other modes, just use the regular switchSource

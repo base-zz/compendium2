@@ -98,10 +98,10 @@ import {
   IonInput,
 } from '@ionic/vue';
 import { ref, onMounted } from 'vue';
-import { useSystemConfigStore } from '@/services/config/systemConfig';
+// import { useSystemConfigStore } from '@/services/config/systemConfig';
 
 // Get the system config store
-const systemConfigStore = useSystemConfigStore();
+// const systemConfigStore = useSystemConfigStore();
 
 // Local reactive state
 const deviceRole = ref('client');

@@ -55,6 +55,36 @@ async function disconnectRelay() {
 </script>
 
 <style>
+/* Page transition animations */
+.page-transition {
+  animation: pageTransitionIn 0.5s ease-out forwards;
+}
+
+@keyframes pageTransitionIn {
+  from {
+    opacity: 0;
+    transform: perspective(1000px) rotateY(-10deg);
+    transform-origin: left center;
+  }
+  to {
+    opacity: 1;
+    transform: perspective(1000px) rotateY(0);
+  }
+}
+
+/* Ensure the app takes full height */
+ion-app {
+  min-height: 100vh;
+  overflow: hidden;
+  position: relative;
+  background: #f8f9fa; /* Match your app's background color */
+}
+
+/* Smooth transitions for all elements */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
 .container {
   padding: 20px;
   max-width: 1200px;

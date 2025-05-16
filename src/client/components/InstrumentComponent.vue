@@ -15,7 +15,7 @@
         {{ instrumentData.units || "" }}
       </text>
       <text class="metric" x="150" y="165" ref="metric">
-        {{ instrumentData.value || "--" }}
+        {{ formattedValue }}
       </text>
 
       <InstrumentBarGraph v-if="props.graph === 'bar'" :data="history" />
@@ -51,6 +51,15 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  // Number formatting options
+  decimalPlaces: {
+    type: Number,
+    default: 1,
+  },
+  showThousandsSeparator: {
+    type: Boolean,
+    default: false,
+  },
   size: {
     type: String,
     default: "medium",
@@ -64,6 +73,11 @@ const props = defineProps({
     required: false,
     default: () => "line",
   },
+  label:{
+    type: String,
+    required: false,
+    default: () => "",
+  }
 });
 
 const emit = defineEmits(["mounted"]);
@@ -97,6 +111,46 @@ const instrumentData = computed(() => {
     label: props.dataSource || "",
     history: [],
   };
+});
+
+// Format the value based on decimal places and thousands separator options
+const formattedValue = computed(() => {
+  console.log('Formatting value with options:', {
+    decimalPlaces: props.decimalPlaces,
+    showThousandsSeparator: props.showThousandsSeparator,
+    rawValue: instrumentData.value?.value
+  });
+  
+  // If no value or value is placeholder, return as is
+  if (!instrumentData.value || instrumentData.value.value === "--") {
+    return "--";
+  }
+  
+  // Get the numeric value
+  const numValue = parseFloat(instrumentData.value.value);
+  
+  // Check if it's a valid number
+  if (isNaN(numValue)) {
+    return instrumentData.value.value;
+  }
+  
+  // Format with specified decimal places
+  const decimalPlacesToUse = typeof props.decimalPlaces === 'number' ? props.decimalPlaces : 1;
+  let formatted = numValue.toFixed(decimalPlacesToUse);
+  console.log(`Formatting ${numValue} with ${decimalPlacesToUse} decimal places: ${formatted}`);
+  
+  // Add thousands separator if requested
+  if (props.showThousandsSeparator) {
+    // Split by decimal point
+    const parts = formatted.split('.');
+    // Format the integer part with commas
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    // Join back with decimal part if it exists
+    formatted = parts.join('.');
+    console.log(`Added thousands separators: ${formatted}`);
+  }
+  
+  return formatted;
 });
 
 /**
@@ -136,18 +190,20 @@ onMounted(() => {
     checkFontSize(titleRef.value);
   }
   setTimeout(() => {
+    // Debug props received
+    console.log('InstrumentComponent mounted with props:', {
+      dataSource: props.dataSource,
+      decimalPlaces: props.decimalPlaces,
+      showThousandsSeparator: props.showThousandsSeparator
+    });
+    console.log('Current formatted value:', formattedValue.value);
+    
     emit("mounted");
   }, 100);
 });
+
 // Local history tracking
 const history = ref([]);
-
-watch(
-  () => props.data,
-  (newVal, oldVal) => {
-    console.log('InstrumentComponent data changed:', oldVal, '→', newVal);
-  }
-);
 
 watch(
   () => props.data.value,
@@ -155,7 +211,6 @@ watch(
     if (typeof newVal === 'number' && !isNaN(newVal)) {
       history.value.push(newVal);
       if (history.value.length > 100) history.value.shift();
-      console.log("history", history.value);
     }
   },
   { immediate: true }
@@ -171,6 +226,11 @@ watch(
   -webkit-tap-highlight-color: transparent !important;
   -webkit-touch-callout: none !important;
   user-select: none !important;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .instrument {

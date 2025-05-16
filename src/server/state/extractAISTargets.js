@@ -46,6 +46,7 @@ export async function updateAISTargetsFromSignalK(fullSignalKData, stateData) {
   // fullSignalKData should be the root SignalK document (with .vessels)
   const selfMmsi = stateData.vessel?.info?.mmsi;
   const aisTargets = extractAISTargetsFromSignalK(fullSignalKData.vessels, selfMmsi);
-  stateData.anchor.aisTargets = aisTargets;
+  stateData.aisTargets = aisTargets; // Update top-level aisTargets property
+  console.log(`[AIS] Updated ${aisTargets.length} AIS targets from SignalK`);
 }
  

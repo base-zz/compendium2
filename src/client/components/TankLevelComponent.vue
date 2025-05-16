@@ -1,49 +1,12 @@
 <template>
-  <div
-    style="
-      width: 100%;
-      height: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 0;
-      margin: 0;
-      background-color: var(--ion-color-primary);
-      border-radius: 8px;
-      -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
-      -webkit-touch-callout: none !important;
-      user-select: none !important;
-      pointer-events: auto;
-      touch-action: manipulation;
-      -webkit-user-drag: none;
-      -webkit-appearance: none;
-      appearance: none;
-      outline: none !important;
-    "
-    class="tank-level-container no-tap-highlight"
-    @touchstart.prevent
-  >
+  <div class="tank-level-container" ref="container">
     <svg
-      height="100%"
       width="100%"
+      height="100%"
       ref="svg"
-      class="instrument display-component tank-component no-tap-highlight"
+      class="tank-component"
       viewBox="0 0 300 300"
       preserveAspectRatio="xMidYMid meet"
-      style="
-        max-width: 100%; 
-        max-height: 100%;
-        -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
-        -webkit-touch-callout: none !important;
-        user-select: none !important;
-        pointer-events: none;
-        touch-action: manipulation;
-        -webkit-user-drag: none;
-        -webkit-appearance: none;
-        appearance: none;
-        outline: none !important;
-      "
-      @touchstart.prevent
     >
       <clipPath id="cut-off-wave">
         <path
@@ -90,6 +53,7 @@
           height="300"
           rx="15"
           :fill="fluidTypeToColor()"
+          :fill-opacity="props.widgetData.fluidType === 'black' || props.widgetData.fluidType === 'blackWater' ? 1 : 0.9"
           clip-path="url(#cut-off-wave)"
         />
 
@@ -99,13 +63,18 @@
           x="150"
           y="165"
         >
-          {{ props.data?.value || "0" }}
+          {{ Math.round(props.widgetData.value) }}
         </text>
-        <text ref="title" class="title" x="150" y="35">
-          {{ props.widget?.widgetTitle || props.data?.label || "Tank" }}
+        <text
+          ref="title"
+          class="title"
+          x="150"
+          y="45"
+        >
+          {{ props.widgetData.label || props.widgetData.title || props.widgetData.widgetTitle || 'Tank Level' }}
         </text>
         <text class="units" x="266" y="95" ref="unitsRef">
-          {{ props.data?.units || "%" }}
+          {{ props.widgetData.units || "%" }}
         </text>
       </g>
     </svg>
@@ -113,119 +82,158 @@
 </template>
 
 <script setup>
-import { computed, useTemplateRef, watch, onMounted } from "vue";
-import { useStateDataStore } from "../stores/stateDataStore.js";
-import { scaleLinear } from "d3";
+import { ref, onMounted, watch, computed, nextTick } from 'vue'
+import { useStateDataStore } from '../stores/stateDataStore'
 
+const stateStore = useStateDataStore()
 const props = defineProps({
-  data: {
+  widgetData: {
     type: Object,
     required: true,
-    default: () => {},
-  },
-  widget: {
-    type: Object,
-    required: true,
-    default: () => {},
-  },
-  fluidType: { type: String, required: false, default: () => "water" },
-  threshold: { type: Number, required: false, default: () => 20 },
-  invertThreshold: { type: Boolean, required: false, default: () => false },
-  layout: {
-    type: Object,
-    required: false,
-  },
-  label: {
-    type: String,
-    required: false,
-    default: "Tank - No Label",
-  },
-});
+    default: () => ({
+      value: 0,
+      threshold: 20,
+      fluidType: 'water',
+      label: 'Tank',
+      id: 'unknown-tank',
+      units: '%'
+    })
+  }
+})
 
-const emit = defineEmits(["mounted"]);
+const emit = defineEmits(['mounted'])
 
-const stateStore = useStateDataStore();
+const container = ref(null)
+const svg = ref(null)
+const wave = ref(null)
+const titleRef = ref(null)
+const metric = ref(null)
 
-console.log("tank props", props);
-/* ****************************************
-   refences the clipPath that gets moved up and down
-   for fluid level animation
-   **************************************** */
-const svg = useTemplateRef("svg");
-const wave = useTemplateRef("wave");
-const titleRef = useTemplateRef("title");
+const fluidValue = computed(() => {
+  return props.widgetData.value || 0
+})
 
-/* ****************************************
-    Calculated value that performs this
-    logic
-   **************************************** */
 const pastThreshold = computed(() => {
-  // if (props.invertThreshold) {
-  //   return props.data.value > props.threshold;
-  // } else {
-  //   return props.data.value < props.threshold;
-  // }
-  return false;
-});
+  const threshold = Number(typeof props.widgetData.threshold === 'number' ? props.widgetData.threshold : 20)
+  const value = Number(typeof fluidValue.value === 'number' ? fluidValue.value : 0)
+  
+  if ('thresholdOperator' in props.widgetData) {
+    const operator = props.widgetData.thresholdOperator
+    
+    let result = false
+    let comparisonResult = false
+    
+    switch(operator) {
+      case 'LESS_THAN':
+        comparisonResult = value < threshold
+        result = comparisonResult
+        break
+      case 'LESS_THAN_EQUALS':
+        comparisonResult = value <= threshold
+        result = comparisonResult
+        break
+      case 'GREATER_THAN':
+        comparisonResult = value > threshold
+        result = comparisonResult
+        break
+      case 'GREATER_THAN_EQUALS':
+        comparisonResult = value >= threshold
+        result = comparisonResult
+        break
+      case 'EQUALS':
+        comparisonResult = value === threshold
+        result = comparisonResult
+        break
+      case 'NOT_EQUALS':
+        comparisonResult = value !== threshold
+        result = comparisonResult
+        break
+      default:
+        comparisonResult = value < threshold
+        result = comparisonResult
+        break
+    }
+    
+    return result
+  } else {
+    const fluidType = props.widgetData.fluidType || 'water'
+    
+    let result = false
+    if (fluidType === 'water' || fluidType === 'freshWater' || fluidType === 'fuel') {
+      result = value < threshold 
+    } else {
+      result = value > threshold 
+    }
+    
+    return result
+  }
+})
 
-/**
- * Converts a fluid level percentage to a translation value for animation purposes.
- * This function maps the level percentage from a domain of 0 to 100 into a range
- * of 20 to 100 using a linear scale.
- *
- * @param {number} level - The percentage level of the fluid.
- * @returns {number} The translated value for use in animations.
- */
+const adjustFontSize = () => {
+  if (!metric.value) return
+  const rect = metric.value.getBoundingClientRect()
+  const fontSize = Math.min(100, Math.max(20, 100 * (rect.width / 150)))
+  metric.value.style.fontSize = `${fontSize}px`
+}
+
+watch(fluidValue, () => {
+  nextTick(() => {
+    adjustFontSize()
+  })
+})
+
+onMounted(() => {
+  setFluidLevel();
+  emit('mounted')
+  adjustFontSize()
+})
+
 const levelToTranslate = (level) => {
-  const scale = scaleLinear().domain([0, 100]).range([20, 100]);
-  return scale(level);
-};
-
-/**
- * Returns the color associated with the fluid type.
- * The color is determined by a predefined lookup table.
- *
- * @returns {string} The hex color code for the specified fluid type.
- */
-function fluidTypeToColor() {
-  const lookup = {
-    water: "#1f6591",
-    diesel: "#912a1f",
-    gasoline: "#9e8315",
-    waste: "#807e79",
-  };
-  // Use tankType from widget prop if available, otherwise default to fluidType prop
-  const fluidType = props.widget?.tankType || props.fluidType;
-  return lookup[fluidType] || lookup.water; // Default to water if type not found
+  return Math.min(100, Math.max(20, 20 + (level / 100) * 80))
 }
 
-/**
- * Checks if the text element overflows its container and rescales the font size accordingly
- * @param {SVGTextElement} el - The text element to check
- */
-function checkFontSize(el) {
-  const actualWidth = el.getBBox().width;
-  const widthThreshold = 0.9 * 300;
-  if (actualWidth <= widthThreshold) return;
-
-  const fontSize = parseFloat(window.getComputedStyle(el).fontSize);
-  const newFontSize = fontSize * (widthThreshold / actualWidth);
-  el.style.fontSize = `${newFontSize}px`;
+const fluidTypeToColor = () => {
+  const fluidType = props.widgetData.fluidType || 'water'
+  
+  const colors = {
+    water: '#007bff',
+    freshWater: '#007bff',
+    waste: '#7f8c8d',
+    wasteWater: '#7f8c8d',
+    black: '#000',
+    blackWater: '#000',
+    diesel: '#8b4513',
+    gasoline: '#e67e22',
+    fuel: '#e67e22',
+    other: '#6c757d'
+  }
+  
+  const color = colors[fluidType] || colors.other
+  return color
 }
 
-/**
- * Set the fluid level animation based on the current props.level.
- * The animation lasts 15 seconds and repeats indefinitely.
- */
+watch(() => props.widgetData.threshold, () => {
+  nextTick(() => {
+    adjustFontSize()
+  })
+})
+
 function setFluidLevel() {
-  // Define keyframes for animation
+  let tankLevel = 0;
+  if (typeof props.widgetData.value === 'number') {
+    tankLevel = props.widgetData.value;
+  } else if (props.widgetData.data && typeof props.widgetData.data.value === 'number') {
+    tankLevel = props.widgetData.data.value;
+  } else {
+  }
+  
   const keyframes = [
     {
-      transform: `translateX(0) translateY(${100 - levelToTranslate(props.data.value)}%)`,
+      transform: `translateX(0) translateY(${100 - levelToTranslate(tankLevel)}%)`,
     },
     {
       transform: `translateX(-50%) translateY(${
-        100 - levelToTranslate(props.data.value)
+        100 - levelToTranslate(tankLevel)
       }%)`,
     },
   ];
@@ -240,28 +248,35 @@ function setFluidLevel() {
   wave.value.animate(keyframes, animationOptions);
 }
 
-/**
- * When the prop.level changes, update the fluid level graphic.
- */
+
 watch(
-  () => props.data.value,
+  () => props.widgetData.value,
   () => {
     setFluidLevel();
 
     let alert;
-    const tankId = props.widget?.id || 'unknown-tank';
-    const tankLabel = props.label || props.widget?.widgetTitle || 'Tank';
-    const tankValue = props.data.value;
-
-    // For tank levels, STATE_TRACKING is ideal since we only want to alert
-    // when crossing from normal to alert state
+    const tankId = props.widgetData?.id || 'unknown-tank';
+    const tankLabel = props.widgetData?.label || 'Tank';
+    const tankValue = props.widgetData.value;
+    const thresholdValue = typeof props.widgetData.threshold === 'number' ? props.widgetData.threshold : 20;
+    const operator = props.widgetData.thresholdOperator || 
+                    (props.widgetData.fluidType === 'water' ? 'LESS_THAN' : 'GREATER_THAN');
     
-    // Warning threshold (e.g. 20%)
-    if (tankValue <= props.threshold && tankValue > props.threshold / 2) {
+    // Check if we should trigger an alert based on the threshold and operator
+    if (pastThreshold.value) {
+      // The tank level has crossed the configured threshold
       alert = stateStore.newAlert();
-      alert.title = "Tank Warning";
+      
+      // Set appropriate alert title and message based on the operator
+      if (operator === 'LESS_THAN' || operator === 'LESS_THAN_EQUALS') {
+        alert.title = "Low Tank Level";
+        alert.message = `${tankLabel} level is low at ${tankValue}%`;
+      } else {
+        alert.title = "High Tank Level";
+        alert.message = `${tankLabel} level is high at ${tankValue}%`;
+      }
+      
       alert.label = tankLabel;
-      alert.message = `Tank level is ${tankValue}%`;
       alert.type = "warning";
       alert.category = "tank";
       alert.level = "warning";
@@ -270,78 +285,88 @@ watch(
         variable: "pct",
         value: tankValue,
         tankId: tankId,
-        threshold: props.threshold
+        threshold: thresholdValue,
+        operator: operator
       };
       
       stateStore.addAlertWithPrevention(alert, {
         strategies: stateStore.AlertPreventionStrategy.STATE_TRACKING,
-        signature: `tank-${tankId}-warning`,
+        signature: `tank-${tankId}-threshold-alert`,
         value: tankValue,
-        threshold: props.threshold,
-        isHigherBad: false // For tanks, lower values are bad
+        threshold: thresholdValue,
+        isHigherBad: operator === 'GREATER_THAN' || operator === 'GREATER_THAN_EQUALS'
       });
-      
-    // Low threshold (e.g. 10%)
-    } else if (tankValue <= props.threshold / 2 && tankValue > props.threshold / 4) {
-      alert = stateStore.newAlert();
-      alert.title = "Tank Low";
-      alert.label = tankLabel;
-      alert.message = `Tank level is low at ${tankValue}%`;
-      alert.type = "error";
-      alert.category = "tank";
-      alert.level = "error";
-      alert.data = {
-        widget: "tank",
-        variable: "pct",
-        value: tankValue,
-        tankId: tankId,
-        threshold: props.threshold / 2
-      };
-      
-      stateStore.addAlertWithPrevention(alert, {
-        strategies: stateStore.AlertPreventionStrategy.STATE_TRACKING,
-        signature: `tank-${tankId}-low`,
-        value: tankValue,
-        threshold: props.threshold / 2,
-        isHigherBad: false
-      });
-      
-    // Critical threshold (e.g. 5%)
-    } else if (tankValue <= props.threshold / 4) {
-      alert = stateStore.newAlert();
-      alert.title = "Critical Tank Level";
-      alert.label = tankLabel;
-      alert.message = `Tank level is critically low at ${tankValue}%`;
-      alert.type = "error";
-      alert.category = "tank";
-      alert.level = "critical";
-      alert.data = {
-        widget: "tank",
-        variable: "pct",
-        value: tankValue,
-        tankId: tankId,
-        threshold: props.threshold / 4
-      };
-      
-      stateStore.addAlertWithPrevention(alert, {
-        // For critical alerts, we might want both state tracking and a cooldown
-        // to remind the user periodically even if they don't refill
-        strategies: [
-          stateStore.AlertPreventionStrategy.STATE_TRACKING,
-          stateStore.AlertPreventionStrategy.COOLDOWN
-        ],
-        signature: `tank-${tankId}-critical`,
-        value: tankValue,
-        threshold: props.threshold / 4,
-        isHigherBad: false,
-        cooldownMs: 1800000 // Remind every 30 minutes for critical levels
-      });
+    }
+    
+    // We'll still keep the critical alerts for very low/high levels
+    if (operator === 'LESS_THAN' || operator === 'LESS_THAN_EQUALS') {
+      // For tanks where low levels are bad (fresh water, fuel)
+      // Critical low threshold (e.g. 10%)
+      if (tankValue <= thresholdValue / 2) {
+        alert = stateStore.newAlert();
+        alert.title = "Critical Low Tank Level";
+        alert.label = tankLabel;
+        alert.message = `${tankLabel} level is critically low at ${tankValue}%`;
+        alert.type = "error";
+        alert.category = "tank";
+        alert.level = "critical";
+        alert.data = {
+          widget: "tank",
+          variable: "pct",
+          value: tankValue,
+          tankId: tankId,
+          threshold: thresholdValue / 2
+        };
+        
+        stateStore.addAlertWithPrevention(alert, {
+          strategies: [
+            stateStore.AlertPreventionStrategy.STATE_TRACKING,
+            stateStore.AlertPreventionStrategy.COOLDOWN
+          ],
+          signature: `tank-${tankId}-critical-low`,
+          value: tankValue,
+          threshold: thresholdValue / 2,
+          isHigherBad: false,
+          cooldownMs: 1800000 // Remind every 30 minutes for critical levels
+        });
+      }
+    } else {
+      // For tanks where high levels are bad (waste/black water)
+      // Critical high threshold (e.g. 90%)
+      if (tankValue >= thresholdValue * 1.1) {
+        alert = stateStore.newAlert();
+        alert.title = "Critical High Tank Level";
+        alert.label = tankLabel;
+        alert.message = `${tankLabel} level is critically high at ${tankValue}%`;
+        alert.type = "error";
+        alert.category = "tank";
+        alert.level = "critical";
+        alert.data = {
+          widget: "tank",
+          variable: "pct",
+          value: tankValue,
+          tankId: tankId,
+          threshold: thresholdValue * 1.1
+        };
+        
+        stateStore.addAlertWithPrevention(alert, {
+          strategies: [
+            stateStore.AlertPreventionStrategy.STATE_TRACKING,
+            stateStore.AlertPreventionStrategy.COOLDOWN
+          ],
+          signature: `tank-${tankId}-critical-high`,
+          value: tankValue,
+          threshold: thresholdValue * 1.1,
+          isHigherBad: true,
+          cooldownMs: 1800000 // Remind every 30 minutes for critical levels
+        });
+      }
     }
   }
 );
 
 onMounted(() => {
-  checkFontSize(titleRef.value);
+  adjustFontSize();
   setTimeout(() => {
     emit("mounted");
   }, 100);
@@ -393,14 +418,22 @@ text {
 }
 
 .instrument-value {
-  font-size: 30px;
-  font-weight: 700;
+
   text-anchor: middle;
   dominant-baseline: middle;
   fill: white;
 }
 
 .tank-level-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  background-color: var(--ion-color-primary);
+  border-radius: 8px;
   pointer-events: auto;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent !important;
@@ -440,6 +473,8 @@ text {
   transform-origin: center;
   font-weight: bolder;
   stroke: red;
+  /* Add a more visible indicator for debugging */
+  stroke-width: 15px !important;
 }
 
 @keyframes pulsateText {

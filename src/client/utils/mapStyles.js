@@ -70,12 +70,12 @@ export const STYLES = {
   }),
   BOAT_RANGE: new Style({
     stroke: new Stroke({
-      color: "rgba(255,255,255,0.2)", // White color with 0.2 opacity
+      color: "rgba(255,255,255,0.4)", // White color with 0.4 opacity
       width: 2,
       lineDash: [4, 4], // Dotted line pattern
     }),
     fill: new Fill({
-      color: "rgba(33,150,243,0.05)", // Very subtle fill
+      color: "rgba(33,150,243,0.4)", // Increased fill opacity to 0.4
     }),
   }),
   RODE: new Style({
@@ -88,7 +88,7 @@ export const STYLES = {
   }),
   AIS_VESSEL: createStyle({
     circle: {
-      radius: 6,
+      radius: 5, 
       fill: { color: "#4CAF50" }, // Green for vessels
       stroke: { color: "#FFFFFF", width: 2 },
     },
@@ -96,18 +96,26 @@ export const STYLES = {
   }),
   AIS_HAZARD: createStyle({
     circle: {
-      radius: 6,
-      fill: { color: "#F44336" }, // Red for hazards
+      radius: 5, 
+      fill: { color: "#4CAF50" }, // Green for all AIS targets
       stroke: { color: "#FFFFFF", width: 2 },
     },
     zIndex: 50,
   }),
   AIS_DEFAULT: createStyle({
     circle: {
-      radius: 6,
-      fill: { color: "#FF9800" }, // Orange for default AIS targets
+      radius: 5, 
+      fill: { color: "#4CAF50" }, // Green for all AIS targets
       stroke: { color: "#FFFFFF", width: 2 },
     },
     zIndex: 50,
+  }),
+  AIS_WARNING: createStyle({
+    circle: {
+      radius: 7, // Larger radius for targets in warning range
+      fill: { color: "#F44336" }, // Red for targets in warning range
+      stroke: { color: "#FFFFFF", width: 2 },
+    },
+    zIndex: 55, // Higher zIndex to appear above other AIS targets
   }),
 };

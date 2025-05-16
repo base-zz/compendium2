@@ -1,8 +1,6 @@
 import { createRouter, createWebHistory } from "@ionic/vue-router";
-// import { RouteRecordRaw } from "vue-router";
-
-// Commented out imports that are causing TypeScript declaration file errors
 import AnchorView from "@client/views/AnchorView.vue";
+import SplashScreen from "@client/views/SplashScreen.vue";
 import Settings from "@client/views/SettingsView.vue";
 import RegisterAccount from "@client/views/RegisterAccountView.vue";
 import InstrumentView from "@client/components/InstrumentComponent.vue";
@@ -10,7 +8,8 @@ import StateManagementView from "@client/views/StateManagementView.vue";
 import MappingManager from "@client/views/MappingManager.vue";
 import SailView from "@client/views/SailView.vue";
 import ConnectionStatusExample from "@client/examples/ConnectionStatusExample.vue";
-
+import DashboardView from "@client/views/DashboardView.vue";
+import HomePage from "@client/views/HomePage.vue";
 const routes = [
   {
     path: "/:pathMatch(.*)*",
@@ -21,13 +20,15 @@ const routes = [
 
   {
     path: "/",
-    redirect: "/home",
+    name: "Splash",
+    component: SplashScreen,
+    meta: { requiresAuth: false, title: "Welcome" },
   },
   {
     path: "/home",
     name: "Home",
     meta: { requiresAuth: true, title: "Home" },
-    component: () => import("@client/views/HomePage.vue"),
+    component: HomePage,
   },
   {
     path: "/anchor",
@@ -105,8 +106,14 @@ const routes = [
   {
     path: "/pages",
     name: "Pages",
-    component: () => import("@client/views/PagesView.vue"),
+    component: () => import("@client/views/DashboardView.vue"),
     meta: { title: "Pages" },
+  },
+  {
+    path: "/dashboard",
+    name: "Dashboard",
+    component: DashboardView,
+    meta: { title: "Dashboard" },
   },
   // Alerts route commented out due to import issues
   {
@@ -166,7 +173,6 @@ const routes = [
   //     title: "Device Config"
   //   }
   // },
-  // SystemConfig route commented out due to import issues
   // {
   //   path: '/systemconfig',
   //   name: 'systemconfig',
@@ -176,55 +182,7 @@ const routes = [
   //     title: "System Config"
   //   }
   // },
-  // Units demo route removed
-  {
-    path: '/statetest',
-    name: 'statetest',
-    component: () => import("@client/components/StateDataTest.vue"),
-    meta: { title: "StateData Test" },
-  },
-  {
-    path: '/data-debug',
-    name: 'data-debug',
-    component: () => import("@client/components/StateDataDebugger.vue"),
-    meta: { title: "State Data Debugger" },
-  },
-  {
-    path: '/raw-data',
-    name: 'raw-data',
-    component: () => import("@client/components/RawDataViewer.vue"),
-    meta: { title: "Raw Navigation Data" },
-  },
-  {
-    path: '/relay-inspector',
-    name: 'relay-inspector',
-    component: () => import("@client/components/RelayDataInspector.vue"),
-    meta: { title: "Relay Data Inspector" },
-  },
-  {
-    path: '/nav-debug',
-    name: 'nav-debug',
-    component: () => import("@client/components/NavigationDataDebugger.vue"),
-    meta: { title: "Navigation Data Debugger" },
-  },
-  {
-    path: '/state-data',
-    name: 'state-data',
-    component: () => import("@client/components/StateDataViewer.vue"),
-    meta: { title: "State Data Viewer" },
-  },
-  {
-    path: '/state-management',
-    name: 'state-management',
-    component: () => import("@client/views/StateManagementView.vue"),
-    meta: { title: "State Management" },
-  },
-  {
-    path: '/state-data-test',
-    name: 'state-data-test',
-    component: () => import("@client/views/StateDataTestView.vue"),
-    meta: { title: "State Data Test" },
-  },
+
   // MappingManager route commented out due to import issues
   // {
   //   path: "/mappingmanager",
@@ -244,6 +202,37 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+  // Add page transition animations
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition;
+    } else {
+      return { top: 0 };
+    }
+  },
+});
+
+// Add navigation guard for page transitions
+router.beforeEach((to, from, next) => {
+  // Add transition class to the root element
+  const app = document.getElementById('app');
+  if (app) {
+    app.classList.add('page-transition');
+  }
+  
+  // Remove the class after the transition ends
+  const removeTransitionClass = () => {
+    if (app) {
+      app.classList.remove('page-transition');
+    }
+    document.removeEventListener('transitionend', removeTransitionClass);
+  };
+  
+  // Wait for the next render to ensure the new page is ready
+  next();
+  
+  // Add transition end listener
+  document.addEventListener('transitionend', removeTransitionClass, { once: true });
 });
 
 // Navigation guard to enforce authentication

@@ -1,0 +1,169 @@
+/* Template grid styles */
+
+/* Base template grid */
+.template-grid {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  gap: 8px;
+  box-sizing: border-box;
+  max-width: 100vw;
+  max-height: 100vh;
+}
+
+/* Template 1 - Single Widget */
+.template-grid-1 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  grid-template-areas: "main";
+}
+
+.template-grid-1 .area-main {
+  grid-area: main;
+}
+
+/* Template 2 - Stacked (2) */
+.template-grid-2 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr;
+  grid-template-areas:
+    "top"
+    "bottom";
+}
+
+.template-grid-2 .area-top {
+  grid-area: top;
+}
+
+.template-grid-2 .area-bottom {
+  grid-area: bottom;
+}
+
+/* Template 3 - Stacked (3) */
+.template-grid-3 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
+  grid-template-areas:
+    "top"
+    "middle"
+    "bottom";
+}
+
+.template-grid-3 .area-top {
+  grid-area: top;
+}
+
+.template-grid-3 .area-middle {
+  grid-area: middle;
+}
+
+.template-grid-3 .area-bottom {
+  grid-area: bottom;
+}
+
+/* Template 4 - Cross layout */
+.template-grid-4 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 2fr 4fr 2fr;
+  grid-template-areas:
+    "topLeft topRight"
+    "center center"
+    "bottomLeft bottomRight";
+  width: 100%;
+  height: 100%;
+  gap: 8px;
+}
+
+.template-grid-4 .area-topLeft {
+  grid-area: topLeft;
+}
+
+.template-grid-4 .area-topRight {
+  grid-area: topRight;
+}
+
+.template-grid-4 .area-center {
+  grid-area: center;
+}
+
+.template-grid-4 .area-bottomLeft {
+  grid-area: bottomLeft;
+}
+
+.template-grid-4 .area-bottomRight {
+  grid-area: bottomRight;
+}
+
+/* Template 5 - Grid (2x2) */
+.template-grid-5 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  grid-template-areas:
+    "topLeft topRight"
+    "bottomLeft bottomRight";
+}
+
+.template-grid-5 .area-topLeft {
+  grid-area: topLeft;
+}
+
+.template-grid-5 .area-topRight {
+  grid-area: topRight;
+}
+
+.template-grid-5 .area-bottomLeft {
+  grid-area: bottomLeft;
+}
+
+.template-grid-5 .area-bottomRight {
+  grid-area: bottomRight;
+}
+
+/* Template 6 - Grid (2x3) */
+.template-grid-6 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
+  grid-template-areas:
+    "topLeft topRight"
+    "middleLeft middleRight"
+    "bottomLeft bottomRight";
+}
+
+.template-grid-6 .area-topLeft {
+  grid-area: topLeft;
+}
+
+.template-grid-6 .area-topRight {
+  grid-area: topRight;
+}
+
+.template-grid-6 .area-middleLeft {
+  grid-area: middleLeft;
+}
+
+.template-grid-6 .area-middleRight {
+  grid-area: middleRight;
+}
+
+.template-grid-6 .area-bottomLeft {
+  grid-area: bottomLeft;
+}
+
+.template-grid-6 .area-bottomRight {
+  grid-area: bottomRight;
+}
+
+/* Template areas */
+.template-area {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 1px dashed #ccc;
+  background-color: rgba(240, 240, 240, 0.5);
+  overflow: hidden;
+}

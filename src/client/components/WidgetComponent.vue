@@ -38,7 +38,7 @@ const stateStore = useStateDataStore();
 const { navigationState } = storeToRefs(stateStore);
 
 // Import components
-import Sail360View from "./Sail360View.vue";
+import Sail360View from "./Sail360Component.vue";
 import InstrumentComponent from "./InstrumentComponent.vue";
 import TankLevelComponent from "./TankLevelComponent.vue";
 import BatteryComponent from "./BatteryComponent.vue";

@@ -82,8 +82,6 @@ function calcLayout() {
   templateAr.forEach((t) => {
     const dim = t.value.getBoundingClientRect().toJSON();
     layout.value.push(dim);
-    // t.value.style.height = dim.height + "px";
-    // t.value.style.width = dim.width + "px";
   });
 }
 

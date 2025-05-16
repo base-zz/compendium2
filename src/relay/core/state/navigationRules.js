@@ -1,7 +1,10 @@
 /**
- * Rules for the state manager to determine throttling profiles
+ * Navigation rules for the state manager to determine throttling profiles
+ * 
+ * These rules control data synchronization rates based on the vessel's
+ * current navigation status.
  */
-export const AllRules = [
+export const NavigationRules = [
   // Rule for vessel underway at high speed
   {
     name: 'High Speed Navigation',

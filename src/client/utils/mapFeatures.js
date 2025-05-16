@@ -74,7 +74,7 @@ export const useMapFeatures = (vectorSource) => {
       vectorSource.removeFeature(feature);
     });
     
-    console.log(`Cleared ${featuresToRemove.length} features of type: ${type}`);
+    // console.log(`Cleared ${featuresToRemove.length} features of type: ${type}`);
   };
 
   const clearAll = () => {

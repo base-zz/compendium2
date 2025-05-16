@@ -13,11 +13,15 @@ import { applyPatch } from "fast-json-patch";
 import { BASE_ALERT_DATUM } from "@/shared/alertDatum.js";
 import { createDefaultRule, ALERT_RULE_OPERATORS } from "@/shared/alertRuleModel.js";
 import { Preferences } from "@capacitor/preferences";
+import { getUserUnitPreferences, setUnitPreference, setUnitPreset, UNIT_TYPES } from "@/shared/unitPreferences";
+import { createStateDataModel } from "@/shared/stateDataModel.js";
+import { UnitConversion } from "@/shared/unitConversion";
 
 /**
- * Calculate the distance (in meters) between two lat/lon points (Haversine formula)
+ * Calculate the distance between two lat/lon points (Haversine formula)
+ * Returns distance in meters or feet based on unit preferences
  */
-export function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+export function calculateDistanceMeters(lat1, lon1, lat2, lon2, useMetric) {
   if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null;
   const R = 6371000; // meters
   const toRad = (deg) => (deg * Math.PI) / 180;
@@ -30,7 +34,10 @@ export function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  const distanceInMeters = R * c;
+  
+  // Convert to feet if not using metric
+  return useMetric ? distanceInMeters : distanceInMeters * 3.28084;
 }
 
 /**
@@ -82,43 +89,64 @@ export function getComputedAnchorLocation(
   anchorDropLocation,
   rode,
   bearing,
-  depth
+  depth,
+  isMetric = true
 ) {
   // If missing data, return drop location as anchor location
   if (
     !anchorDropLocation?.latitude ||
     !anchorDropLocation?.longitude ||
     !rode ||
-    !bearing
+    bearing === undefined
   ) {
+    console.warn('Missing data for anchor location computation', { anchorDropLocation, rode, bearing, depth });
     return { ...anchorDropLocation, distanceFromDropLocation: 0 };
   }
+  
   // Calculate horizontal rode (exclude depth)
   let horizontalRode = rode;
   if (depth && rode > depth) {
     horizontalRode = Math.sqrt(rode * rode - depth * depth);
   }
-  // Calculate anchor location from drop point, distance, and bearing
-  // Convert bearing from radians to degrees if it's in radians
-  const bearingDegrees = bearing * 180 / Math.PI; // Convert from radians to degrees
   
-  // Log the bearing for debugging
-  console.log('BEARING DEBUG - Original bearing (rad):', bearing);
-  console.log('BEARING DEBUG - Converted bearing (deg):', bearingDegrees);
+  // Ensure horizontalRode is in meters for the calculation
+  const horizontalRodeMeters = isMetric ? horizontalRode : horizontalRode / 3.28084;
+  
+  // Determine if bearing is in radians or degrees
+  // If bearing is likely in radians (between -π and π or 0 and 2π)
+  let bearingDegrees = bearing;
+  if (Math.abs(bearing) <= Math.PI * 2) {
+    // Likely in radians, convert to degrees
+    bearingDegrees = (bearing * 180 / Math.PI + 360) % 360;
+    console.log('Converting bearing from radians to degrees:', bearing, '->', bearingDegrees);
+  }
+  
+  // Ensure bearing is between 0 and 360 degrees
+  bearingDegrees = (bearingDegrees + 360) % 360;
+  
+  console.log('Computing anchor location with:', {
+    dropLocation: [anchorDropLocation.longitude, anchorDropLocation.latitude],
+    horizontalRode: horizontalRodeMeters,
+    bearing: bearingDegrees,
+    isMetric
+  });
   
   const dest = calculateDestinationLatLon(
     anchorDropLocation.latitude,
     anchorDropLocation.longitude,
-    horizontalRode,
+    horizontalRodeMeters,
     bearingDegrees
   );
-  // Calculate distance from drop
+  
+  // Calculate distance from drop (in the correct units)
   const distanceFromDrop = calculateDistanceMeters(
     anchorDropLocation.latitude,
     anchorDropLocation.longitude,
     dest.latitude,
-    dest.longitude
+    dest.longitude,
+    isMetric
   );
+  
   return {
     ...dest,
     distanceFromDropLocation: distanceFromDrop,
@@ -148,18 +176,13 @@ function switchDataSource(mode) {
   stateUpdateProvider.switchSource(mode);
 }
 
-console.log("[PiniaStore] Store initialized");
+console.log("[PiniaStore] State Data Store initialized");
 
 // --- Pinia Store Export ---
 // Utility: Deep clone to avoid reference sharing
 function getInitialState() {
   console.log('DEBUG - Original state structure:', Object.keys(canonicalStateData.state));
-  console.log('DEBUG - Does alerts exist in original?', 'alerts' in canonicalStateData.state);
-  
   const clonedState = structuredClone(canonicalStateData.state);
-  console.log('DEBUG - Cloned state structure:', Object.keys(clonedState));
-  console.log('DEBUG - Does alerts exist in clone?', 'alerts' in clonedState);
-  
   return clonedState;
 }
 
@@ -167,91 +190,122 @@ export const useStateDataStore = defineStore("stateData", () => {
   // Single, canonical, deeply nested state object
   const state = reactive(getInitialState());
   
-  console.log('DEBUG - Reactive state structure:', Object.keys(state));
-  console.log('DEBUG - Does alerts exist in reactive state?', 'alerts' in state);
-
   // --- Patch and Replace Logic ---
+  // Handle full state updates from the server
   function replaceState(newState) {
-    Object.keys(state).forEach((key) => delete state[key]);
-    Object.assign(state, structuredClone(newState));
+    // Make a copy of the new state
+    const updatedState = structuredClone(newState);
+    
+    // If we have an existing anchor state, preserve it
+    if (state.anchor) {
+      updatedState.anchor = state.anchor;
+    }
+    
+    // Replace the entire state
+    Object.keys(state).forEach(key => delete state[key]);
+    Object.assign(state, updatedState);
   }
 
   function applyStatePatch(patch) {
     applyPatch(state, patch);
   }
 
+  /**
+   * Generic function to send messages to the server
+   * @param {string} messageType - Type of message (e.g., 'anchor:update')
+   * @param {Object} data - Message data
+   * @param {Object} options - Additional options
+   * @returns {boolean} - Success status
+   */
+  function sendMessageToServer(messageType, data, options = {}) {
+    const adapter = stateUpdateProvider.currentAdapter;
+    
+    if (adapter && typeof adapter.send === 'function') {
+      // Get boatId from localStorage if available
+      let boatId;
+      
+      try {
+        // Try to get active boat ID from localStorage
+        const storedBoatId = localStorage.getItem('activeBoatId');
+        if (storedBoatId && storedBoatId !== 'null') {
+          boatId = storedBoatId;
+        } else {
+          // Fallback: Try to get from boatIds array
+          const boatIdsStr = localStorage.getItem('boatIds');
+          if (boatIdsStr) {
+            const boatIds = JSON.parse(boatIdsStr);
+            if (Array.isArray(boatIds) && boatIds.length > 0) {
+              boatId = boatIds[0];
+              // Store this as the active boat ID for future use
+              localStorage.setItem('activeBoatId', boatId);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[StateDataStore] Could not access localStorage for boatId:', e);
+      }
+      
+      // If we still don't have a boat ID, we can't route the message
+      if (!boatId) {
+        console.error(`[StateDataStore] Cannot send ${messageType}: No boat ID available for routing`);
+        return false;
+      }
+      
+      const message = {
+        type: messageType,
+        data: structuredClone(data),
+        boatId,
+        timestamp: Date.now(),
+        ...options
+      };
+      
+      const success = adapter.send(message);
+      if (success) {
+        console.log(`[StateDataStore] Sent ${messageType} to server for boat ${boatId}`);
+      } else {
+        console.warn(`[StateDataStore] Failed to send ${messageType} to server for boat ${boatId}`);
+      }
+      return success;
+    }
+    
+    console.warn(`[StateDataStore] Cannot send ${messageType}: No valid adapter`);
+    return false;
+  }
+  
   // --- Anchor Actions ---
   function setAnchorDropLocation(position) {
     if (!state.anchor) state.anchor = {};
     state.anchor.anchorDropLocation = position;
+    
+    // Send update to server
+    if (state.anchor.anchorDropLocation) {
+      sendMessageToServer('anchor:update', state.anchor);
+    }
   }
 
   function setRodeLength(length, units = "feet") {
     if (!state.anchor) state.anchor = {};
     state.anchor.rode = { value: length, units };
+    
+    // Send update to server
+    if (state.anchor.anchorDropLocation) {
+      sendMessageToServer('anchor:update', state.anchor);
+    }
   }
 
   const cancelAnchor = () => {
+    // Get the default anchor state from the state data model
+    const defaultState = createStateDataModel();
+    
     // Create the new anchor state and make it reactive
-    const newAnchor = reactive({
-      anchorDropLocation: {
-        position: {
-          latitude: { value: null, units: "deg" },
-          longitude: { value: null, units: "deg" },
-        },
-        time: null,
-        depth: { value: null, units: "m", feet: null },
-        distancesFromCurrent: {
-          value: 0,
-          units: "m",
-          nauticalMiles: null,
-        },
-        distancesFromDrop: {
-          value: 0,
-          units: "m",
-          nauticalMiles: null,
-        },
-        originalBearing: { value: 0, units: "rad", degrees: null },
-        bearing: { value: 0, units: "rad", degrees: null },
-      },
-      anchorLocation: {
-        position: {
-          latitude: { value: null, units: "deg" },
-          longitude: { value: null, units: "deg" },
-        },
-        time: null,
-        depth: { value: null, units: "m", feet: null },
-        distancesFromCurrent: { value: 0, units: "m", nauticalMiles: null },
-        distancesFromDrop: { value: 0, units: "m", nauticalMiles: null },
-        originalBearing: { value: 0, units: "rad", degrees: null },
-        bearing: { value: 0, units: "rad", degrees: null },
-      },
-      aisTargets: state.anchor.aisTargets,
-      rode: {
-        amount: 0,
-        units: "m",
-      },
-      criticalRange: {
-        r: 0,
-        units: "m",
-      },
-      warningRange: {
-        r: 0,
-        units: "m",
-      },
-      defaultScope: {
-        value: 5,
-        units: "ratio",
-      },
-      dragging: false,
-      anchorDeployed: false,
-      history: [],
-      useDeviceGPS: true,
-    });
+    const newAnchor = reactive(defaultState.anchor);
 
-    // Update the state using the store instance
+    // Update the state with the new anchor
     state.anchor = newAnchor;
-  };
+
+    // Send update to server
+    sendMessageToServer("anchor:update", state.anchor);
+  }
 
   // --- Alerts Logic ---
   // Initialize alerts structure if it doesn't exist
@@ -325,6 +379,76 @@ export const useStateDataStore = defineStore("stateData", () => {
     
     console.log(`New alert added: ${alert.title || alert.label}`);
     return alert;
+  };
+  
+  /**
+   * Resolve alerts by trigger type when conditions return to normal
+   * @param {string} triggerType - The trigger type of alerts to resolve
+   * @param {Object} resolutionData - Data about the resolution
+   * @returns {Array} The resolved alerts
+   */
+  const resolveAlertsByTrigger = (triggerType, resolutionData = {}) => {
+    // Find active alerts with this trigger that are auto-resolvable and not acknowledged
+    const alertsToResolve = state.alerts.active.filter(
+      alert => alert.trigger === triggerType && 
+               alert.autoResolvable === true && 
+               !alert.acknowledged
+    );
+    
+    if (alertsToResolve.length === 0) return [];
+    
+    console.log(`Auto-resolving ${alertsToResolve.length} alerts with trigger: ${triggerType}`);
+    
+    // Process each alert to resolve
+    alertsToResolve.forEach(alert => {
+      // Update alert status
+      alert.status = 'resolved';
+      alert.resolvedAt = new Date().toISOString();
+      alert.resolutionData = {
+        ...resolutionData,
+        autoResolved: true
+      };
+      
+      // Move from active to resolved
+      const index = state.alerts.active.findIndex(a => a.id === alert.id);
+      if (index !== -1) {
+        state.alerts.active.splice(index, 1);
+        state.alerts.resolved.push(alert);
+      }
+    });
+    
+    // Create a resolution notification if any alerts were resolved
+    if (alertsToResolve.length > 0) {
+      const resolutionAlert = newAlert();
+      resolutionAlert.type = 'system';
+      resolutionAlert.category = alertsToResolve[0].category;
+      resolutionAlert.source = alertsToResolve[0].source;
+      resolutionAlert.level = 'info';
+      resolutionAlert.label = 'Condition Resolved';
+      
+      // Create appropriate message based on trigger type
+      let message = 'An alert condition has been resolved.';
+      switch (triggerType) {
+        case 'critical_range':
+          message = `Boat has returned within critical range. Distance to anchor: ${resolutionData.distance} ${resolutionData.units}.`;
+          break;
+        case 'ais_proximity':
+          message = `No vessels detected within warning radius of ${resolutionData.warningRadius} ${resolutionData.units}.`;
+          break;
+        default:
+          message = `The ${triggerType.replace('_', ' ')} condition has been resolved.`;
+      }
+      
+      resolutionAlert.message = message;
+      resolutionAlert.data = resolutionData;
+      resolutionAlert.autoExpire = true;
+      resolutionAlert.expiresIn = 60000; // 1 minute
+      resolutionAlert.trigger = `${triggerType}_resolved`;
+      
+      addAlert(resolutionAlert);
+    }
+    
+    return alertsToResolve;
   };
   
   /**
@@ -924,14 +1048,6 @@ export const useStateDataStore = defineStore("stateData", () => {
   // --- Subscriptions and Watchers ---
   stateUpdateProvider.subscribe((evt) => {
     if (evt.type === "state:full-update" && evt.data) {
-      console.log(
-        "[PiniaStore] [FULL STATE UPDATE] Received at",
-        new Date().toISOString(),
-        "Data keys:",
-        Object.keys(evt.data),
-        "Full object:",
-        evt.data
-      );
       replaceState(evt.data);
     } else if (evt.type === "state:patch" && evt.data) {
       applyStatePatch(evt.data);
@@ -1011,6 +1127,320 @@ export const useStateDataStore = defineStore("stateData", () => {
   );
 
   // --- Export everything needed for components ---
+  // Unit preferences state
+  const unitPreferences = ref(null);
+  
+  // Load unit preferences
+  async function loadUnitPreferences() {
+    try {
+      unitPreferences.value = await getUserUnitPreferences();
+      console.log('[StateDataStore] Loaded unit preferences:', unitPreferences.value);
+      return unitPreferences.value;
+    } catch (error) {
+      console.error('[StateDataStore] Failed to load unit preferences:', error);
+      return null;
+    }
+  }
+  
+  // Update unit preferences
+  async function updateUnitPreference(unitType, unit) {
+    try {
+      const updatedPrefs = await setUnitPreference(unitType, unit);
+      unitPreferences.value = updatedPrefs;
+      await updateUnitsToPreferences();
+      return updatedPrefs;
+    } catch (error) {
+      console.error('[StateDataStore] Failed to update unit preference:', error);
+      throw error;
+    }
+  }
+  
+  // Set unit preset
+  async function updateUnitPreset(preset) {
+    try {
+      const updatedPrefs = await setUnitPreset(preset);
+      unitPreferences.value = updatedPrefs;
+      await updateUnitsToPreferences();
+      return updatedPrefs;
+    } catch (error) {
+      console.error('[StateDataStore] Failed to update unit preset:', error);
+      throw error;
+    }
+  }
+  
+  // Convert all values in state to match user preferences
+  async function updateUnitsToPreferences() {
+    // Make sure preferences are loaded
+    if (!unitPreferences.value) {
+      await loadUnitPreferences();
+    }
+    
+    // Apply conversions to the state
+    convertStateToPreferredUnits(state);
+    
+    return unitPreferences.value;
+  }
+  
+  // Convert a specific state object to preferred units
+  function convertStateToPreferredUnits(stateObj) {
+    if (!unitPreferences.value || !stateObj) return;
+    
+    // Process navigation data
+    if (stateObj.navigation) {
+      // Depth - special handling
+      if (stateObj.navigation.depth) {
+        convertDepthValues(stateObj.navigation.depth);
+      }
+      
+      // Speed
+      convertMeasurementValues(stateObj.navigation.speed, UNIT_TYPES.SPEED);
+      
+      // Position (no conversion needed for lat/lon)
+      
+      // Course (convert angles to degrees)
+      convertAngleValues(stateObj.navigation.course);
+      
+      // Wind
+      convertWindValues(stateObj.navigation.wind);
+      
+      // Trip
+      convertMeasurementValues(stateObj.navigation.trip, UNIT_TYPES.LENGTH);
+    }
+    
+    // Process environment data
+    if (stateObj.environment?.weather) {
+      // Temperature
+      convertMeasurementValues(stateObj.environment.weather.temperature, UNIT_TYPES.TEMPERATURE);
+      
+      // Pressure
+      convertMeasurementValues(stateObj.environment.weather, UNIT_TYPES.PRESSURE);
+    }
+    
+    // Process vessel data
+    if (stateObj.vessel) {
+      // Dimensions
+      convertMeasurementValues(stateObj.vessel.info?.dimensions, UNIT_TYPES.LENGTH);
+      
+      // Fuel
+      convertMeasurementValues(stateObj.vessel.systems?.propulsion?.fuel, UNIT_TYPES.VOLUME);
+      
+      // Tanks
+      convertMeasurementValues(stateObj.vessel.systems?.tanks, UNIT_TYPES.VOLUME);
+    }
+    
+    // Process anchor data
+    if (stateObj.anchor) {
+      // Anchor locations
+      convertAnchorValues(stateObj.anchor);
+    }
+  }
+  
+  // Helper function to convert measurement values
+  function convertMeasurementValues(obj, unitType) {
+    if (!obj || !unitPreferences.value) return;
+    
+    const preferredUnit = unitPreferences.value[unitType];
+    if (!preferredUnit) return;
+    
+    // Process each property in the object
+    Object.keys(obj).forEach(key => {
+      const item = obj[key];
+      
+      // Handle nested objects recursively
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        // Check if this is a value object with units
+        if (item.value !== undefined && item.units) {
+          const currentUnit = item.units;
+          
+          // Handle special case for depth with feet property
+          if (item.feet && typeof item.feet === 'object' && item.feet.value !== undefined) {
+            if (preferredUnit === 'ft') {
+              // Use the feet value directly
+              item.value = item.feet.value;
+              item.units = 'ft';
+            } else if (currentUnit !== preferredUnit) {
+              // Convert to preferred unit
+              item.value = UnitConversion.convert(item.value, currentUnit, preferredUnit);
+              item.units = preferredUnit;
+            }
+            // Keep the feet property for backward compatibility, but update it
+            if (item.units !== 'ft') {
+              item.feet.value = UnitConversion.mToFt(item.value);
+            }
+          } else {
+            // Normal case - only convert if units don't match preference
+            if (currentUnit !== preferredUnit) {
+              // Special handling for angles - always use degrees for display
+              if (unitType === UNIT_TYPES.ANGLE && currentUnit === 'rad') {
+                item.value = UnitConversion.radToDeg(item.value);
+                item.units = 'deg';
+              } else {
+                item.value = UnitConversion.convert(item.value, currentUnit, preferredUnit);
+                item.units = preferredUnit;
+              }
+            }
+          }
+        } else {
+          // Recurse into nested objects
+          convertMeasurementValues(item, unitType);
+        }
+      }
+    });
+  }
+  
+  // Helper function to specifically handle depth values with feet property
+  function convertDepthValues(depthObj) {
+    if (!depthObj || !unitPreferences.value) return;
+    
+    const preferredUnit = unitPreferences.value[UNIT_TYPES.LENGTH];
+    if (!preferredUnit) return;
+    
+    // Process each depth measurement
+    Object.keys(depthObj).forEach(key => {
+      const item = depthObj[key];
+      if (!item || typeof item !== 'object') return;
+      
+      // Handle the special case where we have a feet sub-object
+      if (preferredUnit === 'ft') {
+        // If we want feet as the primary unit
+        if (item.feet && typeof item.feet === 'object' && item.feet.value !== null) {
+          // Use the feet value directly
+          item.value = item.feet.value;
+          item.units = 'ft';
+        } else if (item.value !== null && item.units === 'm') {
+          // Convert from meters to feet
+          item.value = UnitConversion.mToFt(item.value);
+          item.units = 'ft';
+          // Ensure feet property exists for backward compatibility
+          if (!item.feet) item.feet = { value: item.value };
+          else item.feet.value = item.value;
+        }
+      } else if (preferredUnit === 'm' && item.units !== 'm' && item.value !== null) {
+        // Convert back to meters if needed
+        if (item.units === 'ft') {
+          item.value = UnitConversion.ftToM(item.value);
+          item.units = 'm';
+          // Update feet property for backward compatibility
+          if (!item.feet) item.feet = { value: UnitConversion.mToFt(item.value) };
+          else item.feet.value = UnitConversion.mToFt(item.value);
+        }
+      }
+    });
+  }
+  
+  // Helper function to convert angle values
+  function convertAngleValues(courseObj) {
+    if (!courseObj) return;
+    
+    // Convert all angle values to degrees for display
+    const convertAngle = (obj) => {
+      if (!obj) return;
+      
+      if (obj.value !== undefined && obj.units === 'rad') {
+        obj.degrees = UnitConversion.radToDeg(obj.value);
+        
+        // If user prefers degrees as primary unit, swap values
+        if (unitPreferences.value[UNIT_TYPES.ANGLE] === 'deg') {
+          obj.value = obj.degrees;
+          obj.units = 'deg';
+        }
+      }
+    };
+    
+    // Apply to all angle measurements in course
+    if (courseObj.cog) convertAngle(courseObj.cog);
+    if (courseObj.heading?.magnetic) convertAngle(courseObj.heading.magnetic);
+    if (courseObj.heading?.true) convertAngle(courseObj.heading.true);
+    if (courseObj.variation) convertAngle(courseObj.variation);
+    if (courseObj.rateOfTurn) {
+      if (courseObj.rateOfTurn.value !== undefined && courseObj.rateOfTurn.units === 'rad/s') {
+        courseObj.rateOfTurn.degPerMin = Math.round(UnitConversion.radToDeg(courseObj.rateOfTurn.value) * 60 * 10) / 10;
+      }
+    }
+  }
+  
+  // Helper function to convert wind values
+  function convertWindValues(windObj) {
+    if (!windObj) return;
+    
+    // Convert apparent wind
+    if (windObj.apparent) {
+      // Speed
+      convertMeasurementValues(windObj.apparent, UNIT_TYPES.SPEED);
+      
+      // Angle
+      if (windObj.apparent.angle) {
+        convertAngleValues({ cog: windObj.apparent.angle });
+        
+        // Set side based on angle
+        if (windObj.apparent.angle.value !== undefined) {
+          windObj.apparent.angle.side = windObj.apparent.angle.value >= 0 ? 'starboard' : 'port';
+        }
+      }
+      
+      // Direction
+      if (windObj.apparent.direction) {
+        convertAngleValues({ cog: windObj.apparent.direction });
+      }
+    }
+    
+    // Convert true wind
+    if (windObj.true) {
+      // Speed
+      convertMeasurementValues(windObj.true, UNIT_TYPES.SPEED);
+      
+      // Direction
+      if (windObj.true.direction) {
+        convertAngleValues({ cog: windObj.true.direction });
+      }
+    }
+  }
+  
+  // Helper function to convert anchor values
+  function convertAnchorValues(anchorObj) {
+    if (!anchorObj) return;
+    
+    // Helper for location objects
+    const convertLocation = (location) => {
+      if (!location) return;
+      
+      // Depth
+      convertMeasurementValues({ depth: location.depth }, UNIT_TYPES.LENGTH);
+      
+      // Distances
+      convertMeasurementValues({ 
+        distancesFromCurrent: location.distancesFromCurrent,
+        distancesFromDrop: location.distancesFromDrop 
+      }, UNIT_TYPES.LENGTH);
+      
+      // Bearings
+      if (location.originalBearing) {
+        convertAngleValues({ cog: location.originalBearing });
+      }
+      if (location.bearing) {
+        convertAngleValues({ cog: location.bearing });
+      }
+    };
+    
+    // Apply to anchor locations
+    convertLocation(anchorObj.anchorDropLocation);
+    convertLocation(anchorObj.anchorLocation);
+    
+    // Rode and ranges
+    convertMeasurementValues({ 
+      rode: anchorObj.rode,
+      criticalRange: anchorObj.criticalRange,
+      warningRange: anchorObj.warningRange
+    }, UNIT_TYPES.LENGTH);
+  }
+  
+  // Initialize unit preferences and apply conversions immediately
+  loadUnitPreferences().then(() => {
+    // Apply unit conversions to initial state
+    convertStateToPreferredUnits(state);
+    console.log('[StateDataStore] Applied initial unit conversions');
+  });
+  
   return { 
     state, 
     replaceState,
@@ -1046,5 +1476,12 @@ export const useStateDataStore = defineStore("stateData", () => {
     toggleAlertRule,
     evaluateRule,
     processAlertRules,
+    
+    // Unit Preferences Management
+    unitPreferences,
+    loadUnitPreferences,
+    updateUnitPreference,
+    updateUnitPreset,
+    updateUnitsToPreferences
   };
 });

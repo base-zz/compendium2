@@ -14,7 +14,7 @@ async function startDirectServer(options = {}) {
 
   // Broadcast to all clients except specified ones
   function broadcast(payload, exclude = new Set()) {
-    console.log(`[DIRECT] Broadcasting ${payload.type} to ${wss.clients.size} clients`);
+    // console.log(`[DIRECT] Broadcasting ${payload.type} to ${wss.clients.size} clients`);
     const message = JSON.stringify(payload);
     let sentCount = 0;
     
@@ -32,9 +32,9 @@ async function startDirectServer(options = {}) {
     });
     
     // Log after a short delay to allow send callbacks to complete
-    setTimeout(() => {
-      console.log(`[DIRECT] Broadcast complete: ${sentCount}/${wss.clients.size} clients received ${payload.type}`);
-    }, 50);
+    // setTimeout(() => {
+    //   console.log(`[DIRECT] Broadcast complete: ${sentCount}/${wss.clients.size} clients received ${payload.type}`);
+    // }, 50);
   };
 
   // Store handler references for proper cleanup
@@ -42,20 +42,13 @@ async function startDirectServer(options = {}) {
   // const patchHandler = (patch) => broadcast('state:patch', patch);
 
   // Register state listeners
-  // stateManager
-  // .on('state:full-update', fullUpdateHandler)
-  // .on('state:patch', patchHandler);
   const stateEventHandler = (payload) => {
-    console.log(`[DIRECT] State event received: ${payload.type}`);
-    if (payload.type === 'state:patch') {
-      console.log(`[DIRECT] Patch contains ${payload.data.length} operations:`, JSON.stringify(payload.data));
-    }
     broadcast(payload);
     
     // Log after broadcast
-    setTimeout(() => {
-      console.log(`[DIRECT] Active clients after broadcast: ${getActiveClientCount()}`);
-    }, 100);
+    // setTimeout(() => {
+    //   console.log(`[DIRECT] Active clients after broadcast: ${getActiveClientCount()}`);
+    // }, 100);
   };
 
   stateManager.on('state:full-update', stateEventHandler);
@@ -110,6 +103,22 @@ async function startDirectServer(options = {}) {
             timestamp: Date.now()
           }));
         }
+        
+        // Handle anchor state updates
+        if (message.type === 'anchor:update' && message.data) {
+          console.log(`[DIRECT] Received anchor update from client`);
+          
+          // Forward the anchor data to the StateManager
+          // The StateManager is the single source of truth for state changes
+          const success = stateManager.updateAnchorState(message.data);
+          
+          // Acknowledge receipt
+          ws.send(JSON.stringify({
+            type: 'anchor:update:ack',
+            success,
+            timestamp: Date.now()
+          }));
+        }
       } catch (e) {
         console.warn("[DIRECT] Invalid message from client:", e);
       }
@@ -137,10 +146,6 @@ async function startDirectServer(options = {}) {
   function shutdown() {
     console.log("[DIRECT] Shutting down...");
 
-    // Cleanup listeners
-    // stateManager
-    //   .off("state:full-update", fullUpdateHandler)
-    //   .off("state:patch", patchHandler);
     stateManager.off('state:full-update', stateEventHandler);
     stateManager.off('state:patch', stateEventHandler);
 

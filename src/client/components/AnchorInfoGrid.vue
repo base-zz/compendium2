@@ -62,29 +62,14 @@
 </template>
 
 <script setup>
-import { ref, watch, computed, defineEmits } from 'vue';
-import { IonModal, IonButton, IonRange, IonIcon } from '@ionic/vue';
+import { ref, watch, computed, defineEmits, onUnmounted } from 'vue';
+import { IonModal, IonButton, IonRange } from '@ionic/vue';
 import { useStateDataStore } from '@/client/stores/stateDataStore.js';
 import { storeToRefs } from 'pinia';
 
 const emit = defineEmits(['anchor-dropped']);
 
-// Simple validateCoordinates function without map dependencies
-const validateCoordinates = (coord) => {
-  if (!coord) return false;
-  const lat = coord.latitude?.value ?? coord.latitude;
-  const lon = coord.longitude?.value ?? coord.longitude;
-  
-  // If we have a number but it's NaN, return false
-  if (typeof lat === 'number' && Number.isNaN(lat)) return false;
-  if (typeof lon === 'number' && Number.isNaN(lon)) return false;
-  
-  // If we don't have valid numbers, return false
-  if (typeof lat !== 'number' || typeof lon !== 'number') return false;
-  
-  // Check range for valid numbers
-  return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
-};
+// Note: validateCoordinates function removed as it's no longer used
 
 const showEditRadiusModal = ref(false);
 const editRadiusValue = ref(0);
@@ -106,14 +91,57 @@ function confirmEditRadius() {
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 const anchorState = computed(() => state.value.anchor);
-const navigationState = computed(() => state.value.navigation);
-const boatPosition = computed(() => navigationState.value?.position);
   
 console.log("AnchorInfoGrid.vue anchorState:", anchorState.value);
 
+// Alert cycling state
+const currentAlertIndex = ref(0);
+const alertCycleInterval = ref(null);
+
+// Setup alert cycling when there are multiple alerts
+watch(
+  () => [anchorState.value?.dragging, anchorState.value?.aisWarning],
+  ([isDragging, hasAisWarning]) => {
+    // Clear any existing interval
+    if (alertCycleInterval.value) {
+      clearInterval(alertCycleInterval.value);
+      alertCycleInterval.value = null;
+    }
+    
+    // If both alerts are active, start cycling
+    if (isDragging && hasAisWarning) {
+      currentAlertIndex.value = 0; // Start with dragging alert
+      alertCycleInterval.value = setInterval(() => {
+        // Toggle between 0 (dragging) and 1 (AIS warning)
+        currentAlertIndex.value = currentAlertIndex.value === 0 ? 1 : 0;
+      }, 3000); // Cycle every 3 seconds
+    } else {
+      // If only one or no alerts, reset to default
+      currentAlertIndex.value = 0;
+    }
+  },
+  { immediate: true }
+);
+
+// Clean up interval on component unmount
+onUnmounted(() => {
+  if (alertCycleInterval.value) {
+    clearInterval(alertCycleInterval.value);
+  }
+});
+
 const titleClass = computed(() => {
-  if (anchorState.value.dragging) { 
+  if (!anchorState.value) return 'not-anchored-title';
+  
+  // If dragging is active and it's either the only alert or it's the current alert in the cycle
+  if (anchorState.value.dragging && 
+      (currentAlertIndex.value === 0 || !anchorState.value.aisWarning)) { 
     return 'dragging-title';
+  }
+  // If AIS warning is active and it's either the only alert or it's the current alert in the cycle
+  else if (anchorState.value.aisWarning && 
+           (currentAlertIndex.value === 1 || !anchorState.value.dragging)) {
+    return 'ais-warning-title';
   }
   else if (anchorState.value.anchorDeployed) {
     return 'anchored-title';
@@ -122,8 +150,17 @@ const titleClass = computed(() => {
 });
 
 const title = computed(() => {
-  if (anchorState.value.dragging) { 
+  if (!anchorState.value) return 'Not Anchored';
+  
+  // If dragging is active and it's either the only alert or it's the current alert in the cycle
+  if (anchorState.value.dragging && 
+      (currentAlertIndex.value === 0 || !anchorState.value.aisWarning)) { 
     return 'DRAGGING';
+  }
+  // If AIS warning is active and it's either the only alert or it's the current alert in the cycle
+  else if (anchorState.value.aisWarning && 
+           (currentAlertIndex.value === 1 || !anchorState.value.dragging)) {
+    return 'AIS PROXIMITY WARNING';
   }
   else if (anchorState.value.anchorDeployed) {
     return 'Anchored';
@@ -140,34 +177,6 @@ const handleDropAnchor = () => {
   // AnchorView will handle all the state updates and map features
   emit('anchor-dropped');
   console.log("AnchorInfoGrid: Emitted anchor-dropped event");
-  
-  // Close the modal
-  showSetAnchorDialog.value = false;
-};
-
-const handleUpdateDropLocation = () => {
-  if (!validateCoordinates(boatPosition.value)) return;
-  
-  // Emit an event to let AnchorView handle the update
-  emit('update-drop-location');
-  console.log("AnchorInfoGrid: Emitted update-drop-location event");
-  
-  // Close the dialog
-  showUpdateDialog.value = false;
-};
-
-const confirmUpdateDropLocation = () => {
-  handleUpdateDropLocation();
-  showUpdateDropConfirm.value = false;
-};
-
-const handleCancelAnchor = () => {
-  // Emit an event to let AnchorView handle the cancellation
-  emit('cancel-anchor');
-  console.log("AnchorInfoGrid: Emitted cancel-anchor event");
-  
-  // Close the dialog
-  showCancelDialog.value = false;
 };
 
 </script>
@@ -699,5 +708,21 @@ const handleCancelAnchor = () => {
 }
 .modal-btn:active {
   opacity: 0.85;
+}
+
+.dragging-title {
+  color: #f44336 !important; /* Red color */
+  animation: blink 1s infinite;
+}
+
+.ais-warning-title {
+  color: #ff9800 !important; /* Orange color */
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 </style>

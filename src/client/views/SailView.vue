@@ -4,23 +4,26 @@
     <ion-content class="content-with-header">
       <div id="container" class="container">
         <div class="top-left quad" ref="topLeft">
-          <InstrumentView :data="depthData" :maintainSquareRatio="false" />
+          <InstrumentView :data="depthData" :maintainSquareRatio="false" label="Depth"/>
         </div>
         <div class="top-right quad" ref="topRight">
-          <InstrumentView :data="sogData" :maintainSquareRatio="false" />
+          <InstrumentView :data="sogData" :maintainSquareRatio="false" label="SOG" />
         </div>
        
         <div class="mid-section sail quad" ref="sail360">
-          <SailComponent />
+          <div class="sail-component-wrapper">
+            <SailComponent />
+          </div>
         </div>
 
         <div class="bottom-left quad" ref="bottomLeft">
-          <InstrumentView :data="trueWindSpeedData" :maintainSquareRatio="false" />
+          <InstrumentView :data="trueWindSpeedData" :maintainSquareRatio="false" label="TWS"/>
         </div>
         <div class="bottom-right quad" ref="bottomRight">
           <InstrumentView
             :data="apparentWindSpeedData"
             :maintainSquareRatio="false"
+            label="AWS"
           />
         </div> 
       </div>
@@ -31,7 +34,7 @@
 <script setup>
 import { onMounted, ref, onUnmounted, computed } from "vue";
 import InstrumentView from "../components/InstrumentComponent.vue";
-import SailComponent from "../components/Sail360View.vue";
+import SailComponent from "../components/Sail360Component.vue";
 import { useStateDataStore } from "../stores/stateDataStore.js";
 import { storeToRefs } from "pinia";
 import { IonPage, IonContent } from "@ionic/vue";
@@ -186,10 +189,15 @@ ion-content {
   color: white;
   padding: 0;
   margin: 0;
-  overflow: hidden;
+}
+
+.sail-component-wrapper {
   display: flex;
   justify-content: center;
   align-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 /* Force widget container to fill the quad */

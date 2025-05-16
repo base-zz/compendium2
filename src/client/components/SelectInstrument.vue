@@ -37,7 +37,7 @@ import { useStateDataStore } from "@/stores/stateDataStore.js";
 import { storeToRefs } from "pinia";
 import { onMounted, ref, useTemplateRef } from "vue";
 // import _ from "lodash";
-import Sail360 from "./Sail360View.vue";
+import Sail360 from "./Sail360Component.vue";
 import Instrument from "./InstrumentComponent.vue";
 import { IonChip, IonSegment, IonSegmentButton, IonLabel, IonButton } from "@ionic/vue";
 import { scaleAndCenterInParent, scaleElementTo } from "../util/func1.js";

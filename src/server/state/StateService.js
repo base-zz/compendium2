@@ -8,11 +8,15 @@
 
 import WebSocket from "ws";
 import EventEmitter from "events";
+import debug from "debug";
 import { stateData } from "./StateData.js";
 import { signalKAdapterRegistry } from "../../relay/server/adapters/SignalKAdapterRegistry.js";
 import fetch from "node-fetch";
 import { extractAISTargetsFromSignalK } from "./extractAISTargets.js";
 import { convertSignalKNotifications } from '../../shared/convertSignalK.js';
+import { UNIT_PRESETS } from '../../shared/unitPreferences.js';
+import { getServerUnitPreferences } from './serverUnitPreferences.js';
+import { UnitConversion } from '../../shared/unitConversion.js';
 import pkg from "fast-json-patch";
 import { stateManager } from "../../relay/core/state/StateManager.js";
 
@@ -58,28 +62,37 @@ class StateService extends EventEmitter {
 
   constructor() {
     super();
-    console.log("[StateService] Constructed StateService instance");
-    this.config = null;
+    this.isInitialized = false;
+    this.selfMmsi = null;
+    this._debug = debug("compendium:state");
+    this._lastFullEmit = 0;
+    this._batchTimer = null;
+    this._batchUpdates = {};
+    this._aisRefreshTimer = null;
+    this._notificationPaths = new Set();
+    this._notificationPathLoggingTimer = null;
     this.signalKAdapter = null;
     this.signalKWsUrl = null;
-    this.selfMmsi = null;
-
-    // Connection state
-    this.connections = {
-      signalK: {
-        socket: null,
-        connected: false,
-        reconnectAttempts: 0,
-        lastMessage: null,
-      },
-    };
-
+    
+    // Load user unit preferences - default to imperial if not set
+    this.userUnitPreferences = null;
+    this.loadUserUnitPreferences();
+    
     this.hasLoggedFirstData = false;
     this.sources = new Map();
     this.updateQueue = new Map();
     this.updateTimer = null;
-    this._aisRefreshTimer = null;
     this._lastFullEmit = 0;
+
+    this.connections = {
+      websocket: false,
+      signalK: {
+        websocket: false,
+        lastMessage: null,
+      },
+    };
+
+
 
     this.EVENTS = {
       CONNECTED: "connected",
@@ -166,7 +179,7 @@ class StateService extends EventEmitter {
           vesselsData,
           this.selfMmsi
         );
-        stateData.anchor.aisTargets = aisTargets;
+        stateData.aisTargets = aisTargets;
 
         this.startAISPeriodicRefresh(async () => {
           const url = `${this.config.signalKBaseUrl.replace(
@@ -253,15 +266,9 @@ class StateService extends EventEmitter {
           newAisTargets[target.mmsi] = target;
         }
       });
-      
-      // Ensure anchor state exists
-      if (!stateData.anchor) {
-        console.warn("[StateService] Anchor state not initialized, cannot update AIS targets");
-        return;
-      }
-      
+       
       // Get current targets for comparison
-      const oldAisTargets = stateData.anchor.aisTargets || {};
+      const oldAisTargets = stateData.aisTargets || {};
       
       // Analyze the current and new targets directly using object keys
       const oldMmsiSet = new Set(Object.keys(oldAisTargets));
@@ -303,18 +310,20 @@ class StateService extends EventEmitter {
       
       const totalChanges = addedTargets.length + removedTargets.length + updatedTargets.length;
       const totalTargets = Object.keys(newAisTargets).length;
-      // Only log a single summary if there are significant changes
-      // if (totalChanges > 0) {
-      //   console.log(`[StateService] AIS changes: ${addedTargets.length} added, ${removedTargets.length} removed, ${updatedTargets.length} updated (${totalChanges} total changes out of ${totalTargets} targets)`);
-      // }
       
-      // Only proceed if there are actual changes
+      // Always update the state with the new targets
+      stateData.aisTargets = newAisTargets;
+      
+      // Emit a full state update to ensure aisTargets are included
+      this.emit(this.EVENTS.STATE_FULL_UPDATE, {
+        type: 'state:full-update',
+        data: stateData.state,
+        source: 'signalK',
+        timestamp: Date.now()
+      });
+      
+      // Only proceed with individual updates if there are actual changes
       if (totalChanges > 0) {
-        // Update the state with the new targets
-        stateData.anchor.aisTargets = newAisTargets;
-        
-        // Log sample changes
-        // Removed verbose target sample and property change logs
         
         // Determine update strategy based on change volume
         // If changes exceed 30% of total targets or there are more than 20 changes, send full update
@@ -326,7 +335,7 @@ class StateService extends EventEmitter {
           // Emit a full update event for AIS targets
           this.emit(this.EVENTS.STATE_UPDATED, {
             type: 'state:updated',
-            path: 'anchor.aisTargets',
+            path: 'aisTargets',
             value: newAisTargets,
             source: 'signalK',
             timestamp: Date.now(),
@@ -347,7 +356,7 @@ class StateService extends EventEmitter {
           addedTargets.forEach(target => {
             patches.push({
               op: 'add',
-              path: `/anchor/aisTargets/${target.mmsi}`,
+              path: `/aisTargets/${target.mmsi}`,
               value: target
             });
           });
@@ -356,7 +365,7 @@ class StateService extends EventEmitter {
           removedTargets.forEach(target => {
             patches.push({
               op: 'remove',
-              path: `/anchor/aisTargets/${target.mmsi}`
+              path: `/aisTargets/${target.mmsi}`
             });
           });
           
@@ -364,7 +373,7 @@ class StateService extends EventEmitter {
           updatedTargets.forEach(target => {
             patches.push({
               op: 'replace',
-              path: `/anchor/aisTargets/${target.mmsi}`,
+              path: `/aisTargets/${target.mmsi}`,
               value: target
             });
           });
@@ -372,7 +381,7 @@ class StateService extends EventEmitter {
           // Emit the patches
           this.emit(this.EVENTS.STATE_PATCH, {
             type: 'state:patch',
-            path: 'anchor.aisTargets',
+            path: 'aisTargets',
             patches: patches,
             source: 'signalK',
             timestamp: Date.now(),
@@ -644,6 +653,89 @@ class StateService extends EventEmitter {
     }
   }
 
+  /**
+   * Load user unit preferences from storage
+   * For server-side, we use a file-based approach instead of Capacitor Preferences
+   * Defaults to imperial units if not set
+   */
+  async loadUserUnitPreferences() {
+    try {
+      // Use our server-specific implementation that doesn't rely on browser APIs
+      this.userUnitPreferences = await getServerUnitPreferences();
+      console.log('[StateService] Loaded user unit preferences:', this.userUnitPreferences);
+    } catch (err) {
+      console.error('[StateService] Error in loadUserUnitPreferences:', err);
+      // Default to imperial units if there's any error
+      this.userUnitPreferences = { 
+        ...UNIT_PRESETS.IMPERIAL,
+        preset: 'IMPERIAL'
+      };
+    }
+  }
+
+  /**
+   * Convert a value from SignalK units to user's preferred units
+   * @param {string} path - The SignalK path
+   * @param {any} value - The value to convert
+   * @param {string} sourceUnit - The source unit (usually metric from SignalK)
+   * @returns {any} - The converted value in user's preferred units
+   */
+  _convertToUserUnits(path, value, sourceUnit) {
+    // Skip conversion for non-numeric values
+    if (typeof value !== 'number' || value === null) {
+      return value;
+    }
+
+    // Determine the unit type based on the path
+    let unitType = null;
+    
+    // Map SignalK paths to unit types
+    if (path.includes('position.altitude') || 
+        path.includes('depth') || 
+        path.includes('length') || 
+        path.includes('beam') || 
+        path.includes('draft')) {
+      unitType = 'length';
+      sourceUnit = sourceUnit || 'm';
+    } else if (path.includes('speed')) {
+      unitType = 'speed';
+      sourceUnit = sourceUnit || 'm/s';
+    } else if (path.includes('temperature')) {
+      unitType = 'temperature';
+      sourceUnit = sourceUnit || '°C';
+    } else if (path.includes('pressure')) {
+      unitType = 'pressure';
+      sourceUnit = sourceUnit || 'Pa';
+    } else if (path.includes('angle') || path.includes('direction') || path.includes('heading') || path.includes('bearing')) {
+      unitType = 'angle';
+      sourceUnit = sourceUnit || 'rad';
+    } else if (path.includes('volume')) {
+      unitType = 'volume';
+      sourceUnit = sourceUnit || 'L';
+    }
+
+    // If we can't determine the unit type, return the original value
+    if (!unitType || !this.userUnitPreferences) {
+      return value;
+    }
+
+    // Get the target unit from user preferences
+    const targetUnit = this.userUnitPreferences[unitType];
+    
+    // Skip conversion if source and target are the same
+    if (sourceUnit === targetUnit) {
+      return value;
+    }
+
+    // Convert the value
+    try {
+      return UnitConversion.convert(value, sourceUnit, targetUnit);
+    } catch (err) {
+      console.error(`[StateService] Error converting ${value} from ${sourceUnit} to ${targetUnit}:`, err);
+      return value; // Return original value on error
+    }
+  }
+
   _processSignalKValue(path, value, source) {
     // Log all incoming updates
     // console.log("[DEBUG] Incoming SignalK update:", path, value);
@@ -656,17 +748,32 @@ class StateService extends EventEmitter {
     // Then check direct mappings
     const mapping = this._getCanonicalMapping(path);
     if (mapping) {
-      const transformedValue = mapping.transform ? mapping.transform(value) : value;
+      // First apply any transform from the mapping
+      let transformedValue = mapping.transform ? mapping.transform(value) : value;
+      
+      // Then convert units based on user preferences
+      // Determine source unit from SignalK path
+      let sourceUnit = null;
+      if (path.includes('depth')) sourceUnit = 'm';
+      else if (path.includes('speed')) sourceUnit = 'm/s';
+      else if (path.includes('temperature')) sourceUnit = '°C';
+      else if (path.includes('pressure')) sourceUnit = 'Pa';
+      else if (path.includes('angle') || path.includes('direction') || path.includes('heading')) sourceUnit = 'rad';
+      
+      // Convert to user's preferred units
+      const originalValue = transformedValue;
+      transformedValue = this._convertToUserUnits(path, transformedValue, sourceUnit);
+      if (path.includes('depth')) {
+        console.log('[StateService] Depth conversion:', {
+          original: originalValue,
+          sourceUnit,
+          targetUnit: this.userUnitPreferences?.length,
+          converted: transformedValue
+        });
+      }
+      
+      // Queue the update with the converted value
       this._queueUpdate(mapping.path, transformedValue, source);
-
-      // console.log(
-      //   "[DEBUG] Mapping found for",
-      //   path,
-      //   "->",
-      //   mapping.path,
-      //   "Transformed value:",
-      //   transformedValue
-      // );
 
       return;
     }
@@ -680,7 +787,24 @@ class StateService extends EventEmitter {
   _applySpecialTransform(path, value) {
     const transform = this._getSpecialTransform(path);
     if (transform) {
-      transform(value, stateData);
+      // First convert the value to user's preferred units
+      // Determine source unit from SignalK path
+      let sourceUnit = null;
+      if (path.includes('depth')) sourceUnit = 'm';
+      else if (path.includes('speed')) sourceUnit = 'm/s';
+      else if (path.includes('temperature')) sourceUnit = '°C';
+      else if (path.includes('pressure')) sourceUnit = 'Pa';
+      else if (path.includes('angle') || path.includes('direction') || path.includes('heading')) sourceUnit = 'rad';
+      
+      // Convert to user's preferred units if it's a numeric value
+      if (typeof value === 'number') {
+        const convertedValue = this._convertToUserUnits(path, value, sourceUnit);
+        // Apply the special transform with the converted value
+        transform(convertedValue, stateData);
+      } else {
+        // Apply the special transform with the original value
+        transform(value, stateData);
+      }
       return true;
     }
     return false;
@@ -690,17 +814,71 @@ class StateService extends EventEmitter {
     // Special transforms take priority
     const specialTransforms = {
       "navigation.headingMagnetic": (value, state) => {
-        state.navigation.course.heading.magnetic.value = value;
+        // Normalize the magnetic heading and convert to degrees
+        const normalizedMagneticHeading = UnitConversion.normalizeRadians(value);
+        const magneticHeadingDegrees = UnitConversion.radToDeg(normalizedMagneticHeading);
+        
+        // Store with proper units
+        state.navigation.course.heading.magnetic.value = magneticHeadingDegrees;
+        state.navigation.course.heading.magnetic.units = 'deg';
+        
         if (state.navigation.course.variation.value !== null) {
-          state.navigation.course.heading.true.value =
-            value + state.navigation.course.variation.value;
+          // Calculate true heading, normalize, and convert to degrees
+          const trueHeadingRad = normalizedMagneticHeading + state.navigation.course.variation.value;
+          const normalizedTrueHeadingRad = UnitConversion.normalizeRadians(trueHeadingRad);
+          const trueHeadingDegrees = UnitConversion.radToDeg(normalizedTrueHeadingRad);
+          
+          // Store with proper units
+          state.navigation.course.heading.true.value = trueHeadingDegrees;
+          state.navigation.course.heading.true.units = 'deg';
+        }
+      },
+      "navigation.headingTrue": (value, state) => {
+        // Normalize the true heading and convert to degrees
+        const normalizedTrueHeading = UnitConversion.normalizeRadians(value);
+        const trueHeadingDegrees = UnitConversion.radToDeg(normalizedTrueHeading);
+        
+        // Store with proper units
+        state.navigation.course.heading.true.value = trueHeadingDegrees;
+        state.navigation.course.heading.true.units = 'deg';
+        
+        if (state.navigation.course.variation.value !== null) {
+          // Calculate magnetic heading, normalize, and convert to degrees
+          const magneticHeadingRad = normalizedTrueHeading - state.navigation.course.variation.value;
+          const normalizedMagneticHeadingRad = UnitConversion.normalizeRadians(magneticHeadingRad);
+          const magneticHeadingDegrees = UnitConversion.radToDeg(normalizedMagneticHeadingRad);
+          
+          // Store with proper units
+          state.navigation.course.heading.magnetic.value = magneticHeadingDegrees;
+          state.navigation.course.heading.magnetic.units = 'deg';
         }
       },
       "environment.wind.angleApparent": (value, state) => {
-        state.navigation.wind.apparent.angle.value = value;
+        // Normalize the apparent wind angle and convert to degrees
+        const normalizedWindAngleRad = UnitConversion.normalizeRadians(value);
+        const windAngleDegrees = UnitConversion.radToDeg(normalizedWindAngleRad);
+        
+        // Store with proper units
+        state.navigation.wind.apparent.angle.value = windAngleDegrees;
+        state.navigation.wind.apparent.angle.units = 'deg';
+        
         if (state.navigation.course.heading.true.value !== null) {
-          state.navigation.wind.apparent.direction.value =
-            state.navigation.course.heading.true.value + value;
+          // Get the heading in radians for calculation
+          let headingRad;
+          if (state.navigation.course.heading.true.units === 'deg') {
+            headingRad = UnitConversion.degToRad(state.navigation.course.heading.true.value);
+          } else {
+            headingRad = state.navigation.course.heading.true.value;
+          }
+          
+          // Calculate apparent wind direction, normalize, and convert to degrees
+          const directionRad = headingRad + normalizedWindAngleRad;
+          const normalizedDirectionRad = UnitConversion.normalizeRadians(directionRad);
+          const directionDegrees = UnitConversion.radToDeg(normalizedDirectionRad);
+          
+          // Store with proper units
+          state.navigation.wind.apparent.direction.value = directionDegrees;
+          state.navigation.wind.apparent.direction.units = 'deg';
         }
       },
     };
@@ -725,6 +903,9 @@ class StateService extends EventEmitter {
       "navigation.headingMagnetic": {
         path: "navigation.course.heading.magnetic.value",
       },
+      "navigation.headingTrue": {
+        path: "navigation.course.heading.true.value",
+      },
       "navigation.magneticVariation": {
         path: "navigation.course.variation.value",
       },
@@ -743,6 +924,10 @@ class StateService extends EventEmitter {
       // Depth Data
       "environment.depth.belowTransducer": {
         path: "navigation.depth.belowTransducer.value",
+        transform: function(value) {
+          console.log('[StateService] Raw depth value received:', value);
+          return value;
+        }
       },
 
       // Wind Data
@@ -816,17 +1001,6 @@ class StateService extends EventEmitter {
         path: "vessel.systems.tanks.blackWater.value",
       },
 
-      // Anchor Data
-      "navigation.anchor.position": {
-        path: "anchor.anchorLocation.position",
-        transform: (value) => ({
-          latitude: { value: value.latitude, units: "deg" },
-          longitude: { value: value.longitude, units: "deg" },
-        }),
-      },
-      "navigation.anchor.maxRadius": {
-        path: "anchor.watchCircle.radius.value",
-      },
     };
 
     // Check for exact match first

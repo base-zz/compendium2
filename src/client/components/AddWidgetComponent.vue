@@ -265,10 +265,9 @@ import { v4 as uuidv4 } from "uuid";
 import { ref, computed, useTemplateRef, watch, onMounted } from "vue";
 import { colorPaletteOutline } from "ionicons/icons";
 import AlertWidgetComponent from "./AlertWidgetComponent.vue";
-import { useWidgetStore } from "../stores/widgets.js";
-import { useStateDataStore } from "../stores/stateDataStore.js";
+import { useWidgetStore } from "@client/stores/widgets.js";
+import { useStateDataStore } from "@client/stores/stateDataStore.js";
 import { storeToRefs } from "pinia";
-import { useAlertStore } from "../stores/alerts.js";
 import { pick } from "lodash";
 
 console.log("STARTED ADD WIDGET COMPOENENT");
@@ -277,7 +276,7 @@ const showColorRef = useTemplateRef("showColorRef");
 const indicatorColorRef = useTemplateRef("indicatorColorRef");
 
 const stateStore = useStateDataStore();
-const { navigationState } = storeToRefs(stateStore);
+const { navigation, anchor } = storeToRefs(stateStore.state);
 
 // Define available instrument fields based on the state structure
 const navFields = [
@@ -310,7 +309,6 @@ const alerts = ref([]);
 const maintainSquareRatio = ref(true); // Default to true
 
 const widgetStore = useWidgetStore();
-const alertStore = useAlertStore();
 
 // Steelblue RGB values (70, 130, 180)
 const showColorPicker = ref(false);
@@ -369,7 +367,7 @@ async function saveButton() {
 
         console.log("Adding alert:", enrichedAlert);
         // Add the alert using the addAlert method
-        alertStore.addAlert(enrichedAlert);
+        // alertStore.addAlert(enrichedAlert);
       }
     }
 

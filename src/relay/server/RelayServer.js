@@ -23,7 +23,7 @@ export class RelayServer extends EventEmitter {
     this._messageBuffer = [];
     this._maxBufferSize = 100;
     this.stateManager = stateManager;
-
+    
     // Client management
     this.clients = new Map();
 
@@ -170,6 +170,12 @@ export class RelayServer extends EventEmitter {
   }
 
   _sendToVPS(message) {
+    // Only send messages if there are relay clients connected to the VPS
+    if (this.stateManager.clientCount === 0) {
+      // No remote clients connected to VPS, don't buffer or send messages
+      return;
+    }
+
     if (!this.vpsConnector.connected) {
       if (this._messageBuffer.length < this._maxBufferSize) {
         this._messageBuffer.push(message);
@@ -216,40 +222,39 @@ export class RelayServer extends EventEmitter {
 
   // ========== PUBLIC METHODS ========== //
 
-  addClient(clientId, subscriptions = ["navigation", "vessel", "alerts"]) {
-    const client = {
-      id: clientId,
-      subscriptions: new Set(subscriptions),
-      connected: Date.now(),
-      lastActivity: Date.now()
-    };
+  addClient(clientId) {
+    // Add client to our local tracking
+    this.clients.set(clientId, { connected: true, lastActivity: Date.now() });
     
-    this.clients.set(clientId, client);
-    console.log(`[RELAY] Client ${clientId} connected`);
+    // Update the client count in the StateManager
+    const currentCount = this.stateManager.clientCount;
+    this.stateManager.updateClientCount(currentCount + 1);
+    console.log(`[RELAY] Client ${clientId} connected (total: ${this.stateManager.clientCount})`);
     return clientId;
   }
 
   removeClient(clientId) {
-    if (this.clients.delete(clientId)) {
-      console.log(`[RELAY] Client ${clientId} disconnected`);
+    // Remove client from our local tracking
+    this.clients.delete(clientId);
+    
+    if (this.stateManager.clientCount > 0) {
+      // Update the client count in the StateManager
+      const currentCount = this.stateManager.clientCount;
+      this.stateManager.updateClientCount(currentCount - 1);
+      console.log(`[RELAY] Client ${clientId} disconnected (remaining: ${this.stateManager.clientCount})`);
       return true;
     }
     return false;
   }
 
-  updateClientSubscriptions(clientId, subscriptions) {
-    const client = this.clients.get(clientId);
-    if (client) {
-      client.subscriptions = new Set(subscriptions);
-      client.lastActivity = Date.now();
-      console.log(`[RELAY] Updated subscriptions for ${clientId}`);
-      return true;
-    }
-    return false;
+  updateClientActivity() {
+    // We no longer track individual client activity
+    // Just return true if we have any clients
+    return this.stateManager.clientCount > 0;
   }
 
   getClientCount() {
-    return this.clients.size;
+    return this.stateManager.clientCount;
   }
 
   shutdown() {

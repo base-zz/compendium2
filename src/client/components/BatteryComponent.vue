@@ -28,7 +28,7 @@
       width="100%"
       ref="svg"
       class="instrument display-component battery-component no-tap-highlight"
-      :class="threshold > batteryValue ? 'critical-border' : ''"
+      :class="pastThreshold ? 'critical-border' : ''"
       viewBox="0 0 300 300"
       preserveAspectRatio="xMidYMid meet"
       style="
@@ -46,12 +46,12 @@
       "
       @touchstart.prevent
     >
-      <g ref="battery-group" transform="scale(0.8) translate(10, 67)">
-        <g ref="battery-body">
+      <g ref="battery-group" transform="scale(0.72) translate(25, 100)">
+        <g ref="battery-body" >
           <rect
             ref="battery"
             class="battery"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="30"
             y="40"
             width="80"
@@ -62,23 +62,22 @@
           ></rect>
           <rect
             class="battery"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="50"
             y="25"
             width="40"
             height="15"
             :stroke="widgetColor"
-            :fill="threshold > batteryValue ? 'red' : widgetColor"
+            :fill="pastThreshold ? 'red' : widgetColor"
             stroke-width="2"
             rx="5"
           ></rect>
         </g>
-
         <g ref="power-group" transform="translate(1.5, 0) scale(0.98)">
           <rect
             ref="power-10"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="46"
             width="70"
@@ -92,7 +91,7 @@
           <rect
             ref="power-9"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="70"
             width="70"
@@ -106,7 +105,7 @@
           <rect
             ref="power-8"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="94"
             width="70"
@@ -120,7 +119,7 @@
           <rect
             ref="power-7"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="118"
             width="70"
@@ -134,7 +133,7 @@
           <rect
             ref="power-6"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="142"
             width="70"
@@ -148,7 +147,7 @@
           <rect
             ref="power-5"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="166"
             width="70"
@@ -162,7 +161,7 @@
           <rect
             ref="power-4"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="190"
             width="70"
@@ -176,7 +175,7 @@
           <rect
             ref="power-3"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="214"
             width="70"
@@ -190,7 +189,7 @@
           <rect
             ref="power-2"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="238"
             width="70"
@@ -204,7 +203,7 @@
           <rect
             ref="power-1"
             class="power"
-            :class="threshold > batteryValue ? 'critical' : ''"
+            :class="pastThreshold ? 'critical' : ''"
             x="35"
             y="262"
             width="70"
@@ -219,21 +218,21 @@
           <text
             ref="metric"
             class="metric"
-            :class="threshold > batteryValue ? 'pulsating-text' : ''"
+            :class="pastThreshold ? 'pulsating-text' : ''"
             x="114"
             y="80"
           >
-            {{ displayValue }}
+            {{ displayValue }}<tspan class="units" dx="5px">%</tspan>
           </text>
-          <text class="units" x="114" y="110">%</text>
-          <text class="metric2" x="114" y="160">
-            {{ displayVoltage }}
+
+          <text class="metric2" x="105" y="175">
+            {{ displayVoltage }}<tspan class="units2" dx="5px" dy="-2px">V</tspan>
           </text>
-          <text class="units" x="114" y="180">V</text>
-          <text class="metric2" x="114" y="230">
-            {{ displayAmperage }}
+
+          <text class="metric2" x="105" y="210">
+            {{ displayAmperage }}<tspan class="units2" dx="5px" dy="-2px">A</tspan>
           </text>
-          <text class="units" x="114" y="250">A</text>
+          
         </g>
       </g>
       <text ref="title" class="title" x="150" y="48">
@@ -244,220 +243,262 @@
 </template>
 
 <script setup>
-import { useTemplateRef, onMounted, watch, computed } from "vue";
-import { useStateDataStore } from "../stores/stateDataStore.js";
-import { storeToRefs } from "pinia";
+import { ref, onMounted, watch, computed, nextTick, onActivated } from 'vue'
 
 const props = defineProps({
-  data: {
+  widgetData: {
     type: Object,
-    required: false,
-    default: () => null,
-  },
-  color: {
-    type: String,
-    required: false,
-    default: () => "steelblue",
-  },
-  widget: {
-    type: Object,
-    required: false,
-    default: () => null,
-  },
-  threshold: {
-    type: Number,
-    required: false,
-    default: 20,
-  },
-  label: {
-    type: String,
-    required: false,
-    default: () => "Battery - No Label",
-  },
-  alerts: {
-    type: Array,
-    required: false,
-    default: () => [],
-  },
-});
-
-const emit = defineEmits(["mounted"]);
-
-// Get StateData store
-const stateStore = useStateDataStore();
-const { vesselState } = storeToRefs(stateStore);
-
-// Get battery data from StateData based on dataSource
-const batteryData = computed(() => {
-  const dataSource = props.widget?.dataSource;
-
-  // Make sure navData.value exists before trying to access properties
-  if (dataSource && navData.value && navData.value[dataSource]) {
-    return navData.value[dataSource];
+    required: true,
+    default: () => ({
+      value: 0,
+      voltage: null,
+      amperage: null,
+      color: '#007bff',
+      threshold: 20,
+      label: 'Battery'
+    })
   }
+})
 
-  // Fallback to props.data if NavData doesn't have the data
-  return props.data || {};
-});
+const emit = defineEmits(['mounted'])
 
-// Computed properties for battery values with fallbacks for display logic only
+// const container = ref(null)
+const svg = ref(null)
+const metric = ref(null)
+
 const batteryValue = computed(() => {
-  return batteryData.value?.value !== null && batteryData.value?.value !== undefined
-    ? batteryData.value.value
-    : 0;
-});
+  return props.widgetData.value ?? 0
+})
 
-// Display values with proper formatting
+const widgetColor = computed(() => {
+  return props.widgetData.color || '#007bff'
+})
+
+
 const displayValue = computed(() => {
-  return batteryData.value?.value !== null && batteryData.value?.value !== undefined
-    ? batteryData.value.value
-    : "--";
-});
+  return batteryValue.value !== null && batteryValue.value !== undefined
+    ? batteryValue.value
+    : "--"
+})
 
 const displayVoltage = computed(() => {
-  return batteryData.value?.voltage !== null && batteryData.value?.voltage !== undefined
-    ? batteryData.value.voltage
-    : "--";
-});
+  return props.widgetData.voltage != null ? props.widgetData.voltage : "--"
+})
 
 const displayAmperage = computed(() => {
-  return batteryData.value?.amperage !== null && batteryData.value?.amperage !== undefined
-    ? batteryData.value.amperage
-    : "--";
-});
+  return props.widgetData.amperage != null ? props.widgetData.amperage : "--"
+})
 
 const batteryTitle = computed(() => {
-  return (
-    props.widget?.widgetTitle || props.label || batteryData.value?.label || "Battery"
-  );
+  return props.widgetData.label || props.widgetData.displayLabel || 'Battery'
+})
+
+// Computed property to determine the font size class based on the number of digits
+const fontSizeClass = computed(() => {
+  // Safely get the display value as a string
+  const value = String(displayValue.value || '');
+  
+  // Get the numeric part (remove % sign if present and any non-digit characters)
+  const numericValue = value.toString().replace(/[^\d.]/g, '');
+  
+  // Use smaller font if we have 3 digits (100%)
+  return numericValue.length >= 3 ? 'smaller-font' : '';
 });
 
-/* ****************************************
-   refences the clipPath that gets moved up and down
-   for fluid level animation
-   **************************************** */
-const titleRef = useTemplateRef("title");
-const metricRef = useTemplateRef("metric");
-const power1 = useTemplateRef("power-1");
-const power2 = useTemplateRef("power-2");
-const power3 = useTemplateRef("power-3");
-const power4 = useTemplateRef("power-4");
-const power5 = useTemplateRef("power-5");
-const power6 = useTemplateRef("power-6");
-const power7 = useTemplateRef("power-7");
-const power8 = useTemplateRef("power-8");
-const power9 = useTemplateRef("power-9");
-const power10 = useTemplateRef("power-10");
-
-const powerMarkers = [
-  power1,
-  power2,
-  power3,
-  power4,
-  power5,
-  power6,
-  power7,
-  power8,
-  power9,
-  power10,
-];
-
-// Handle both color formats (string or object)
-const widgetColor = computed(() => {
-  const color = props.widget?.color || props.color || "steelblue";
-  if (typeof color === "object" && color !== null) {
-    return `rgb(${color.r},${color.g},${color.b})`;
+const adjustFontSize = () => {
+  if (!metric.value) return;
+  
+  // Remove any existing font size classes
+  metric.value.classList.remove('smaller-font');
+  
+  // Add the appropriate class based on the current value
+  if (fontSizeClass.value) {
+    metric.value.classList.add('smaller-font');
   }
-  return color;
-});
-
-const setPowerMarker = () => {
-  // Reverse the array so power1 is at bottom (0%) and power10 is at top (100%)
-  const reversedMarkers = [...powerMarkers].reverse();
-
-  // Get battery value from computed property
-  const batteryVal = batteryValue.value;
-
-  reversedMarkers.forEach((marker, index) => {
-    // Each segment represents 10% (100/10)
-    // Index 0 = 0-10%, 1 = 10-20%, etc.
-    const segmentStart = index * 10;
-
-    if (!marker.value) return; // Skip if marker reference is not available
-
-    let s = widgetColor.value; // Default to filled
-    if (100 - batteryVal > segmentStart) {
-      s = "none"; // Empty if we're below this level
-    } else if (props.threshold > batteryVal) {
-      s = "red"; // Red if in critical range
-    }
-
-    marker.value.setAttribute("fill", s);
-  });
-};
-
-/* ****************************************
-    Check font sizes 
-   **************************************** */
-let originalFontSize = null;
-
-function checkFontSize(el, threshold = 0.7) {
-  const actualWidth = el.getBBox().width;
-  const widthThreshold = threshold * 300;
-  const fontSize = parseFloat(window.getComputedStyle(el).fontSize);
-
-  if (!originalFontSize) originalFontSize = fontSize;
-
-  if (originalFontSize) {
-    el.style.fontSize = `${originalFontSize}px`;
-    return;
-  }
-
-  const newFontSize = Math.floor(fontSize * (widthThreshold / actualWidth));
-  el.style.fontSize = `${newFontSize}px`;
 }
 
-function checkTitleSize(el, threshold = 0.9) {
-  const actualWidth = el.getBBox().width;
-  const widthThreshold = threshold * 300;
-  const fontSize = parseFloat(window.getComputedStyle(el).fontSize);
-  if (actualWidth < widthThreshold) return;
+const threshold = computed(() => {
+  return props.widgetData.threshold ?? 20
+})
 
-  const newFontSize = Math.floor(fontSize * (widthThreshold / actualWidth));
-  el.style.fontSize = `${newFontSize}px`;
-}
-
-/* ****************************************
-    Watchers
-   **************************************** */
-watch(
-  () => batteryValue.value,
-  (newValue) => {
-    if (newValue !== undefined) {
-      setPowerMarker();
-      if (metricRef.value) {
-        checkFontSize(metricRef.value, 0.7, "metric");
+const pastThreshold = computed(() => {
+  // Get the battery value
+  const value = batteryValue.value
+  // Get the threshold value
+  const thresholdValue = threshold.value
+  
+  // Check if thresholdOperator exists in the widget data
+  if ('thresholdOperator' in props.widgetData) {
+    const operator = props.widgetData.thresholdOperator
+    
+    // Apply the appropriate comparison based on the operator
+    switch(operator) {
+      case 'LESS_THAN':
+        return value < thresholdValue
+      case 'LESS_THAN_EQUALS':
+        return value <= thresholdValue
+      case 'GREATER_THAN':
+        return value > thresholdValue
+      case 'GREATER_THAN_EQUALS':
+        return value >= thresholdValue
+      case 'EQUALS':
+        return value === thresholdValue
+      case 'NOT_EQUALS':
+        return value !== thresholdValue
+      default: {
+        // Default behavior for batteries is to alert when below threshold
+        return value <= thresholdValue
       }
     }
+  } else {
+    // Default behavior for batteries is to alert when below threshold
+    return value <= thresholdValue
   }
-);
+})
 
-/* ****************************************
-    Mounted
-   **************************************** */
-onMounted(() => {
-  setTimeout(() => {
-    if (titleRef.value) {
-      checkTitleSize(titleRef.value, 0.9);
+
+
+// Import the state store for alerts
+import { useStateDataStore } from '../stores/stateDataStore';
+const stateStore = useStateDataStore();
+
+// Watchers
+watch(batteryValue, () => {
+  nextTick(() => {
+    adjustFontSize()
+    setPowerMarker()
+    
+    // Generate alerts based on battery level and threshold
+    generateBatteryAlerts()
+  })
+})
+
+// Generate alerts for battery levels
+const generateBatteryAlerts = () => {
+  let alert;
+  const batteryId = props.widgetData?.id || 'unknown-battery';
+  const batteryLabel = props.widgetData?.label || 'Battery';
+  const batteryValue = props.widgetData.value;
+  const thresholdValue = typeof props.widgetData.threshold === 'number' ? props.widgetData.threshold : 20;
+  const operator = props.widgetData.thresholdOperator || 'LESS_THAN';
+  
+  // Check if we should trigger an alert based on the threshold and operator
+  if (pastThreshold.value) {
+    // The battery level has crossed the configured threshold
+    alert = stateStore.newAlert();
+    
+    // Set appropriate alert title and message based on the operator
+    if (operator === 'LESS_THAN' || operator === 'LESS_THAN_EQUALS') {
+      alert.title = "Low Battery Level";
+      alert.message = `${batteryLabel} level is low at ${batteryValue}%`;
+    } else {
+      alert.title = "High Battery Level";
+      alert.message = `${batteryLabel} level is high at ${batteryValue}%`;
     }
-    if (metricRef.value) {
-      checkFontSize(metricRef.value, 0.7, "metric");
+    
+    alert.label = batteryLabel;
+    alert.type = "warning";
+    alert.category = "electrical";
+    alert.level = "warning";
+    alert.data = {
+      widget: "battery",
+      variable: "capacity",
+      value: batteryValue,
+      batteryId: batteryId,
+      threshold: thresholdValue,
+      operator: operator
+    };
+    
+    stateStore.addAlertWithPrevention(alert, {
+      strategies: stateStore.AlertPreventionStrategy.STATE_TRACKING,
+      signature: `battery-${batteryId}-threshold-alert`,
+      value: batteryValue,
+      threshold: thresholdValue,
+      isHigherBad: operator === 'GREATER_THAN' || operator === 'GREATER_THAN_EQUALS'
+    });
+    
+    // For batteries, we typically care about low levels
+    // Add a critical alert for very low battery levels
+    if ((operator === 'LESS_THAN' || operator === 'LESS_THAN_EQUALS') && batteryValue <= thresholdValue / 2) {
+      alert = stateStore.newAlert();
+      alert.title = "Critical Battery Level";
+      alert.label = batteryLabel;
+      alert.message = `${batteryLabel} is critically low at ${batteryValue}%`;
+      alert.type = "error";
+      alert.category = "electrical";
+      alert.level = "critical";
+      alert.data = {
+        widget: "battery",
+        variable: "capacity",
+        value: batteryValue,
+        batteryId: batteryId,
+        threshold: thresholdValue / 2
+      };
+      
+      stateStore.addAlertWithPrevention(alert, {
+        strategies: [
+          stateStore.AlertPreventionStrategy.STATE_TRACKING,
+          stateStore.AlertPreventionStrategy.COOLDOWN
+        ],
+        signature: `battery-${batteryId}-critical`,
+        value: batteryValue,
+        threshold: thresholdValue / 2,
+        isHigherBad: false,
+        cooldownMs: 1800000 // Remind every 30 minutes for critical levels
+      });
     }
+  }
+}
+
+// Watch for threshold changes
+watch(threshold, () => {
+  nextTick(() => {
+    adjustFontSize()
+    setPowerMarker()
+  })
+})
+
+// Component-specific methods
+const setPowerMarker = () => {
+  const powerLevel = Math.floor(batteryValue.value / 10)
+  const powerRefs = [
+    'power-10', 'power-9', 'power-8', 'power-7',
+    'power-6', 'power-5', 'power-4', 'power-3',
+    'power-2', 'power-1'
+  ]
+
+  powerRefs.forEach((power, index) => {
+    const el = document.getElementById(power)
+    if (el) {
+      el.style.fill = index < powerLevel ? widgetColor.value : 'none'
+    }
+  })
+}
+
+// Lifecycle
+// Function to handle component setup
+const setupComponent = () => {
+  nextTick(() => {
+    adjustFontSize();
     setPowerMarker();
-    emit("mounted");
-  }, 100);
-});
+  });
+}
+
+onMounted(() => {
+  emit('mounted')
+  // Initial setup
+  setupComponent()
+})
+
+// Handle component being shown again after navigation
+onActivated(() => {
+  // Small delay to ensure DOM is ready
+  setTimeout(() => {
+    setupComponent()
+  }, 50)
+})
 </script>
+
 
 <style scoped>
 .instrument {
@@ -489,18 +530,27 @@ text {
   text-anchor: middle;
 }
 .metric {
-  font-size: 5.4em;
+  font-size: 6.5em;
+  transition: font-size 0.2s ease;
 }
+
+.metric.smaller-font {
+  font-size: 5.5em; /* Slightly smaller font for 3-digit numbers */
+}
+
 .metric2 {
-  font-size: 2.75em;
+  font-size: 1.75em;
 }
 
 .units {
-  font-size: 0.6em;
+  font-size: 0.5em;
+}
+
+.units2 {
+  font-size: 0.5em;
 }
 
 .pulsating-text {
-  font-size: 6.1em;
   font-weight: bolder;
   stroke: red;
   fill: red;

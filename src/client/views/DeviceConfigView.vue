@@ -9,8 +9,8 @@
 
 <script setup>
 import { IonPage, IonContent } from "@ionic/vue";
-import DeviceConfigPanel from "../components/DeviceConfigPanel.vue";
-import GenericHeader from "@/components/GenericHeader.vue";
+import DeviceConfigPanel from "@client/components/DeviceConfigPanel.vue";
+import GenericHeader from "@client/components/GenericHeader.vue";
 </script>
 
 <style scoped></style>

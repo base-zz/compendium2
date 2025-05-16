@@ -21,6 +21,7 @@ export const BASE_ALERT_DATUM = {
   actions: [], // e.g. ['acknowledge', 'mute']
   phoneNotification: false, // Should trigger phone notification?
   sticky: false, // Persist until handled?
+  autoResolvable: false, // Whether this alert can auto-resolve when conditions return to normal
   externalId: '', // External system id
   deviceTargets: [], // Device ids to notify
   expiresAt: null // ISO8601, auto-expiry

@@ -1,17 +1,21 @@
 import { EventEmitter } from "events";
-import { AllRules } from "./rules.js";
-import { RuleEngine } from "./ruleEngine.js";
-import { getOrCreateAppUuid } from "../../../server/uniqueAppId.js";
 import { stateData } from "../../../server/state/StateData.js";
+import { RuleEngine } from "./ruleEngine.js";
+import { AllRules } from "./allRules.js";
+import { AlertService } from "../services/AlertService.js";
+import { getOrCreateAppUuid } from "../../../server/uniqueAppId.js";
+import { recordPatch, recordFullState } from "./db.js"
+
 
 // import { applyPatch } from 'fast-json-patch';
 import pkg from "fast-json-patch";
 const { applyPatch } = pkg;
 
+const RECORD_DATA = false;
+
 export class StateManager extends EventEmitter {
   getState() {
     const state = { ...(this.appState || {}) };
-    // console.log('[StateManager] getState called, returning:', state);
     return state;
   }
 
@@ -31,17 +35,22 @@ export class StateManager extends EventEmitter {
     return this._clientCount;
   }
 
-
-  constructor(initialState = {}) {
+  constructor() {
     super();
     // Initialize with stateData's state which already has all structures
-    this.appState = structuredClone(stateData.state); 
-    this.ruleEngine = new RuleEngine(AllRules);
+    this.appState = structuredClone(stateData.state);
+    
+    // Initialize a single rule engine for all rules
+    this.ruleEngine = new RuleEngine(AllRules); // For all rules (navigation, alerts, etc.)
+    
+    // Initialize the alert service
+    this.alertService = new AlertService(this);
+    
     this.currentProfile = this._createDefaultProfile();
     this._boatId = getOrCreateAppUuid();
     this._clientCount = 0;
+    console.log('[StateManager] UNIQUE_IDENTIFIER_20250505: Constructor initialized');
   }
-
 
   /**
    * Apply a JSON patch (RFC 6902) to the managed state and emit to clients.
@@ -51,32 +60,32 @@ export class StateManager extends EventEmitter {
    */
   applyPatchAndForward(patch) {
     if (!Array.isArray(patch) || patch.length === 0) return;
-    
+
     try {
       // Get fresh state with all structures
       const currentState = stateData.state;
-      
+
       // Filter out any altitude-related operations first
-      const filteredPatch = patch.filter(operation => {
-        return !operation.path.includes('altitude');
+      const filteredPatch = patch.filter((operation) => {
+        return !operation.path.includes("altitude");
       });
 
       // Validate remove operations against the canonical state
-      const validPatch = filteredPatch.filter(operation => {
-        if (operation.op === 'remove') {
+      const validPatch = filteredPatch.filter((operation) => {
+        if (operation.op === "remove") {
           return this._pathExists(currentState, operation.path);
         }
         return true;
       });
-  
+
       if (validPatch.length === 0) return;
-  
+
       // Apply to both our local state and the canonical state
       applyPatch(this.appState, validPatch, true, false);
       applyPatch(currentState, validPatch, true, false);
-      
+
       this.updateState(this.appState);
-      
+
       // Always emit patch events for direct server
       this.emit("state:patch", {
         type: "state:patch",
@@ -84,25 +93,29 @@ export class StateManager extends EventEmitter {
         boatId: this._boatId,
         timestamp: Date.now(),
       });
+
+      if (RECORD_DATA) {
+        recordPatch(validPatch);
+      }
+
     } catch (error) {
       console.error("[StateManager] Patch error:", error);
       this.emit("error:patch-error", { error, patch });
     }
   }
-  
+
   // Helper remains the same
   _pathExists(obj, path) {
-    const parts = path.split('/').filter(p => p);
+    const parts = path.split("/").filter((p) => p);
     let current = obj;
     for (const part of parts) {
-      if (!current || typeof current !== 'object' || !(part in current)) {
+      if (!current || typeof current !== "object" || !(part in current)) {
         return false;
       }
       current = current[part];
     }
     return true;
   }
-  
 
   /**
    * Emit the full state to clients.
@@ -110,9 +123,7 @@ export class StateManager extends EventEmitter {
    */
   emitFullState() {
     // Always emit full state updates regardless of client count
-    console.log('[StateManager] Emitting full state update');
-    
-    // Emit with boatId and timestamp at the base
+
     const payload = {
       type: "state:full-update",
       data: this.appState,
@@ -120,13 +131,100 @@ export class StateManager extends EventEmitter {
       role: "boat-server",
       timestamp: Date.now(),
     };
+
+    this.emit("state:full-update", payload);
+
+    if (RECORD_DATA) {
+      recordFullState(this.appState);
+    }
+  }
+  
+  /**
+   * Broadcast the current state to all clients.
+   * This is an alias for emitFullState for backward compatibility.
+   */
+  broadcastStateUpdate() {
+    this.emitFullState();
+  }
+  
+  /**
+   * Receive external state update (e.g. from StateService) while preserving anchor state
+   * @param {Object} newStateData - The new state data from an external source
+   */
+  receiveExternalStateUpdate(newStateData) {
+    if (!newStateData) {
+      console.warn("[StateManager] Received empty state data from external source");
+      return;
+    }
     
-    if (!this.appState.anchor) {
-      console.warn(
-        "[StateManager] WARNING: anchor is missing from outgoing state!"
+    // Save the current anchor state before replacing
+    const currentAnchorState = this.appState.anchor;
+    
+    // Update the state with the new state
+    this.appState = structuredClone(newStateData);
+    
+    // Restore the anchor state if it exists
+    if (currentAnchorState) {
+      this.appState.anchor = currentAnchorState;
+    }
+    
+    // Emit the updated state to clients
+    this.emitFullState();
+  }
+
+  /**
+   * Update anchor state with data from a client
+   * This ensures the StateManager is the single source of truth for state changes
+   * @param {Object} anchorData - The anchor data from the client
+   */
+  updateAnchorState(anchorData) {
+    if (!anchorData) {
+      console.warn("[StateManager] Received empty anchor data");
+      return;
+    }
+
+    console.log("===== ANCHOR STATE UPDATE =====");
+    console.log(`[StateManager] Anchor deployed: ${anchorData.anchorDeployed}`);
+
+    if (anchorData.anchorLocation && anchorData.anchorLocation.position) {
+      const pos = anchorData.anchorLocation.position;
+      console.log(
+        `[StateManager] Anchor position: ${pos.latitude}, ${pos.longitude}`
       );
     }
-    this.emit("state:full-update", payload);
+
+    if (anchorData.rode) {
+      console.log(
+        `[StateManager] Rode length: ${anchorData.rode.value} ${anchorData.rode.unit}`
+      );
+    }
+
+    if (
+      anchorData.anchorDropLocation &&
+      anchorData.anchorDropLocation.position
+    ) {
+      const pos = anchorData.anchorDropLocation.position;
+      console.log(
+        `[StateManager] Drop position: ${pos.latitude}, ${pos.longitude}`
+      );
+    }
+
+    console.log("================================");
+
+    try {
+      // Create a patch to update the anchor state
+      const patch = [{ op: "replace", path: "/anchor", value: anchorData }];
+
+      // Apply the patch using our existing method
+      this.applyPatchAndForward(patch);
+      console.log("[StateManager] Anchor state updated successfully");
+
+      return true;
+    } catch (error) {
+      console.error("[StateManager] Error updating anchor state:", error);
+      this.emit("error:anchor-update", { error, anchorData });
+      return false;
+    }
   }
 
   /**
@@ -136,51 +234,52 @@ export class StateManager extends EventEmitter {
    */
 
   applyDomainUpdate(update) {
-    if (!update || typeof update !== 'object') {
-      console.warn('[StateManager] Invalid update received:', update);
+    if (!update || typeof update !== "object") {
+      console.warn("[StateManager] Invalid update received:", update);
       return;
     }
-  
+
     // Debug logging
-    console.log('[StateManager] Applying domain update:', JSON.stringify(update));
-  
+    console.log(
+      "[StateManager] Applying domain update:",
+      JSON.stringify(update)
+    );
+
     // Use stateData's batchUpdate to ensure proper structure handling
     const success = stateData.batchUpdate(update);
     if (!success) {
-      console.error('[StateManager] Failed to apply batch update');
+      console.error("[StateManager] Failed to apply batch update");
       return;
     }
-  
+
     // Refresh our local state with proper structure
     this.appState = structuredClone(stateData.state);
-  
+
     // Debug logging
-    console.log('[StateManager] State after update:', 
+    console.log(
+      "[StateManager] State after update:",
       JSON.stringify({
         anchor: this.appState.anchor, // Just log anchor instead of full state
-        updateSize: Object.keys(update).length
+        updateSize: Object.keys(update).length,
       })
     );
-  
+
     if (!this.appState.anchor) {
-      console.warn('[StateManager] Anchor missing after update!');
+      console.warn("[StateManager] Anchor missing after update!");
     }
-  
-    // Only emit if clients are connected
-    if (this._clientCount > 0) {
-      this.emit("state:full-update", {
-        type: "state:full-update",
-        data: this.appState,
-        boatId: this._boatId,
-        role: "boat-server",
-        timestamp: Date.now(),
-      });
-    } else {
-      console.debug('[StateManager] Suppressing emission - no clients connected');
-    }
-  } 
+    
+    // Evaluate alert rules to check for condition resolutions
+    this._evaluateAlertRules();
 
-
+    // Always emit state updates regardless of client count
+    this.emit("state:full-update", {
+      type: "state:full-update",
+      data: this.appState,
+      boatId: this._boatId,
+      role: "boat-server",
+      timestamp: Date.now(),
+    });
+  }
 
   updateState(newState, env = {}) {
     const actions = this.ruleEngine.evaluate(newState, env);
@@ -193,6 +292,12 @@ export class StateManager extends EventEmitter {
         case "CREW_ALERT":
           this._sendCrewAlert(action.message);
           break;
+        case "CREATE_ALERT":
+          this.alertService.createAlert(action.data);
+          break;
+        case "RESOLVE_ALERT":
+          this.alertService.resolveAlertsByTrigger(action.trigger, action.data);
+          break;
       }
     });
 
@@ -204,19 +309,44 @@ export class StateManager extends EventEmitter {
   }
 
   // Add a method to update client count
-  updateClientCount(count, forceSendUpdate = false) {
+  updateClientCount(count) {
     const previousCount = this._clientCount;
     this._clientCount = count;
+    
     console.log(
       `[StateManager] Client count updated: ${previousCount} -> ${count}`
     );
-  
-    // If client count changed from 0 to positive, send full state
-    if ((previousCount === 0 && count > 0) || forceSendUpdate) {
+    
+    // If we just got clients after having none, send a full state update
+    if (previousCount === 0 && count > 0) {
       console.log("[StateManager] Clients connected, sending full state");
-      this.emitFullState();
+      this.broadcastStateUpdate();
     }
   }
+  
+  /**
+   * Evaluate all alert rules to check for conditions and resolutions
+   * @private
+   */
+  _evaluateAlertRules() {
+    // Evaluate all rules against current state using the unified rule engine
+    const actions = this.ruleEngine.evaluate(this.appState);
+    
+    // Filter for alert-related actions only
+    const alertActions = actions.filter(action => 
+      action.type === 'CREATE_ALERT' || action.type === 'RESOLVE_ALERT'
+    );
+    
+    // Process alert actions using the AlertService
+    const stateChanged = this.alertService.processAlertActions(alertActions);
+    
+    // Broadcast state update if any changes were made
+    if (stateChanged) {
+      this.broadcastStateUpdate();
+    }
+  }
+  
+  // Alert management has been moved to the AlertService
 
   _applySyncProfile(config) {
     Object.entries(config).forEach(([dataType, settings]) => {

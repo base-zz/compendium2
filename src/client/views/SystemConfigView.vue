@@ -8,10 +8,9 @@
 </template>
 
 <script setup>
-// import GenericHeader from "@/components/GenericHeader.vue";
-import SystemConfigPanel from "@/components/SystemConfigPanel.vue";
+import SystemConfigPanel from "@client/components/SystemConfigPanel.vue";
 import { IonPage, IonContent } from "@ionic/vue";
-import GenericHeader from "@/components/GenericHeader.vue";
+import GenericHeader from "@client/components/GenericHeader.vue";
 </script>
 
 <style scoped></style>

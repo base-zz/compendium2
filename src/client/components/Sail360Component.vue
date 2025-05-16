@@ -1,27 +1,6 @@
 <template>
   <div
-    style="
-      width: 100%;
-      height: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 0;
-      margin: 0;
-      background-color: var(--ion-color-primary);
-      border-radius: 8px;
-      overflow: hidden;
-      position: relative;
-      -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
-      -webkit-touch-callout: none !important;
-      user-select: none !important;
-      pointer-events: auto;
-      touch-action: manipulation;
-      -webkit-user-drag: none;
-      -webkit-appearance: none;
-      appearance: none;
-      outline: none !important;
-    "
+
     :style="{ opacity: componentOpacity }"
     class="fade-transition sail360-container no-tap-highlight"
     @touchstart.prevent
@@ -31,6 +10,7 @@
       class="instrument display-component sail360 no-tap-highlight"
       viewBox="0 0 1000 1000"
       preserveAspectRatio="xMidYMid meet"
+      style="width: 100%; height: 100%; max-width: 100vh; max-height: 100vh;"
       @touchstart.prevent
     >
       <defs>
@@ -88,12 +68,12 @@
       </g>
       <text class="tidal-direction centerable" ref="tidalDirection">&#10513;</text>
       <text class="tidal-speed" ref="tidalSpeed">
-        {{ navData.current && navData.current.speed }}
+        {{ navData.value?.wind?.apparent?.speed?.value }}
       </text>
 
       <rect class="heading-panel" ref="headingPanel" />
       <text class="heading" ref="heading">
-        {{ navData.course && navData.course.headingTrue }}
+        {{ Math.round(headingUpdated) }}
       </text>
       <g ref="trueWindAngle" class="true-wind-angle wind-angle centerable">
         <text ref="trueWindAngleIcon" class="wind-angle true-wind-angle-icon">
@@ -216,22 +196,38 @@ function rotateRef(theRef, deg) {
            initialize position of
            components
 *************************** */
-
 const windTrueUpdated = computed(
-  () =>
-    navData.value && navData.value.windSpeedTrue && navData.value.windSpeedTrue.updated
+  () => navData.value?.wind?.true?.speed?.value
 );
+
+const windTrueAngleUpdated = computed(
+  () => navData.value?.wind?.true?.angle?.value
+);
+
 const windApparentUpdated = computed(
-  () =>
-    navData.value &&
-    navData.value.windSpeedApparent &&
-    navData.value.windSpeedApparent.updated
+  () => navData.value?.wind?.apparent?.speed?.value
 );
+
+const windApparentAngleUpdated = computed(
+  () => navData.value?.wind?.apparent?.angle?.value
+);
+
 const headingUpdated = computed(
-  () => navData.value && navData.value.heading && navData.value.heading.updated
+  () => navData.value?.course?.heading?.true?.value
 );
 
 onMounted(() => {
+  // Direct watch on the specific wind angle property for debugging
+  watch(
+    () => navData.value?.wind?.apparent?.angle?.value,
+    (newVal) => {
+      if (typeof newVal === 'number') {
+        rotateRef(trueWindAngleRef, newVal);
+        rotateRef(apparentWindAngleRef, newVal);
+      }
+    }
+  );
+  
   //compass
   setRefAttributes(compRingRef, {
     cx: x,
@@ -364,27 +360,25 @@ onMounted(() => {
   // update widgets as data changes
   // use direct access or use watchers
   headingRef.value.textContent =
-    navData.value && navData.value.heading && navData.value.heading.value;
+    navData.value?.navigation?.headingMagnetic?.value;
+
+
   watch(
-    () =>
-      navData.value && navData.value.windAngleTrue && navData.value.windAngleTrue.value,
+    () => windTrueAngleUpdated.value,
     (first) => {
       rotateRef(trueWindAngleRef, first);
     }
   );
 
   watch(
-    () =>
-      navData.value &&
-      navData.value.windAngleApparent &&
-      navData.value.windAngleApparent.value,
+    () => windApparentAngleUpdated.value,
     (first) => {
       rotateRef(apparentWindAngleRef, first);
     }
   );
 
   watch(
-    () => navData.value && navData.value.heading && navData.value.heading.value,
+    () => headingUpdated.value,
     (first) => {
       rotateRef(compassRef, first);
     }
@@ -434,14 +428,20 @@ onMounted(() => {
     const myParent = my.parentElement;
     if (!myParent) return; // Guard against null reference
 
-    // Instead of scaling, ensure the SVG fills its container while maintaining aspect ratio
-    my.style.width = "100%";
-    my.style.height = "100%";
-    my.style.maxWidth = "100%";
-    my.style.maxHeight = "100%";
-
-    // Remove any transform that might be causing the shift
-    my.style.transform = "none";
+    // Get the parent dimensions
+    const parentWidth = myParent.clientWidth;
+    const parentHeight = myParent.clientHeight;
+    
+    // Use the smaller dimension to create a square
+    const size = Math.min(parentWidth, parentHeight) * 0.9; // 90% of the smaller dimension
+    
+    // Center the SVG in its container
+    my.style.width = `${size}px`;
+    my.style.height = `${size}px`;
+    my.style.position = 'absolute';
+    my.style.left = '50%';
+    my.style.top = '50%';
+    my.style.transform = 'translate(-50%, -50%)';
   }
 
   setTimeout(() => {

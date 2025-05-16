@@ -34,12 +34,11 @@ async function bridgeStateToRelay() {
     const { stateManager } = await import(
       "../relay/core/state/StateManager.js"
     );
- 
+
     // Bridge canonical StateService events to relay stateManager
     stateService.on("state:full-update", (msg) => {
       // console.log("[SERVER] Received full state update from StateService:", JSON.stringify(msg) );
-      stateManager.appState = msg.data;
-      stateManager.emitFullState();
+      stateManager.receiveExternalStateUpdate(msg.data);
     });
     console.log("     [SERVER] Initiated StateService full update listener");
 
@@ -49,9 +48,7 @@ async function bridgeStateToRelay() {
     });
     console.log(".    [SERVER] Initiated StateService patch listener");
 
-    console.log(
-      "     [SERVER] All Server bridges activated."
-    );
+    console.log("     [SERVER] All Server bridges activated.");
   } catch (err) {
     console.error("[SERVER] !!!!!! Failed to set up state bridge:", err);
   }
@@ -115,7 +112,9 @@ async function startServer() {
       const directServer = await startDirectServer({
         port: parseInt(process.env.DIRECT_WS_PORT, 10),
       });
-      console.log(`[SERVER] Direct WebSocket server started on port ${process.env.DIRECT_WS_PORT}`);
+      console.log(
+        `[SERVER] Direct WebSocket server started on port ${process.env.DIRECT_WS_PORT}`
+      );
       // Handle graceful shutdown for directServer if needed
       process.on("SIGINT", async () => {
         console.log("\n[SERVER] Shutting down gracefully...");

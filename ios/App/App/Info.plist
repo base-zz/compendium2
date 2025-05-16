@@ -45,5 +45,18 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+    <dict>
+       <key>NSAllowsArbitraryLoads</key>
+       <true/>
+       <key>NSAllowsArbitraryLoadsInWebContent</key>
+       <true/>
+    </dict>
+	<key>NSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSBonjourServices</key>
+	<array>
+    	<string>_http._tcp</string>
+	</array>
 </dict>
 </plist>

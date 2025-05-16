@@ -1,20 +1,9 @@
 import { defineStore } from "pinia";
-import { Storage, Drivers } from "@ionic/storage";
+import { Preferences } from "@capacitor/preferences";
 import { ref } from "vue";
 
-// Create a singleton storage instance
-let localstore = null;
-
-const initStorage = async () => {
-  if (!localstore) {
-    localstore = new Storage({
-      name: "__navcc",
-      driverOrder: [Drivers.IndexedDB, Drivers.LocalStorage],
-    });
-    await localstore.create();
-  }
-  return localstore;
-};
+// Storage key constant
+const WIDGETS_STORAGE_KEY = "navcc_widgets";
 
 export const useWidgetStore = defineStore("widgets", () => {
   const widgets = ref([]);
@@ -27,21 +16,28 @@ export const useWidgetStore = defineStore("widgets", () => {
   const init = async () => {
     if (isInitialized.value) return;
     
-    const storage = await initStorage();
-    const storedWidgets = await storage.get("widgets");
-    
-    if (storedWidgets) {
-      widgets.value = storedWidgets;
+    try {
+      const { value } = await Preferences.get({ key: WIDGETS_STORAGE_KEY });
+      
+      if (value) {
+        widgets.value = JSON.parse(value);
+      }
+      isInitialized.value = true;
+    } catch (error) {
+      console.error('Error loading widgets from preferences:', error);
+      isInitialized.value = true;
     }
-    isInitialized.value = true;
   };
 
   const getWidgets = async () => {
     await init();
-    const storage = await initStorage();
-    const storedWidgets = await storage.get("widgets");
-    if (storedWidgets) {
-      widgets.value = storedWidgets;
+    try {
+      const { value } = await Preferences.get({ key: WIDGETS_STORAGE_KEY });
+      if (value) {
+        widgets.value = JSON.parse(value);
+      }
+    } catch (error) {
+      console.error('Error getting widgets from preferences:', error);
     }
     return widgets.value;
   };
@@ -67,15 +63,16 @@ export const useWidgetStore = defineStore("widgets", () => {
     console.log("Current widgets array:", widgets.value);
     
     try {
-      const storage = await initStorage();
-      await storage.set("widgets", getCleanWidgets());
-      console.log("Widget saved to local storage");
+      await Preferences.set({
+        key: WIDGETS_STORAGE_KEY,
+        value: JSON.stringify(getCleanWidgets())
+      });
+      console.log("Widget saved to preferences");
     } catch (storageError) {
-      console.error("Error saving to local storage:", storageError);
+      console.error("Error saving to preferences:", storageError);
     }
 
     // Widget is only stored locally
-
     return cleanWidget;
   };
 
@@ -86,10 +83,14 @@ export const useWidgetStore = defineStore("widgets", () => {
     const index = widgets.value.findIndex(w => w._id === id);
     if (index !== -1) {
       widgets.value[index] = cleanWidget;
-      const storage = await initStorage();
-      await storage.set("widgets", getCleanWidgets());
-
-      // Widget is only stored locally
+      try {
+        await Preferences.set({
+          key: WIDGETS_STORAGE_KEY,
+          value: JSON.stringify(getCleanWidgets())
+        });
+      } catch (error) {
+        console.error('Error updating widget in preferences:', error);
+      }
     }
   };
 
@@ -116,10 +117,14 @@ export const useWidgetStore = defineStore("widgets", () => {
     const index = widgets.value.findIndex(w => w._id === id);
     if (index !== -1) {
       widgets.value.splice(index, 1);
-      const storage = await initStorage();
-      await storage.set("widgets", getCleanWidgets());
-
-      // Widget is only stored locally
+      try {
+        await Preferences.set({
+          key: WIDGETS_STORAGE_KEY,
+          value: JSON.stringify(getCleanWidgets())
+        });
+      } catch (error) {
+        console.error('Error deleting widget from preferences:', error);
+      }
     }
   };
 
@@ -140,7 +145,7 @@ export const useWidgetStore = defineStore("widgets", () => {
   };
 
   const refreshWidgets = async () => {
-    // Just load from local storage
+    // Just load from preferences
     await init();
     return widgets.value;
   };
@@ -154,6 +159,6 @@ export const useWidgetStore = defineStore("widgets", () => {
     updateWidget,
     deleteWidget,
     newWidget,
-    refreshWidgets
+    refreshWidgets,
   };
 });

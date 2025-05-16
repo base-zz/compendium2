@@ -129,6 +129,27 @@ class DirectConnectionAdapter extends EventEmitter {
       throw new Error("WebSocket is not connected");
     }
   }
+  
+  /**
+   * Send a generic message to the server
+   * @param {Object|string} message - The message to send (object will be stringified)
+   * @returns {boolean} - Success status
+   */
+  send(message) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        const msg = typeof message === 'string' ? message : JSON.stringify(message);
+        this.ws.send(msg);
+        return true;
+      } catch (error) {
+        console.error('[DIRECT-ADAPTER] Error sending message:', error);
+        return false;
+      }
+    } else {
+      console.warn('[DIRECT-ADAPTER] Cannot send message: WebSocket not connected');
+      return false;
+    }
+  }
 
   _handleMessage(msg) {
     try {

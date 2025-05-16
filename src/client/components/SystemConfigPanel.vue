@@ -116,13 +116,13 @@ import {
 } from "@ionic/vue";
 
 import { ref, onMounted } from "vue";
-import { useSystemConfigStore } from "@/services/config/systemConfig";
+import { useSystemConfigStore } from "@client/services/config/systemConfig";
 import { checkmarkCircleOutline, closeCircleOutline } from "ionicons/icons";
 import {
   checkServerHealth,
   checkSignalKServerHealth,
   checkInternetConnection,
-} from "@/utils/serverUtils";
+} from "@client/utils/serverUtils";
 
 // Get the system config store
 const systemConfigStore = useSystemConfigStore();

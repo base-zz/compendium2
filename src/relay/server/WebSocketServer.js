@@ -68,6 +68,18 @@ export class RelayWebSocketServer {
     // Set up ping interval
     this._setupPingInterval();
     
+    // Listen for state events from the RelayServer's StateManager
+    // This ensures that anchor updates and other state changes are broadcast to clients
+    this.relayServer.stateManager.on('state:patch', (payload) => {
+      console.log(`[WS] Received state patch event with ${payload.data?.length || 0} operations`);
+      this._broadcastToSubscribers(payload);
+    });
+    
+    this.relayServer.stateManager.on('state:full-update', (payload) => {
+      console.log(`[WS] Received full state update event`);
+      this._broadcastToSubscribers(payload);
+    });
+    
     this.server.on('connection', (ws, req) => {
       const clientId = uuidv4();
       
@@ -192,11 +204,39 @@ export class RelayWebSocketServer {
         }
         break;
         
+      case 'anchor:update':
+        // Handle anchor state updates from clients
+        if (data) {
+          console.log(`[WS] Received anchor update from client ${clientId}`);
+          
+          // Forward the anchor data to the StateManager
+          // The StateManager is the single source of truth for state changes
+          const success = this.relayServer.stateManager.updateAnchorState(data);
+          
+          // Acknowledge receipt
+          this._sendToClient(clientId, {
+            type: 'anchor:update:ack',
+            success,
+            timestamp: Date.now()
+          });
+        }
+        break;
+        
       case 'command':
-        // Handle commands (e.g., for anchor, navigation)
+        // Handle commands (e.g., for anchor, navigation, alerts)
         console.log(`[WS] Received command from client ${clientId}:`, message);
-        // Forward command to appropriate service
-        // This would be implemented based on the specific command
+        
+        // Process command based on service and action
+        if (message.service && message.action) {
+          switch (message.service) {
+            case 'alert':
+              this._handleAlertCommand(clientId, message.action, message.data);
+              break;
+            // Other services would be handled here
+            default:
+              console.warn(`[WS] Unknown service in command from client ${clientId}:`, message.service);
+          }
+        }
         break;
         
       case 'ping':
@@ -232,6 +272,138 @@ export class RelayWebSocketServer {
     } else if (client) {
       console.warn(`[WS] Cannot send to client ${clientId} - readyState: ${client.readyState}`);
     }
+  }
+  
+  /**
+   * Send data to all clients
+   */
+  _sendToAllClients(message) {
+    this.wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(message));
+      }
+    });
+  }
+  
+  /**
+   * Handle alert commands from clients
+   * @param {string} clientId - The client ID
+   * @param {string} action - The alert action (e.g., 'update')
+   * @param {Object} data - The alert data
+   * @private
+   */
+  _handleAlertCommand(clientId, action, data) {
+    console.log(`[WS] Handling alert command from client ${clientId}:`, action, data);
+    
+    if (!data) {
+      console.warn(`[WS] Missing data in alert command from client ${clientId}`);
+      return;
+    }
+    
+    switch (action) {
+      case 'update':
+        // Process the alert update
+        this._processAlertUpdate(clientId, data);
+        break;
+      default:
+        console.warn(`[WS] Unknown alert action from client ${clientId}:`, action);
+    }
+  }
+  
+  /**
+   * Process an alert update from a client
+   * @param {string} clientId - The client ID
+   * @param {Object} alertData - The alert data
+   * @private
+   */
+  _processAlertUpdate(clientId, alertData) {
+    // Validate required fields
+    if (!alertData.type || !alertData.status) {
+      console.warn(`[WS] Invalid alert data from client ${clientId}:`, alertData);
+      return;
+    }
+    
+    // Create alert object based on the status
+    if (alertData.status === 'triggered') {
+      // Create a new alert
+      const alert = {
+        id: crypto.randomUUID(),
+        type: 'system',
+        category: 'anchor',
+        source: alertData.type.includes('ais') ? 'ais_monitor' : 'anchor_monitor',
+        level: alertData.data?.level || 'warning',
+        label: this._getAlertLabel(alertData.type),
+        message: alertData.data?.message || `Alert triggered: ${alertData.type}`,
+        timestamp: alertData.timestamp || new Date().toISOString(),
+        acknowledged: false,
+        status: 'active',
+        trigger: alertData.type,
+        data: alertData.data || {},
+        actions: ['acknowledge', 'mute'],
+        phoneNotification: true,
+        sticky: true,
+        autoResolvable: alertData.autoResolvable !== undefined ? alertData.autoResolvable : true
+      };
+      
+      // Add the alert to the state
+      this._addAlertToState(alert);
+      
+      // Acknowledge receipt
+      this._sendToClient(clientId, {
+        type: 'alert:update:ack',
+        success: true,
+        alertId: alert.id,
+        timestamp: Date.now()
+      });
+    } else if (alertData.status === 'resolved') {
+      // Find and resolve the alert
+      // This is handled by the StateManager's rule engine
+      console.log(`[WS] Client ${clientId} requested to resolve alert of type: ${alertData.type}`);
+    }
+  }
+  
+  /**
+   * Get a human-readable label for an alert type
+   * @param {string} alertType - The alert type
+   * @returns {string} The alert label
+   * @private
+   */
+  _getAlertLabel(alertType) {
+    switch (alertType) {
+      case 'anchor_dragging':
+        return 'Anchor Dragging';
+      case 'critical_range':
+        return 'Critical Range Exceeded';
+      case 'ais_proximity':
+        return 'AIS Proximity Warning';
+      default:
+        return 'Alert';
+    }
+  }
+  
+  /**
+   * Add an alert to the state
+   * @param {Object} alert - The alert to add
+   * @private
+   */
+  _addAlertToState(alert) {
+    // Ensure the alerts structure exists in the state
+    const state = this.relayServer.stateManager.appState;
+    if (!state.alerts) {
+      state.alerts = { active: [], resolved: [] };
+    }
+    
+    if (!state.alerts.active) {
+      state.alerts.active = [];
+    }
+    
+    // Add the alert to the active alerts
+    state.alerts.active.push(alert);
+    
+    // Broadcast the updated state
+    this.relayServer.stateManager.broadcastStateUpdate();
+    
+    console.log(`[WS] Added alert to state: ${alert.label}`);
   }
   
   /**

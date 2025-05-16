@@ -76,16 +76,16 @@ const mmsi = Number(route.params.mmsi);
 
 // Find the AIS target with the matching MMSI
 const target = computed(() => {
-  if (!state.value?.anchor?.aisTargets) {
+  if (!state.value?.aisTargets) {
     console.log("No AIS targets found in state");
     return null;
   }
   
   // With the new object-based structure, we can directly access by MMSI
   const mmsiStr = String(mmsi);
-  const found = state.value.anchor.aisTargets[mmsiStr];
+  const found = state.value.aisTargets[mmsiStr];
   
-  console.log("Available AIS targets:", Object.keys(state.value.anchor.aisTargets).length);
+  console.log("Available AIS targets:", Object.keys(state.value.aisTargets).length);
   console.log("AIS TARGET found:", found);
   return found;
 });
