@@ -17,8 +17,8 @@ APP_USER="$(whoami)"
 APP_DIR="/home/$APP_USER/compendiumnav2"
 BACKUP_DIR="/home/$APP_USER/compendium-backups"
 NODE_VERSION="18"
-GIT_REPO="https://github.com/yourusername/compendiumnav2.git"
-GIT_BRANCH="main"  # or "master" depending on your repo
+GIT_REPO="https://github.com/base-zz/compendium2.git"
+GIT_BRANCH="main"  
 
 # Default ports - will be adjusted if in use
 DEFAULT_HTTP_PORT=8080
