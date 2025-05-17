@@ -4,19 +4,31 @@ import { stateManager } from "../core/state/StateManager.js";
 async function startDirectServer(options = {}) {
   const PORT = options.port || parseInt(process.env.DIRECT_WS_PORT, 10);
   if (!PORT) throw new Error("DIRECT_WS_PORT must be specified");
+  
+  // Get host from options or environment variable
+  const HOST = options.host || process.env.DIRECT_WS_HOST || '0.0.0.0';
 
-  const wss = new WebSocketServer({
+  const serverOptions = {
     port: PORT,
+    host: HOST, // Explicitly set host
     maxPayload: options.maxPayload || 1024 * 1024, // 1MB default
-  });
+  };
 
-  console.log(`[DIRECT] Server started on port ${PORT}`);
+  console.log(`[DIRECT] Starting WebSocket server on ${HOST}:${PORT}...`);
+  const wss = new WebSocketServer(serverOptions);
+  
+  // Wait for the server to be ready
+  await new Promise((resolve) => wss.on('listening', resolve));
+  
+  // Now it's safe to get the address
+  const serverAddress = wss.address();
+  const address = serverAddress.address === '::' ? '0.0.0.0' : serverAddress.address;
+  console.log(`[DIRECT] WebSocket server running on ${address}:${serverAddress.port}`);
 
   // Broadcast to all clients except specified ones
   function broadcast(payload, exclude = new Set()) {
     // console.log(`[DIRECT] Broadcasting ${payload.type} to ${wss.clients.size} clients`);
     const message = JSON.stringify(payload);
-    let sentCount = 0;
     
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN && !exclude.has(client)) {
@@ -24,8 +36,6 @@ async function startDirectServer(options = {}) {
           if (err) {
             console.warn("[DIRECT] Broadcast failed:", err);
             client.terminate();
-          } else {
-            sentCount++;
           }
         });
       }
@@ -33,9 +43,9 @@ async function startDirectServer(options = {}) {
     
     // Log after a short delay to allow send callbacks to complete
     // setTimeout(() => {
-    //   console.log(`[DIRECT] Broadcast complete: ${sentCount}/${wss.clients.size} clients received ${payload.type}`);
+    //   console.log(`[DIRECT] Broadcast complete`);
     // }, 50);
-  };
+  }
 
   // Store handler references for proper cleanup
   // const fullUpdateHandler = (data) => broadcast('state:full-update', data);
@@ -49,7 +59,7 @@ async function startDirectServer(options = {}) {
     // setTimeout(() => {
     //   console.log(`[DIRECT] Active clients after broadcast: ${getActiveClientCount()}`);
     // }, 100);
-  };
+  }
 
   stateManager.on('state:full-update', stateEventHandler);
   stateManager.on('state:patch', stateEventHandler);

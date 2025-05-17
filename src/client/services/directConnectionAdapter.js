@@ -2,9 +2,20 @@
 import { EventEmitter } from "events";
 import { stateUpdateProvider } from './stateUpdateProvider.js';
 
-// Adjust this to your on-boat server's WebSocket endpoint or HTTP API as needed
-const LOCAL_SERVER_WS_URL =
-  import.meta.env.VITE_LOCAL_SERVER_WS_URL || "ws://127.0.0.1:3002/";
+// Get the appropriate WebSocket URL based on environment
+const getWebSocketUrl = () => {
+  // In development or if explicitly set in .env.local
+  if (import.meta.env.VITE_DIRECT_WS_URL) {
+    return import.meta.env.VITE_DIRECT_WS_URL;
+  }
+  
+  // For production (mobile app), use the current hostname with the standard port
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.hostname;
+  const port = 3009; // Standard port for direct WebSocket server
+  
+  return `${protocol}//${host}:${port}`;
+};
 
 class DirectConnectionAdapter extends EventEmitter {
   constructor() {
@@ -20,6 +31,8 @@ class DirectConnectionAdapter extends EventEmitter {
     this._maxReconnects = 5;
     this._reconnectDelay = 2000;
     this._manualClose = false;
+    this._wsUrl = getWebSocketUrl();
+    console.log(`[DIRECT-ADAPTER] Using WebSocket URL: ${this._wsUrl}`);
   }
 
   connect() {
@@ -37,9 +50,9 @@ class DirectConnectionAdapter extends EventEmitter {
       this.connectionState.status = "connecting";
       console.log(
         "[DIRECT-ADAPTER] Attempting to open WebSocket to",
-        LOCAL_SERVER_WS_URL
+        this._wsUrl
       );
-      this.ws = new WebSocket(LOCAL_SERVER_WS_URL);
+      this.ws = new WebSocket(this._wsUrl);
       console.log("[DIRECT-ADAPTER] Attaching WebSocket event handlers");
       this.ws.onopen = (event) => {
         console.log("[DIRECT-ADAPTER] WebSocket onopen event:", event);

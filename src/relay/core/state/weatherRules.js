@@ -13,7 +13,7 @@ const ENABLE_WIND_LOGGING = true;
  */
 function logWindCondition(message, data = {}) {
   if (ENABLE_WIND_LOGGING) {
-    console.log(`[WEATHER] ${message}`, data);
+    // console.log(`[WEATHER] ${message}`, data);
   }
 }
 

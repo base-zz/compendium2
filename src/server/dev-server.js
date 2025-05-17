@@ -65,10 +65,10 @@ async function startDevServer() {
     
     // 2. Set up event listeners before the bridge
     stateServiceDemo.on('state:full-update', (msg) => {
-      console.log("[DEV-SERVER] StateServiceDemo full update:", JSON.stringify(msg.data, null, 2));
+      // console.log("[DEV-SERVER] StateServiceDemo full update:", JSON.stringify(msg.data, null, 2));
     });
     stateServiceDemo.on('state:patch', (msg) => {
-      console.log("[DEV-SERVER] StateServiceDemo patch update:", JSON.stringify(msg.data, null, 2));
+      // console.log("[DEV-SERVER] StateServiceDemo patch update:", JSON.stringify(msg.data, null, 2));
     });
 
     // 3. Bridge canonical state into relay state manager

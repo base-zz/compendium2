@@ -44,7 +44,7 @@ const routes = [
     component: () => import("@client/views/AISTargetView.vue"),
   },
 
- {
+  {
     path: "/sail",
     name: "Sail",
     props: false,
@@ -89,7 +89,7 @@ const routes = [
     meta: { title: "Forgot Password" },
   },
   // JunkView2 route now fixed with correct CurrentLines component path
-  
+
   // {
   //   path: "/junk3",
   //   name: "Junk3",
@@ -145,13 +145,13 @@ const routes = [
   },
   // UserInfo route commented out due to import issues
   {
-    path: '/userinfo',
-    name: 'userinfo',
+    path: "/userinfo",
+    name: "userinfo",
     component: () => import("@client/views/UserInfoView.vue"),
     meta: {
       requiresAuth: true,
-      title: "User Info"
-    }
+      title: "User Info",
+    },
   },
   // SetTheme route commented out due to import issues
   // {
@@ -215,24 +215,26 @@ const router = createRouter({
 // Add navigation guard for page transitions
 router.beforeEach((to, from, next) => {
   // Add transition class to the root element
-  const app = document.getElementById('app');
+  const app = document.getElementById("app");
   if (app) {
-    app.classList.add('page-transition');
+    app.classList.add("page-transition");
   }
-  
+
   // Remove the class after the transition ends
   const removeTransitionClass = () => {
     if (app) {
-      app.classList.remove('page-transition');
+      app.classList.remove("page-transition");
     }
-    document.removeEventListener('transitionend', removeTransitionClass);
+    document.removeEventListener("transitionend", removeTransitionClass);
   };
-  
+
   // Wait for the next render to ensure the new page is ready
   next();
-  
+
   // Add transition end listener
-  document.addEventListener('transitionend', removeTransitionClass, { once: true });
+  document.addEventListener("transitionend", removeTransitionClass, {
+    once: true,
+  });
 });
 
 // Navigation guard to enforce authentication

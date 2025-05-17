@@ -115,12 +115,6 @@ const instrumentData = computed(() => {
 
 // Format the value based on decimal places and thousands separator options
 const formattedValue = computed(() => {
-  console.log('Formatting value with options:', {
-    decimalPlaces: props.decimalPlaces,
-    showThousandsSeparator: props.showThousandsSeparator,
-    rawValue: instrumentData.value?.value
-  });
-  
   // If no value or value is placeholder, return as is
   if (!instrumentData.value || instrumentData.value.value === "--") {
     return "--";
@@ -137,7 +131,6 @@ const formattedValue = computed(() => {
   // Format with specified decimal places
   const decimalPlacesToUse = typeof props.decimalPlaces === 'number' ? props.decimalPlaces : 1;
   let formatted = numValue.toFixed(decimalPlacesToUse);
-  console.log(`Formatting ${numValue} with ${decimalPlacesToUse} decimal places: ${formatted}`);
   
   // Add thousands separator if requested
   if (props.showThousandsSeparator) {

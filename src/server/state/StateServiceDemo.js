@@ -338,14 +338,14 @@ export class StateServiceDemo extends EventEmitter {
     const mockTanks = mockData.vessel.systems.tanks;
     for (const tankKey in mockTanks) {
       completeUpdate.vessel.systems.tanks[tankKey] = mockTanks[tankKey];
-      console.log(`   Adding tank ${tankKey} to update:`, JSON.stringify(mockTanks[tankKey], null, 2));
+      // console.log(`   Adding tank ${tankKey} to update:`, JSON.stringify(mockTanks[tankKey], null, 2));
     }
 
     // Add all electrical/battery data to the update object
     const mockElectrical = mockData.vessel.systems.electrical;
     for (const batteryKey in mockElectrical) {
       completeUpdate.vessel.systems.electrical[batteryKey] = mockElectrical[batteryKey];
-      console.log(`   Adding battery ${batteryKey} to update:`, JSON.stringify(mockElectrical[batteryKey], null, 2));
+      // console.log(`   Adding battery ${batteryKey} to update:`, JSON.stringify(mockElectrical[batteryKey], null, 2));
     }
 
     // Add the rest of the mock data (excluding tanks and electrical which we've already handled)
@@ -357,7 +357,6 @@ export class StateServiceDemo extends EventEmitter {
     Object.assign(completeUpdate, mockDataWithoutSpecial);
     
     // First, ensure the state structure exists
-    console.log('   Ensuring state structure exists');
     if (!stateData.vessel) stateData.vessel = {};
     if (!stateData.vessel.systems) stateData.vessel.systems = {};
     if (!stateData.vessel.systems.tanks) stateData.vessel.systems.tanks = {};
@@ -367,7 +366,6 @@ export class StateServiceDemo extends EventEmitter {
     const mockDataClone = JSON.parse(JSON.stringify(mockData));
     
     // Update tanks in stateData first
-    console.log('   Updating tanks in stateData');
     for (const tankKey in mockDataClone.vessel.systems.tanks) {
       if (!stateData.vessel.systems.tanks[tankKey]) {
         stateData.vessel.systems.tanks[tankKey] = {};
@@ -376,7 +374,6 @@ export class StateServiceDemo extends EventEmitter {
     }
     
     // Update electrical/battery data in stateData
-    console.log('   Updating electrical/battery data in stateData');
     for (const batteryKey in mockDataClone.vessel.systems.electrical) {
       if (batteryKey.startsWith('battery')) {
         if (!stateData.vessel.systems.electrical[batteryKey]) {
@@ -391,7 +388,6 @@ export class StateServiceDemo extends EventEmitter {
     }
     
     // Now update the state manager with the complete state
-    console.log('   Updating state manager with complete state');
     stateManager.applyPatchAndForward({
       vessel: {
         systems: {
@@ -413,57 +409,59 @@ export class StateServiceDemo extends EventEmitter {
       } 
     });
     
-    // Verification - use a longer timeout to ensure data is updated first
-    setTimeout(() => {
-      // Get the current state using getState() to ensure we're looking at the actual state
-      const currentState = this.getState();
+    // // Verification - use a longer timeout to ensure data is updated first
+    // setTimeout(() => {
+    //   // Get the current state using getState() to ensure we're looking at the actual state
+    //   const currentState = this.getState();
       
-      // Verify tanks
-      const stateTanks = currentState.vessel?.systems?.tanks;
+    //   // Verify tanks
+    //   const stateTanks = currentState.vessel?.systems?.tanks;
       
-      if (stateTanks) {
+    //   if (stateTanks) {
         
-        // Check each tank to see if it was properly updated
-        for (const tankKey in mockTanks) {
-          const stateTank = stateTanks[tankKey];
+    //     // Check each tank to see if it was properly updated
+    //     for (const tankKey in mockTanks) {
+    //       const stateTank = stateTanks[tankKey];
           
-          if (stateTank) {
-            // Check if any old structure keys exist
-            const oldKeys = ['freshWater', 'wasteWater', 'blackWater'].filter(key => key in stateTank);
-            if (oldKeys.length > 0) {
-              console.log(`   WARNING: Tank ${tankKey} still has old structure keys:`, oldKeys);
-            }
-          } else {
-            console.log(`   ERROR: Tank ${tankKey} was NOT properly updated!`);
-          }
-        }
-      } else {
-        console.log('   ERROR: State tanks structure is undefined after update!');
-      }
+    //       if (stateTank) {
+    //         // Check if any old structure keys exist
+    //         const oldKeys = ['freshWater', 'wasteWater', 'blackWater'].filter(key => key in stateTank);
+    //         if (oldKeys.length > 0) {
+    //           console.log(`   WARNING: Tank ${tankKey} still has old structure keys:`, oldKeys);
+    //         }
+    //       } else {
+    //         console.log(`   ERROR: Tank ${tankKey} was NOT properly updated!`);
+    //       }
+    //     }
+    //   } else {
+    //     console.log('   ERROR: State tanks structure is undefined after update!');
+    //   }
       
-      // Verify electrical system
-      const stateElectrical = currentState.vessel?.systems?.electrical;
+    //   // Verify electrical system
+    //   const stateElectrical = currentState.vessel?.systems?.electrical;
       
-      if (stateElectrical) {
+    //   if (stateElectrical) {
         
-        // Check each battery to see if it was properly updated
-        for (const batteryKey in mockElectrical) {
-          if (batteryKey.startsWith('battery')) {
-            const stateBattery = stateElectrical[batteryKey];
+    //     // Check each battery to see if it was properly updated
+    //     for (const batteryKey in mockElectrical) {
+    //       if (batteryKey.startsWith('battery')) {
+    //         const stateBattery = stateElectrical[batteryKey];
             
-            if (stateBattery) {
-              console.log(`   Battery ${batteryKey} was properly updated:`, JSON.stringify(stateBattery, null, 2));
-            } else {
-              console.log(`   ERROR: Battery ${batteryKey} was NOT properly updated!`);
-            }
-          }
-        }
-      } else {
-        console.log('   ERROR: State electrical structure is undefined after update!');
-      }
+    //         if (stateBattery) {
+    //           console.log(`   Battery ${batteryKey} was properly updated:`);
+    //         } else {
+    //           console.log(`   ERROR: Battery ${batteryKey} was NOT properly updated!`);
+    //         }
+    //       }
+    //     }
+    //   } else {
+    //     console.log('   ERROR: State electrical structure is undefined after update!');
+    //   }
       
-      // Final verification of overall state structure
-    }, 500); // Increased timeout to ensure state is fully updated
+    //   // Final verification of overall state structure
+    // }, 500); // Increased timeout to ensure state is fully updated
+
+
   }
 
   // Start periodic updates of tank and battery data
@@ -634,7 +632,7 @@ export class StateServiceDemo extends EventEmitter {
     const currentTanks = JSON.parse(JSON.stringify(stateData.vessel?.systems?.tanks || {}));
     
     // Log the current state of tanks before update
-    this._debug('Tank structure before playback update:', JSON.stringify(currentTanks, null, 2));
+    // this._debug('Tank structure before playback update:', JSON.stringify(currentTanks, null, 2));
 
     // Update stateData directly for consistency
     stateData.batchUpdate(dataPoint.data);
@@ -682,7 +680,7 @@ export class StateServiceDemo extends EventEmitter {
     }
     
     // Log the tank structure after update
-    this._debug('Tank structure after playback update:', JSON.stringify(stateData.vessel?.systems?.tanks, null, 2));
+    // this._debug('Tank structure after playback update:', JSON.stringify(stateData.vessel?.systems?.tanks, null, 2));
     
     // For patches, we need to be more careful to preserve the patch structure
     if (dataPoint.type === 'patch') {

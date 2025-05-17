@@ -1,0 +1,24 @@
+{
+  "name": "compendiumnav",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "vue-vite","cordova": {
+    "preferences": {
+      "AndroidWindowSplashScreenAnimatedIcon": "resources/splash.png",
+      "AndroidWindowSplashAnimationDuration": "300"
+    }
+  },
+  "cordova-res": {
+    "resources": {
+      "android": {
+        "icon": {
+          "sources": {
+            "foreground": "resources/icon-foreground.png",
+            "background": "resources/icon-background.png"
+          }
+        }
+      }
+    }
+  }
+}
