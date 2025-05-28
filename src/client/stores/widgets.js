@@ -1,6 +1,9 @@
 import { defineStore } from "pinia";
 import { Preferences } from "@capacitor/preferences";
 import { ref } from "vue";
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('widget-store');
 
 // Storage key constant
 const WIDGETS_STORAGE_KEY = "navcc_widgets";
@@ -14,41 +17,68 @@ export const useWidgetStore = defineStore("widgets", () => {
   }
 
   const init = async () => {
-    if (isInitialized.value) return;
+    if (isInitialized.value) {
+      logger.debug('Already initialized');
+      return;
+    }
     
+    logger('Initializing widget store');
     try {
       const { value } = await Preferences.get({ key: WIDGETS_STORAGE_KEY });
       
       if (value) {
         widgets.value = JSON.parse(value);
+        logger(`Loaded ${widgets.value.length} widgets from storage`);
+      } else {
+        logger('No saved widgets found in storage');
       }
+      
       isInitialized.value = true;
+      logger('Widget store initialized successfully');
     } catch (error) {
-      console.error('Error loading widgets from preferences:', error);
+      logger.error('Error initializing widget store', {
+        error: error.message,
+        stack: error.stack
+      });
       isInitialized.value = true;
     }
   };
 
   const getWidgets = async () => {
+    logger('Fetching widgets');
     await init();
     try {
       const { value } = await Preferences.get({ key: WIDGETS_STORAGE_KEY });
       if (value) {
-        widgets.value = JSON.parse(value);
+        const parsed = JSON.parse(value);
+        widgets.value = parsed;
+        logger(`Retrieved ${parsed.length} widgets`);
+        return parsed;
       }
+      logger('No widgets found in storage');
+      return [];
     } catch (error) {
-      console.error('Error getting widgets from preferences:', error);
+      logger.error('Error fetching widgets', {
+        error: error.message,
+        stack: error.stack
+      });
+      return [];
     }
-    return widgets.value;
   };
 
   const addWidget = async (widget) => {
     await init();
-    console.log("Adding widget:", widget);
+    logger('Adding widget', { widgetId: widget?._id, type: widget?.type });
     
     // Ensure widget is serializable
     const cleanWidget = JSON.parse(JSON.stringify(widget));
     const existingIndex = widgets.value.findIndex(w => w._id === cleanWidget._id);
+    
+    logger.debug('Widget add operation', {
+      widgetId: cleanWidget._id,
+      exists: existingIndex !== -1,
+      currentWidgetCount: widgets.value.length
+    });
     
     if (existingIndex !== -1) {
       // Update existing widget
@@ -78,18 +108,34 @@ export const useWidgetStore = defineStore("widgets", () => {
 
   const updateWidget = async (id, widget) => {
     await init();
-    // Ensure widget is serializable
-    const cleanWidget = JSON.parse(JSON.stringify(widget));
+    logger('Updating widget', { widgetId: id });
+    
     const index = widgets.value.findIndex(w => w._id === id);
+    
     if (index !== -1) {
-      widgets.value[index] = cleanWidget;
+      // Create a new array to ensure reactivity
+      const updatedWidgets = [...widgets.value];
+      updatedWidgets[index] = { ...updatedWidgets[index], ...widget };
+      
       try {
+        logger.debug('Saving updated widgets to storage', {
+          widgetId: id,
+          updateFields: Object.keys(widget)
+        });
+        
         await Preferences.set({
           key: WIDGETS_STORAGE_KEY,
-          value: JSON.stringify(getCleanWidgets())
+          value: JSON.stringify(updatedWidgets)
         });
+        
+        widgets.value = updatedWidgets;
+        logger('Widget updated successfully', { widgetId: id });
       } catch (error) {
-        console.error('Error updating widget in preferences:', error);
+        logger.error('Error saving widget update', {
+          widgetId: id,
+          error: error.message,
+          stack: error.stack
+        });
       }
     }
   };
@@ -98,33 +144,55 @@ export const useWidgetStore = defineStore("widgets", () => {
   const recentlyDeletedWidgets = new Set();
 
   const deleteWidget = async (id) => {
-    await init();
-    
-    // Check if this widget was recently deleted to prevent duplicate deletion attempts
-    if (recentlyDeletedWidgets.has(id)) {
-      console.log("Skipping duplicate deletion attempt for widget:", id);
-      return;
+    if (!id) {
+      logger.warn('Attempted to delete widget with no ID');
+      return false;
     }
-
-    // Add to recently deleted set to prevent duplicate deletion attempts
-    recentlyDeletedWidgets.add(id);
     
-    // Set a timeout to remove from the set after a short period
+    if (recentlyDeletedWidgets.has(id)) {
+      logger.warn(`Skipping deletion of recently deleted widget: ${id}`);
+      return false;
+    }
+    
+    await init();
+    const index = widgets.value.findIndex(w => w._id === id);
+    
+    if (index === -1) {
+      logger.warn(`Widget not found for deletion: ${id}`);
+      return false;
+    }
+    
+    const widgetType = widgets.value[index]?.type || 'unknown';
+    logger(`Deleting widget: ${id} (${widgetType})`);
+    
+    // Add to recently deleted set with a 5-second expiration
+    recentlyDeletedWidgets.add(id);
     setTimeout(() => {
       recentlyDeletedWidgets.delete(id);
-    }, 5000); // 5 seconds should be enough to prevent duplicates
+      logger.debug(`Removed widget ${id} from recently deleted cache`);
+    }, 5000);
     
-    const index = widgets.value.findIndex(w => w._id === id);
-    if (index !== -1) {
-      widgets.value.splice(index, 1);
-      try {
-        await Preferences.set({
-          key: WIDGETS_STORAGE_KEY,
-          value: JSON.stringify(getCleanWidgets())
-        });
-      } catch (error) {
-        console.error('Error deleting widget from preferences:', error);
-      }
+    // Create a new array without the deleted widget
+    const updatedWidgets = widgets.value.filter(w => w._id !== id);
+    
+    try {
+      logger.debug(`Saving ${updatedWidgets.length} widgets after deletion`);
+      
+      await Preferences.set({
+        key: WIDGETS_STORAGE_KEY,
+        value: JSON.stringify(updatedWidgets)
+      });
+      
+      widgets.value = updatedWidgets;
+      logger(`Widget deleted successfully: ${id}`);
+      return true;
+    } catch (error) {
+      logger.error('Error deleting widget', {
+        widgetId: id,
+        error: error.message,
+        stack: error.stack
+      });
+      return false;
     }
   };
 
@@ -145,8 +213,9 @@ export const useWidgetStore = defineStore("widgets", () => {
   };
 
   const refreshWidgets = async () => {
-    // Just load from preferences
+    logger('Refreshing widgets');
     await init();
+    logger(`Refreshed ${widgets.value.length} widgets`);
     return widgets.value;
   };
 

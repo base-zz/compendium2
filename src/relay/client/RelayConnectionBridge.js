@@ -1,9 +1,9 @@
 import mitt from "mitt";
-import { KJUR } from "jsrsasign";
 import { applyPatch } from "fast-json-patch";
+import { getOrCreateClientKeyPair, signMessage, getClientPublicKey, registerClientKeyWithVPS } from "../../client/utils/clientKeyPair.js";
+import { remoteLogger } from "../../client/utils/remoteLogger.js";
 
-// Set to true to log all incoming WebSocket messages for debugging
-const DEBUG_WS = true; // Set to false to disable WS debug logs
+// Debug is controlled by config.relayDebug
 // import { getOrCreateAppUuid } from "../../server/uniqueAppId.js"
 // const boatId = getOrCreateAppUuid();
 /**
@@ -26,13 +26,97 @@ function getActiveBoatId() {
   return null;
 }
 
+/**
+ * Get or create a unique client ID
+ * @returns {string} The client ID
+ */
+function getOrCreateClientId() {
+  let clientId = localStorage.getItem('clientId');
+  if (!clientId) {
+    // Generate a random client ID
+    clientId = 'client-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    localStorage.setItem('clientId', clientId);
+  }
+  return clientId;
+}
+
 export class RelayConnectionBridge {
+  // Get current connection information
+  _getConnectionInfo() {
+    return {
+      clientId: this.clientId,
+      boatId: getActiveBoatId(),
+      readyState: this.socket ? this.socket.readyState : 'no-socket',
+      url: this.config.relayServerUrl,
+      reconnectAttempts: this.reconnectAttempts
+    };
+  }
+
+  // Unified logging method
+  _log(level, message, data = {}) {
+    const timestamp = new Date().toISOString();
+    const logData = {
+      ...data,
+      timestamp,
+      ...this._getConnectionInfo()
+    };
+    
+    // Use remoteLogger for remote logging
+    remoteLogger.log('RELAY-BRIDGE', `${level}: ${message}`, logData);
+    
+    // Also log to console with appropriate level
+    const logMessage = `[RELAY-CLIENT][${timestamp}][${level}] ${message}`;
+    switch(level) {
+      case 'ERROR':
+        console.error(logMessage, logData);
+        break;
+      case 'WARN':
+        console.warn(logMessage, logData);
+        break;
+      case 'INFO':
+        console.info(logMessage);
+        break;
+      case 'DEBUG':
+        if (this.config.relayDebug) {
+          console.debug(logMessage, logData);
+        }
+        break;
+      default:
+        console.log(logMessage, logData);
+    }
+  }
+
+  // Error handling wrapper for methods
+  _withErrorHandling(methodName, fn) {
+    return async (...args) => {
+      try {
+        this._log('DEBUG', `Starting ${methodName}`, { args });
+        const result = await fn.apply(this, args);
+        this._log('DEBUG', `Completed ${methodName} successfully`);
+        return result;
+      } catch (error) {
+        this._log('ERROR', `Error in ${methodName}`, {
+          error: error.message,
+          stack: error.stack,
+          args: JSON.stringify(args)
+        });
+        throw error;
+      }
+    };
+  }
+
   constructor(config = {}) {
     this.emitter = mitt();
+    
+    // Always use secure WebSocket for relay connections
+    // Use the RELAY_SERVER_URL from env - no default fallback
+    const relayServerUrl = import.meta.env.VITE_RELAY_SERVER_URL;
+    
+    remoteLogger.log('RELAY-BRIDGE', `Relay server URL from environment: ${relayServerUrl || 'NOT SET'}`);
+    
     this.config = {
       relayDebug: import.meta.env.VITE_RELAY_DEBUG === "true" || config.relayDebug || false,
-      relayServerUrl:
-        import.meta.env.VITE_RELAY_SERVER_URL || "ws://compendiumnav.com/relay",
+      relayServerUrl: relayServerUrl || config.relayServerUrl,
       reconnectDelay: parseInt(
         import.meta.env.VITE_RELAY_RECONNECT_DELAY || "3000",
         10
@@ -82,24 +166,99 @@ export class RelayConnectionBridge {
   }
 
   /**
+   * Helper method to get a human-readable meaning for WebSocket close codes
+   * @private
+   * @param {number} code - The WebSocket close code
+   * @returns {string} - Human-readable description of the close code
+   */
+  _getWebSocketCloseCodeMeaning(code) {
+    const closeCodeMeanings = {
+      1000: 'Normal closure',
+      1001: 'Going away',
+      1002: 'Protocol error',
+      1003: 'Unsupported data',
+      1004: 'Reserved',
+      1005: 'No status received',
+      1006: 'Abnormal closure',
+      1007: 'Invalid frame payload data',
+      1008: 'Policy violation',
+      1009: 'Message too big',
+      1010: 'Mandatory extension',
+      1011: 'Internal server error',
+      1012: 'Service restart',
+      1013: 'Try again later',
+      1014: 'Bad gateway',
+      1015: 'TLS handshake failure'
+    };
+    
+    return closeCodeMeanings[code] || 'Unknown close code';
+  }
+  
+  /**
+   * Ensures the WebSocket URL uses the correct protocol (always wss:// for relay connections)
+   * @private
+   * @param {string} url - The WebSocket URL to check
+   * @returns {string} - The URL with the correct protocol
+   */
+  _ensureSecureWebSocketUrl(url) {
+    // Always use secure WebSocket (wss://) for relay connections
+    if (url.startsWith('ws://')) {
+      console.log('[RELAY-CLIENT] Converting insecure WebSocket URL to secure for relay connection');
+      return url.replace('ws://', 'wss://');
+    }
+    
+    // If the URL doesn't start with wss://, warn about it
+    if (!url.startsWith('wss://')) {
+      console.warn('[RELAY-CLIENT] WebSocket URL should start with wss:// for relay connections');
+    }
+    
+    return url;
+  }
+
+  /**
    * Connect to the relay server
    * [DEBUG] All major lifecycle events, errors, and messages are logged for debugging.
    */
   async connect() {
+    // Enhanced logging for connection attempt
+    remoteLogger.log('RELAY-CLIENT', 
+      `====== ATTEMPTING RELAY CONNECTION at ${new Date().toISOString()} ======`
+    );
+    remoteLogger.log('RELAY-CLIENT', `Connection state: ${this.connectionState?.status || 'initializing'}`);
+    
+    // Validate relay server URL
+    if (!this.config.relayServerUrl) {
+      remoteLogger.log('RELAY-CLIENT', 'ERROR: No relay server URL configured');
+      this.connectionState = {
+        status: "error",
+        lastError: "No relay server URL configured"
+      };
+      this.emit("connection-status", this.connectionState);
+      return false;
+    }
+    
+    remoteLogger.log('RELAY-CLIENT', `Using relay server URL: ${this.config.relayServerUrl}`);
+    
+    // Log network information for diagnostics
+    remoteLogger.log('RELAY-CLIENT', `Network type: ${navigator.connection ? navigator.connection.type : 'unknown'}`);
+    remoteLogger.log('RELAY-CLIENT', `Effective connection type: ${navigator.connection ? navigator.connection.effectiveType : 'unknown'}`);
+    remoteLogger.log('RELAY-CLIENT', `Online status: ${navigator.onLine ? 'online' : 'offline'}`);
+    
     if (this.config.relayDebug) {
-      console.log('[RELAY-CLIENT][DEBUG] connect() called at', new Date().toISOString());
-    }
-    // If already connecting or reconnecting, don't try to connect again
-    if (this.connectionState.status === "connecting" || this.isReconnecting) {
-      console.log(
-        "[RELAY-CLIENT] Already attempting to connect, skipping duplicate connect call"
+      remoteLogger.log('RELAY-CLIENT', 
+        `[DEBUG] Connect called at ${new Date().toISOString()}`
       );
-      return Promise.resolve(false);
     }
-
     try {
       this.connectionState.status = "connecting";
       this.emit("connection-status", this.connectionState);
+      
+      // Initialize client key pair (will generate if not exists)
+      await getOrCreateClientKeyPair();
+      
+      // Get or create client ID
+      this.clientId = getOrCreateClientId();
+      remoteLogger.log('RELAY-CLIENT', `Client ID: ${this.clientId}`);
 
       return new Promise((resolve, reject) => {
         // Clean up any existing socket
@@ -113,53 +272,42 @@ export class RelayConnectionBridge {
 
             this.socket.close();
           } catch (e) {
-            console.warn("[RELAY-CLIENT] Error closing existing socket:", e);
+            remoteLogger.log('RELAY-CLIENT', `Error closing existing socket: ${e.message}`, e);
           }
         }
 
-        console.log(
-          "[RELAY-CLIENT][CONNECT] Creating new WebSocket connection to:",
-          this.config.relayServerUrl
+        remoteLogger.log(
+          'RELAY-CLIENT',
+          `Creating new WebSocket connection to: ${this.config.relayServerUrl}`
         );
 
         try {
-          const secret = import.meta.env.VITE_TOKEN_SECRET;
-          const payload = {
-            originId: "relay-server",
-            boatId: getActiveBoatId(),
-            role: "relay",
-            time: new Date().toISOString(),
-            iat: Math.floor(Date.now() / 1000),
-            exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 1 day
-          };
-
-          console.log("[RELAY-CLIENT] Payload:", payload);
-          // Generate JWT token
-          const sHeader = JSON.stringify({ alg: "HS256", typ: "JWT" });
-          const sPayload = JSON.stringify(payload);
-          const token = KJUR.jws.JWS.sign("HS256", sHeader, sPayload, {
-            utf8: secret,
-          });
-          // console.log("Generated token:", token);
-
-          // console.log('[RELAY-CLIENT] Using token:", token);
-          let url = this.config.relayServerUrl;
-          if (token) {
-            url +=
-              (url.includes("?") ? "&" : "?") +
-              "token=" +
-              encodeURIComponent(token);
-          }
+          // Using key-based authentication, no token needed
+          remoteLogger.log('RELAY-CLIENT', "Using key-based authentication");
+          
+          // Ensure the WebSocket URL uses the correct protocol
+          const url = this._ensureSecureWebSocketUrl(this.config.relayServerUrl);
+          
+          // Enhanced logging for WebSocket creation
+          remoteLogger.log('RELAY-CLIENT', `Creating WebSocket connection to: ${url}`);
+          remoteLogger.log('RELAY-CLIENT', `Using protocol: ${url.startsWith('wss://') ? 'WSS (secure)' : 'WS (insecure)'}`);
+          
           if (this.config.relayDebug) {
-            // console.log(`[RELAY-CLIENT][DEBUG] Creating WebSocket with URL: ${url}`);
+            console.log(`[RELAY-CLIENT][DEBUG] Creating WebSocket with URL: ${url}`);
           }
-          this.socket = new WebSocket(url);
-          // this.socket = new WebSocket(this.config.relayServerUrl);
+          
+          try {
+            this.socket = new WebSocket(url);
+            remoteLogger.log('RELAY-CLIENT', `WebSocket object created successfully`);
+          } catch (wsCreationError) {
+            remoteLogger.log('RELAY-CLIENT', `ERROR CREATING WEBSOCKET: ${wsCreationError.message}`, wsCreationError);
+            throw wsCreationError;
+          }
 
           // Set a connection timeout
           const connectionTimeout = setTimeout(() => {
             if (this.connectionState.status === "connecting") {
-              console.error("[RELAY-CLIENT] Connection timeout");
+              remoteLogger.log('RELAY-CLIENT', "Connection timeout after 10 seconds");
               this.connectionState = {
                 status: "error",
                 lastError: "Connection timeout",
@@ -175,7 +323,7 @@ export class RelayConnectionBridge {
             }
           }, 10000); // 10 second timeout
 
-          this.socket.onopen = () => {
+          this.socket.onopen = async () => {
             if (this.config.relayDebug) {
               console.log(`[RELAY-CLIENT][DEBUG] WebSocket onopen triggered at ${new Date().toISOString()}`);
             }
@@ -183,11 +331,21 @@ export class RelayConnectionBridge {
             // Clear the connection timeout
             clearTimeout(connectionTimeout);
 
-            // Send required register message for proxy routing
-            this._sendMessage({
-              type: "register",
-              boatIds: [getActiveBoatId()],
-            });
+            try {
+              // Send identity message with signature for authentication
+              await this._sendIdentity();
+              
+              // Register the client's public key with the VPS
+              await this._registerClientKey();
+              
+              // Send required register message for proxy routing
+              this._sendMessage({
+                type: "register",
+                boatIds: [getActiveBoatId()],
+              });
+            } catch (error) {
+              console.error("[RELAY-CLIENT] Error in authentication process:", error);
+            }
           
             this.connectionState.status = "connected";
             this.connectionState.lastError = null;
@@ -210,25 +368,59 @@ export class RelayConnectionBridge {
             resolve(true);
           };
 
-          this.socket.onmessage = (event) => {
+          this.socket.onmessage = async (event) => {
             if (this.config.relayDebug) {
-              // console.log(`[RELAY-CLIENT][DEBUG] WebSocket onmessage triggered at ${new Date().toISOString()}`);
+              console.log(`[RELAY-CLIENT][DEBUG] WebSocket onmessage triggered at ${new Date().toISOString()}`);
             }
             try {
               // Reset reconnect attempts on successful message
               this.reconnectAttempts = 0;
-              // console.log("[RELAY-CLIENT] Received message:", event.data);
+              
+              // Log basic info about the received data
+              const dataType = event.data instanceof Blob ? 'Blob' : typeof event.data;
+              const dataSize = event.data instanceof Blob ? event.data.size : event.data.length;
+              remoteLogger.log('RELAY-CLIENT', `Received WebSocket message: type=${dataType}, size=${dataSize} bytes`);
+              
+              // Handle different data types (especially Blob)
+              let messageText;
+              if (event.data instanceof Blob) {
+                // Convert Blob to text before parsing
+                remoteLogger.log('RELAY-CLIENT', 'Converting Blob data to text before parsing');
+                messageText = await event.data.text();
+                remoteLogger.log('RELAY-CLIENT', `Blob converted to text, length: ${messageText.length} chars`);
+              } else {
+                // Use data directly if it's already text
+                messageText = event.data;
+              }
+              
               // [DEBUG] Log full event and timestamp
               if (this.config.relayDebug) {
                 console.debug(`[RELAY-CLIENT][DEBUG] Message event at ${new Date().toISOString()}:`, event);
               }
-              // Parse and handle the message
-              // console.log("[RELAY-CLIENT] Received message:", event.data);
-
-              const message = JSON.parse(event.data);
-              this._handleMessage(message);
+              
+              // Parse the message
+              try {
+                const message = JSON.parse(messageText);
+                
+                // Log detailed message info before handling
+                remoteLogger.log('RELAY-CLIENT', `Parsed message: type=${message.type}, boatId=${message.boatId || 'none'}, hasData=${!!message.data}`);
+                
+                if (message.type === 'state:full-update') {
+                  // Log special details for full state updates
+                  const dataKeys = message.data ? Object.keys(message.data) : [];
+                  remoteLogger.log('RELAY-CLIENT', `Full state update contains ${dataKeys.length} top-level keys: ${dataKeys.join(', ')}`);
+                  remoteLogger.log('RELAY-CLIENT', `Full state update size: ${JSON.stringify(message.data).length} bytes`);
+                }
+                
+                // Handle the message
+                this._handleMessage(message);
+              } catch (parseError) {
+                console.error("[RELAY-CLIENT] Error parsing JSON message:", parseError);
+                console.error("[RELAY-CLIENT] Message text that caused error (first 100 chars):", messageText.substring(0, 100));
+                throw parseError; // Re-throw to be caught by outer try/catch
+              }
             } catch (error) {
-              console.error("[RELAY-CLIENT] Error parsing message:", error);
+              console.error("[RELAY-CLIENT] Error processing WebSocket message:", error);
               console.error(
                 "[RELAY-CLIENT] Raw message that caused error:",
                 event.data
@@ -243,12 +435,20 @@ export class RelayConnectionBridge {
             // Clear the connection timeout if it's still active
             clearTimeout(connectionTimeout);
 
-            console.log(
-              "[RELAY-CLIENT] Disconnected from relay server, code:",
-              event.code,
-              "reason:",
-              event.reason
-            );
+            // Enhanced close event logging
+            console.log(`[RELAY-CLIENT] ====== WEBSOCKET CLOSED at ${new Date().toISOString()} ======`);
+            console.log(`[RELAY-CLIENT] Connection to ${url} closed`);
+            console.log(`[RELAY-CLIENT] Close code: ${event.code} (${this._getWebSocketCloseCodeMeaning(event.code)})`);
+            console.log(`[RELAY-CLIENT] Close reason: ${event.reason || 'No reason provided'}`);
+            console.log(`[RELAY-CLIENT] Clean close: ${event.wasClean ? 'Yes' : 'No'}`);
+            
+            // Provide guidance based on close code
+            if (event.code === 1006) {
+              console.log(`[RELAY-CLIENT] Code 1006 indicates abnormal closure - connection may have been refused or timed out`);
+              console.log(`[RELAY-CLIENT] Check if the server is running and accessible at ${url}`);
+            } else if (event.code === 1015) {
+              console.log(`[RELAY-CLIENT] Code 1015 indicates TLS handshake failure - check server SSL/TLS configuration`);
+            }
 
             // Clear heartbeat interval
             this._stopHeartbeat();
@@ -267,8 +467,22 @@ export class RelayConnectionBridge {
             if (this.config.relayDebug) {
               console.log(`[RELAY-CLIENT][DEBUG] WebSocket onerror triggered at ${new Date().toISOString()}`);
             }
-            console.error("[RELAY-CLIENT] WebSocket error:", error);
-
+            
+            // Enhanced error logging
+            console.error(`[RELAY-CLIENT] ====== WEBSOCKET ERROR at ${new Date().toISOString()} ======`);
+            console.error(`[RELAY-CLIENT] Error connecting to: ${url}`);
+            console.error(`[RELAY-CLIENT] WebSocket error details:`, error);
+            
+            // Try to extract more information from the error
+            if (error.message) {
+              console.error(`[RELAY-CLIENT] Error message: ${error.message}`);
+            }
+            
+            // Check for common connection issues
+            if (url.startsWith('wss://')) {
+              console.log(`[RELAY-CLIENT] Using secure WebSocket (WSS) - check if server supports SSL/TLS`);
+            }
+            
             // Clear the connection timeout if it's still active
             clearTimeout(connectionTimeout);
 
@@ -302,35 +516,30 @@ export class RelayConnectionBridge {
    * Attempt to reconnect to the relay server
    * [DEBUG] Logs all reconnection attempts and status updates.
    */
+  /**
+   * Attempt to reconnect to the relay server
+   * @private
+   */
   _attemptReconnect() {
-    if (this.config.relayDebug) {
-      console.log('[RELAY-CLIENT][DEBUG] _attemptReconnect() called at', new Date().toISOString());
+    this._log('DEBUG', 'Attempting to reconnect to relay server');
+    this._log('DEBUG', `Current reconnect attempt: ${this.reconnectAttempts + 1}/${this.config.maxReconnectAttempts}`);
+    
+    // Prevent multiple reconnection attempts
+    if (this.isReconnecting) {
+      this._log('DEBUG', 'Reconnection already in progress');
+      return;
     }
-    if (this.config.relayDebug) {
-      console.log(`[RELAY-CLIENT][DEBUG] Current reconnectAttempts: ${this.reconnectAttempts}`);
-    }
-    // Ensure config values are always numbers and valid
+
+    // Ensure config values are valid
     const reconnectDelay = (typeof this.config.reconnectDelay === "number" && !isNaN(this.config.reconnectDelay))
       ? this.config.reconnectDelay
       : 3000;
+      
     const maxReconnectAttempts = (typeof this.config.maxReconnectAttempts === "number" && !isNaN(this.config.maxReconnectAttempts))
       ? this.config.maxReconnectAttempts
       : 5;
 
-    // Prevent multiple reconnection attempts
-    if (this.isReconnecting) {
-      console.log(
-        `[RELAY-CLIENT] Already attempting to reconnect (${this.reconnectAttempts}/${maxReconnectAttempts}) in ${reconnectDelay}ms...`
-      );
-      return;
-    }
-
-    if (this.config.relayDebug) {
-      console.log(`[RELAY-CLIENT][DEBUG] Setting isReconnecting = true`);
-    }
     this.isReconnecting = true;
-
-    // Reset connection state to reconnecting
     this.connectionState = {
       status: "reconnecting",
       lastError: null,
@@ -339,37 +548,51 @@ export class RelayConnectionBridge {
 
     if (this.reconnectAttempts < maxReconnectAttempts) {
       this.reconnectAttempts++;
-      console.log(
-        `[RELAY-CLIENT] Attempting to reconnect (${this.reconnectAttempts}/${maxReconnectAttempts}) in ${reconnectDelay}ms...`
-      );
+      
+      this._log('INFO', `Attempting to reconnect (${this.reconnectAttempts}/${maxReconnectAttempts}) in ${reconnectDelay}ms`);
 
       // Clean up any existing socket
-        setTimeout(() => {
-          try {
-            this._sendMessage({
-              type: "ping",
-              timestamp: Date.now(),
-            });
-            // On successful send, reset attempts and flag
-            this.reconnectAttempts = 0;
-            this.isReconnecting = false;
-          } catch (error) {
-            console.error("[RELAY-CLIENT] Reconnection attempt failed:", error);
-            this.isReconnecting = false;
-            // Try again if we haven't reached max attempts
-            if (this.reconnectAttempts < maxReconnectAttempts) {
-              this._attemptReconnect();
-            } else {
-              this.connectionState = {
-                status: "error",
-                lastError: "Max reconnection attempts reached",
-              };
-              this.emit("connection-status", this.connectionState);
-            }
+      if (this.socket) {
+        try {
+          this.socket.close();
+        } catch (e) {
+          this._log('WARN', 'Error closing socket during reconnect', { error: e });
+        }
+        this.socket = null;
+      }
+
+      // Set up reconnection timer
+      setTimeout(() => {
+        try {
+          this._log('DEBUG', 'Initiating new connection attempt');
+          this.connect();
+        } catch (error) {
+          this._log('ERROR', 'Error during reconnection attempt', {
+            error: error.message,
+            stack: error.stack,
+            attempt: this.reconnectAttempts,
+            maxAttempts: maxReconnectAttempts
+          });
+          
+          // Update connection state
+          this.connectionState = {
+            status: "error",
+            lastError: `Reconnection failed: ${error.message}`,
+          };
+          this.emit("connection-status", this.connectionState);
+          
+          // Try again if we haven't reached max attempts
+          if (this.reconnectAttempts < maxReconnectAttempts) {
+            this._attemptReconnect();
           }
-        }, reconnectDelay /* or cappedDelay for backoff */);
+        }
+      }, reconnectDelay);
     } else {
-      console.error("[RELAY-CLIENT] Max reconnection attempts reached");
+      this._log('ERROR', 'Max reconnection attempts reached', {
+        maxAttempts: maxReconnectAttempts,
+        lastError: this.connectionState.lastError
+      });
+      
       this.connectionState = {
         status: "error",
         lastError: "Max reconnection attempts reached",
@@ -377,43 +600,6 @@ export class RelayConnectionBridge {
       this.emit("connection-status", this.connectionState);
       this.isReconnecting = false;
     }
-  }
-
-  /**
-   * Start heartbeat to keep connection alive
-   */
-  _startHeartbeat() {
-    this._stopHeartbeat(); // Clear any existing interval
-
-    this.heartbeatInterval = setInterval(() => {
-      if (this.socket) {
-        if (this.socket.readyState === WebSocket.OPEN) {
-          // console.log('[RELAY-CLIENT][DEBUG] Sending heartbeat ping');
-          try {
-            this._sendMessage({
-              type: "ping",
-              timestamp: Date.now(),
-            });
-          } catch (error) {
-            console.error(
-              "[RELAY-CLIENT] Error sending heartbeat ping:",
-              error
-            );
-            // If we can't send a ping, the connection might be broken
-            // Try to reconnect
-            this._attemptReconnect();
-          }
-        } else if (
-          this.socket.readyState === WebSocket.CLOSED ||
-          this.socket.readyState === WebSocket.CLOSING
-        ) {
-          console.log('[RELAY-CLIENT][DEBUG] Socket is closed or closing, attempting to reconnect');
-          this._attemptReconnect();
-        }
-      }
-    }, this.config.heartbeatInterval);
-
-    console.log(`[RELAY-CLIENT] Started heartbeat interval (${this.config.heartbeatInterval}ms)`);
   }
 
   /**
@@ -431,9 +617,86 @@ export class RelayConnectionBridge {
    * Handle messages from the relay server
    */
   _handleMessage(message) {
-    // console.log('[RELAY-CLIENT][DEBUG] _handleMessage received:', message);
+    remoteLogger.log('RELAY-CLIENT', `Received message of type: ${message.type}`);
     const { type } = message;
 
+    // Handle state update messages in the same way as DirectConnectionAdapter
+    if (type === 'state:full-update' || type === 'state:patch') {
+      // Make sure the data structure is correct
+      if (!message.data) {
+        console.warn('[RELAY-CLIENT] Missing data in message:', message);
+        return;
+      }
+      
+      // Apply the state update
+      if (type === 'state:full-update') {
+        remoteLogger.log('RELAY-CLIENT', 'Received full state update from server');
+        
+        // Clear the waiting flag if we were waiting for a full state update
+        if (this._waitingForFullState) {
+          remoteLogger.log('RELAY-CLIENT', 'Full state response received successfully');
+          this._waitingForFullState = false;
+        }
+        
+        // Log state data details for debugging
+        const stateKeys = message.data ? Object.keys(message.data) : [];
+        remoteLogger.log('RELAY-CLIENT', `Full state contains ${stateKeys.length} top-level keys: ${stateKeys.join(', ')}`);
+        
+        // Store the state
+        this.state = message.data;
+        
+        // Emit the direct event (like DirectConnectionAdapter)
+        this.emit('state:full-update', message.data);
+        
+        // Also emit the standardized event for backward compatibility with useRelayPiniaSync
+        // The format must match what useRelayPiniaSync expects: { type, data }
+        this.emit("state-update", { 
+          type: "state:full-update", 
+          data: message.data, // This is what useRelayPiniaSync expects
+          state: this.state 
+        });
+        
+        remoteLogger.log('RELAY-CLIENT', 'Full state update applied successfully');
+      } else { // state:patch
+        if (Array.isArray(message.data)) {
+          if (this.state) {
+            // We have a base state, apply the patch
+            remoteLogger.log('RELAY-CLIENT', `Applying state patch with ${message.data.length} operations`);
+            try {
+              const result = applyPatch(this.state, message.data, true);
+              this.state = result.newDocument;
+              
+              // Emit the direct event (like DirectConnectionAdapter)
+              this.emit('state:patch', message.data);
+              
+              // Also emit the standardized event for backward compatibility with useRelayPiniaSync
+              // The format must match what useRelayPiniaSync expects: { type, data }
+              this.emit("state-update", { 
+                type: "state:patch", 
+                data: message.data, // This is what useRelayPiniaSync expects
+                patch: message.data, // Keep this for backward compatibility
+                state: this.state 
+              });
+              
+              remoteLogger.log('RELAY-CLIENT', 'Successfully applied state patch');
+            } catch (error) {
+              console.error("[RELAY-CLIENT] Error applying patch:", error);
+              // Request a full state update if we encounter an error applying the patch
+              this._requestFullState();
+            }
+          } else {
+            // We don't have a base state yet, request one
+            console.warn("[RELAY-CLIENT] Received state:patch but no base state exists. Requesting full state...");
+            this._requestFullState();
+          }
+        } else {
+          console.warn("[RELAY-CLIENT] Received state:patch with invalid format. Expected array, got:", typeof message.data);
+        }
+      }
+      return;
+    }
+    
+    // Handle other message types
     switch (type) {
       case "full-state":
         // Replace the entire state
@@ -548,12 +811,48 @@ export class RelayConnectionBridge {
   _updateSubscriptions() {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       this._sendMessage({
-        type: "subscription",
-        action: "update",
-        data: {
-          subscriptions: this.subscriptions,
-        },
+        type: "subscribe",
+        subscriptions: this.subscriptions,
       });
+    }
+  }
+  
+  /**
+   * Request a full state update from the server
+   * This is used when we receive a patch but don't have a base state to apply it to
+   * Includes throttling to prevent request spam
+   */
+  _requestFullState() {
+    // Check if we've requested a full state recently
+    const now = Date.now();
+    if (this._lastFullStateRequest && (now - this._lastFullStateRequest) < 5000) {
+      // Don't request more than once every 5 seconds
+      remoteLogger.log('RELAY-CLIENT', 'Full state request throttled (last request was less than 5 seconds ago)');
+      return;
+    }
+    
+    this._lastFullStateRequest = now;
+    remoteLogger.log('RELAY-CLIENT', 'Requesting full state update from server');
+    
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this._sendMessage({
+        type: "request-full-state",
+        boatId: getActiveBoatId(),
+        timestamp: now
+      });
+      
+      // Set a flag to indicate we're waiting for a full state response
+      this._waitingForFullState = true;
+      
+      // Set a timeout to clear the waiting flag in case we don't get a response
+      setTimeout(() => {
+        if (this._waitingForFullState) {
+          remoteLogger.log('RELAY-CLIENT', 'Full state request timed out after 10 seconds');
+          this._waitingForFullState = false;
+        }
+      }, 10000); // 10 second timeout
+    } else {
+      console.warn('[RELAY-CLIENT] Cannot request full state: WebSocket not connected');
     }
   }
 
@@ -953,6 +1252,88 @@ export class RelayConnectionBridge {
   }
 
   /**
+   * Send identity message with signature for authentication
+   * @private
+   */
+  async _sendIdentity() {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      console.log("[RELAY-CLIENT] Cannot send identity, not connected");
+      return;
+    }
+
+    const boatId = getActiveBoatId();
+    const timestamp = Date.now();
+    
+    // Create the identity message
+    const identityMessage = {
+      type: "identity",
+      clientId: this.clientId,
+      boatId,
+      role: "client",
+      timestamp,
+      time: new Date().toISOString()
+    };
+    
+    try {
+      // Sign the message with our private key
+      const signature = await signMessage(`${this.clientId}:${boatId}:${timestamp}`);
+      if (signature) {
+        console.log(`[RELAY-CLIENT] Found private key, generating signature`);
+        identityMessage.signature = signature;
+        console.log(`[RELAY-CLIENT] Added signature to identity message`); 
+      } else {
+        console.log(`[RELAY-CLIENT] No private key available, sending unsigned message`);
+      }
+    } catch (error) {
+      console.error(`[RELAY-CLIENT] Error signing message:`, error);
+    }
+    
+    // Send the identity message
+    console.log(`[RELAY-CLIENT] Sending identity message:`, identityMessage);
+    this.socket.send(JSON.stringify(identityMessage));
+  }
+
+  /**
+   * Register the client's public key with the VPS
+   * @private
+   */
+  async _registerClientKey() {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      console.log("[RELAY-CLIENT] Cannot register key, not connected");
+      return;
+    }
+    
+    const boatId = getActiveBoatId();
+    const publicKey = getClientPublicKey();
+    
+    if (!publicKey) {
+      console.log("[RELAY-CLIENT] No public key available for registration");
+      return;
+    }
+    
+    console.log(`[RELAY-CLIENT] Registering public key via WebSocket`);
+    
+    const message = {
+      type: "register-key",
+      clientId: this.clientId,
+      boatId,
+      publicKey,
+      timestamp: Date.now()
+    };
+    
+    // Send the registration message
+    this.socket.send(JSON.stringify(message));
+    
+    // Also try to register via HTTP API as a fallback
+    try {
+      const vpsUrl = this.config.relayServerUrl;
+      await registerClientKeyWithVPS(vpsUrl, this.clientId, boatId);
+    } catch (error) {
+      console.error("[RELAY-CLIENT] Error registering key via HTTP:", error);
+    }
+  }
+
+  /**
    * Disconnect from the relay server
    */
   disconnect() {
@@ -980,9 +1361,19 @@ export class RelayConnectionBridge {
 
 // Helper to ensure every outgoing message includes boatId
 RelayConnectionBridge.prototype._sendMessage = function(message) {
-  message.boatId = getActiveBoatId();
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+  // Helper to ensure every outgoing message includes boatId
+  if (!message.boatId) {
+    message.boatId = getActiveBoatId();
+  }
+  
+  remoteLogger.log('RELAY-CLIENT', `Sending message of type: ${message.type}`);
+  
+  if (this.socket && this.socket.readyState === WebSocket.OPEN) {
     this.socket.send(JSON.stringify(message));
+    remoteLogger.log('RELAY-CLIENT', `Message sent successfully`);
+  } else {
+    remoteLogger.log('RELAY-CLIENT', `Cannot send message, socket not open: ${message.type}`, message);
+    console.warn(`[RELAY-CLIENT] Cannot send message, socket not open:`, message);
   }
 };
 

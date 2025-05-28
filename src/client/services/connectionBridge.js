@@ -1,5 +1,8 @@
 // Relay-only ConnectionBridge implementation
 import { relayConnectionAdapter } from './relayConnectionAdapter.js';
+import { createLogger } from './logger';
+
+const logger = createLogger('connection-bridge');
 
 class ConnectionBridge {
   constructor() {
@@ -13,23 +16,34 @@ class ConnectionBridge {
   }
 
   async connect() {
+    logger('Connecting to relay...');
     try {
       this.connectionState.status = 'connecting';
       await this.adapter.connect();
       this.connectionState.status = 'connected';
+      logger('Successfully connected to relay');
       return true;
     } catch (error) {
+      const errorMessage = error?.message || 'Unknown error';
+      logger.error('Failed to connect to relay', { error: errorMessage });
       this.connectionState = {
         status: 'error',
-        lastError: error.message
+        lastError: errorMessage
       };
       throw error;
     }
   }
 
   cleanup() {
-    this.adapter.cleanup();
-    this.connectionState.status = 'disconnected';
+    logger('Cleaning up connection bridge');
+    try {
+      this.adapter.cleanup();
+      this.connectionState.status = 'disconnected';
+      logger('Connection bridge cleaned up successfully');
+    } catch (error) {
+      logger.error('Error during cleanup', { error: error?.message });
+      throw error;
+    }
   }
 
   on(event, callback) {

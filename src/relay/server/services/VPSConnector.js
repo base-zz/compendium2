@@ -117,6 +117,13 @@ export class VPSConnector extends EventEmitter {
       return;
     }
 
+    // Enhanced logging for diagnostic purposes
+    console.log(`[VPS-CONNECTOR] ====== DIAGNOSTIC INFO ======`);
+    console.log(`[VPS-CONNECTOR] Boat ID: ${boatId}`);
+    console.log(`[VPS-CONNECTOR] Connection attempt time: ${new Date().toISOString()}`);
+    console.log(`[VPS-CONNECTOR] Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`[VPS-CONNECTOR] ============================`);
+
     const token = this._generateToken();
     const url = new URL(this.config.vpsUrl);
     url.searchParams.set("token", token);
@@ -132,8 +139,12 @@ export class VPSConnector extends EventEmitter {
         this.connection = new WebSocket(fullUrl);
 
         this.connection.on("open", () => {
-          console.log("[VPS-CONNECTOR] Connected to VPS Relay Proxy");
-          // console.log(`[VPS-CONNECTOR-DEBUG] WebSocket readyState: ${WebSocket.readyStateNames[this.connection.readyState]}`);
+          console.log(`[VPS-CONNECTOR] ====== CONNECTION ESTABLISHED ======`);
+          console.log(`[VPS-CONNECTOR] Successfully connected to VPS Relay Proxy at ${this.config.vpsUrl}`);
+          console.log(`[VPS-CONNECTOR] Connection time: ${new Date().toISOString()}`);
+          console.log(`[VPS-CONNECTOR] WebSocket readyState: ${this.connection.readyState}`);
+          console.log(`[VPS-CONNECTOR] ====================================`);
+          
           this.connected = true;
           this.retryCount = 0;
           this.emit("connected");
@@ -144,6 +155,8 @@ export class VPSConnector extends EventEmitter {
             boatIds: [boatId],
             role: "boat-server",
           });
+          
+          console.log(`[VPS-CONNECTOR] Sending register message: ${JSON.stringify({ type: "register", boatIds: [boatId], role: "boat-server" })}`);
           this.connection.send(registerMessage);
 
           // Send initial message to identify as a relay server
@@ -153,6 +166,14 @@ export class VPSConnector extends EventEmitter {
             role: "boat-server",
             time: new Date().toISOString(),
           });
+          
+          console.log(`[VPS-CONNECTOR] Sending identity message: ${JSON.stringify({
+            type: "identity",
+            boatId: boatId,
+            role: "boat-server",
+            time: new Date().toISOString(),
+          })}`);
+          
           this.connection.send(identityMessage);
           resolve();
         });
@@ -161,6 +182,11 @@ export class VPSConnector extends EventEmitter {
         this.connection.on("message", (data) => {
           try {
             const message = JSON.parse(data);
+            console.log(`[VPS-CONNECTOR] ====== RECEIVED MESSAGE ======`);
+            console.log(`[VPS-CONNECTOR] Message type: ${message.type}`);
+            console.log(`[VPS-CONNECTOR] Message content: ${JSON.stringify(message, null, 2)}`);
+            console.log(`[VPS-CONNECTOR] Timestamp: ${new Date().toISOString()}`);
+            console.log(`[VPS-CONNECTOR] ==============================`);
 
             // Handle connection status updates
             if (message.type === "connectionStatus") {
@@ -168,6 +194,7 @@ export class VPSConnector extends EventEmitter {
               console.log(
                 `[VPS-CONNECTOR] Client count for boat ${boatId}: ${clientCount}`
               );
+              console.log(`[VPS-CONNECTOR] Our boat ID: ${boatId} (should match ${boatId})`);
               
               // Update our internal client count
               this._clientCount = clientCount;

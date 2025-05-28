@@ -7,6 +7,10 @@
 
 import { EventEmitter } from 'events';
 import { relayConnectionBridge } from '../../relay/client/RelayConnectionBridge.js';
+import { createLogger } from './logger';
+import { remoteLogger } from '../utils/remoteLogger';
+
+const logger = createLogger('relay-adapter');
 
 class RelayConnectionAdapter extends EventEmitter {
   constructor() {
@@ -19,32 +23,40 @@ class RelayConnectionAdapter extends EventEmitter {
       lastError: null
     };
     
+    // Expose the relay bridge config for diagnostic purposes
+    this.config = {
+      relayServerUrl: relayConnectionBridge.config?.relayServerUrl || 'wss://compendiumnav.com/relay'
+    };
+    
     // Set up event mapping from relay to our expected events
     this._setupRelayEventMapping();
   }
   
   _setupRelayEventMapping() {
-    console.log('[RELAY-ADAPTER] Setting up relay event mapping');
+    logger.info('Setting up relay event mapping');
     
     // Map relay events to our expected events
     relayConnectionBridge.on('nav-position', (data) => {
+      logger.debug('Received nav-position event', { data: data ? 'present' : 'empty' });
       this.emit('nav-position', data);
     });
 
     // --- Harmonized state/patch update handling ---
     relayConnectionBridge.on('state-update', ({ type, data, boatId, timestamp }) => {
+      logger.debug('Received state-update', { type, hasData: Boolean(data), boatId });
       if (type === 'state:full-update' || type === 'state:patch') {
         this.emit('state-update', { type, data, boatId, timestamp });
       }
     });
     
     relayConnectionBridge.on('nav-instruments', (data) => {
+      logger.debug('Received nav-instruments data');
       this.emit('nav-instruments', data);
     });
     
     // Handle unified navigation data format
     relayConnectionBridge.on('navigation', (data) => {
-      console.log('[RELAY-ADAPTER] Data structure:', JSON.stringify(data, null, 2));
+      logger.debug('Navigation data structure:', JSON.stringify(data, null, 2));
       
       // Forward the event to stateDataStore
       this.emit('navigation', data);
@@ -73,79 +85,53 @@ class RelayConnectionAdapter extends EventEmitter {
     });
     
     relayConnectionBridge.on('vessel-update', (data) => {
-      console.log('[RELAY-ADAPTER] ======= VPS VESSEL DATA RECEIVED =======');
-      console.log('[RELAY-ADAPTER] Event: vessel-update');
-      console.log('[RELAY-ADAPTER] Data:', JSON.stringify(data, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.debug('Vessel data received:', data);
       this.emit('vessel-update', data);
     });
     
     relayConnectionBridge.on('anchor-position', (data) => {
-      console.log('[RELAY-ADAPTER] ======= VPS ANCHOR DATA RECEIVED =======');
-      console.log('[RELAY-ADAPTER] Event: anchor-position');
-      console.log('[RELAY-ADAPTER] Data:', JSON.stringify(data, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.debug('Anchor position data received:', data);
       this.emit('anchor-position', data);
     });
     
     relayConnectionBridge.on('anchor-status', (data) => {
-      console.log('[RELAY-ADAPTER] ======= VPS ANCHOR STATUS RECEIVED =======');
-      console.log('[RELAY-ADAPTER] Event: anchor-status');
-      console.log('[RELAY-ADAPTER] Data:', JSON.stringify(data, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.debug('Anchor status received:', data);
       this.emit('anchor-status', data);
     });
     
     relayConnectionBridge.on('alert', (data) => {
-      console.log('[RELAY-ADAPTER] ======= VPS ALERT RECEIVED =======');
-      console.log('[RELAY-ADAPTER] Event: alert');
-      console.log('[RELAY-ADAPTER] Data:', JSON.stringify(data, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.warn('SignalK alert received:', data);
       this.emit('signalk-alert', data);
     });
     
     // Handle environment data (wind)
     relayConnectionBridge.on('env-wind', (data) => {
-      console.log('[RELAY-ADAPTER] ======= VPS WIND DATA RECEIVED =======');
-      console.log('[RELAY-ADAPTER] Event: env-wind');
-      console.log('[RELAY-ADAPTER] Data:', JSON.stringify(data, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.debug('Wind data received:', data);
       this.emit('env-wind', data);
     });
     
     // Handle environment data (depth)
     relayConnectionBridge.on('env-depth', (data) => {
-      console.log('[RELAY-ADAPTER] ======= VPS DEPTH DATA RECEIVED =======');
-      console.log('[RELAY-ADAPTER] Event: env-depth');
-      console.log('[RELAY-ADAPTER] Data:', JSON.stringify(data, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.debug('Depth data received:', data);
       this.emit('env-depth', data);
     });
     
     // Handle environment data (temperature)
     relayConnectionBridge.on('env-temperature', (data) => {
-      console.log('[RELAY-ADAPTER] ======= VPS TEMPERATURE DATA RECEIVED =======');
-      console.log('[RELAY-ADAPTER] Event: env-temperature');
-      console.log('[RELAY-ADAPTER] Data:', JSON.stringify(data, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.debug('Temperature data received:', data);
       this.emit('env-temperature', data);
     });
     
     // Handle general environment data
     relayConnectionBridge.on('environment', (data) => {
-      console.log('[RELAY-ADAPTER] ======= VPS ENVIRONMENT DATA RECEIVED =======');
-      console.log('[RELAY-ADAPTER] Event: environment');
-      console.log('[RELAY-ADAPTER] Data:', JSON.stringify(data, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.debug('Environment data received:', data);
       this.emit('environment', data);
     });
 
     // No longer handle 'full-state' events from relay. Only handle 'state:full-update' and 'state:patch'.
     
     relayConnectionBridge.on('connection-status', (status) => {
-      console.log('[RELAY-ADAPTER] ======= VPS CONNECTION STATUS CHANGED =======');
-      console.log('[RELAY-ADAPTER] Status:', JSON.stringify(status, null, 2));
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.info('Connection status changed:', status);
       this.connectionState = status;
       this.emit('connection-status', status);
     });
@@ -153,40 +139,61 @@ class RelayConnectionAdapter extends EventEmitter {
   
   async connect() {
     try {
-      console.log('[RELAY-ADAPTER] ======= CONNECTING TO VPS RELAY SERVER =======');
-      console.log('[RELAY-ADAPTER] Connection attempt started');
-      console.log('[RELAY-ADAPTER] Timestamp:', new Date().toISOString());
-      console.log('[RELAY-ADAPTER] ================================');
+      logger.info('Connecting to VPS relay server...');
+      remoteLogger.log('connection', 'Starting connection to VPS relay server', { timestamp: new Date().toISOString() });
+      
+      // Update the config from the relay bridge in case it has changed
+      this.config.relayServerUrl = relayConnectionBridge.config?.relayServerUrl || 'wss://compendiumnav.com/relay';
+      logger.debug(`Using relay server URL: ${this.config.relayServerUrl}`);
+      remoteLogger.log('connection', 'Using relay server URL', { url: this.config.relayServerUrl });
       
       this.connectionState.status = 'connecting';
       this.emit('connection-status', this.connectionState);
       
       // Connect to the relay server
+      logger.debug('Initiating connection to relay server...');
       const connected = await relayConnectionBridge.connect();
       
       if (connected) {
-        console.log('[RELAY-ADAPTER] ======= VPS CONNECTION SUCCESSFUL =======');
-        console.log('[RELAY-ADAPTER] Connected to VPS relay server');
-        console.log('[RELAY-ADAPTER] Timestamp:', new Date().toISOString());
-        console.log('[RELAY-ADAPTER] Now listening for incoming data from VPS...');
-        console.log('[RELAY-ADAPTER] ================================');
+        logger.info('Successfully connected to VPS relay server');
+        remoteLogger.log('connection', 'Connected to VPS relay server', {
+          timestamp: new Date().toISOString(),
+          serverUrl: this.config.relayServerUrl
+        });
         
         this.connectionState.status = 'connected';
         this.emit('connection-status', this.connectionState);
         return true;
       } else {
-        console.log('[RELAY-ADAPTER] ======= VPS CONNECTION FAILED =======');
-        console.log('[RELAY-ADAPTER] Failed to connect to VPS relay server');
-        console.log('[RELAY-ADAPTER] Timestamp:', new Date().toISOString());
-        console.log('[RELAY-ADAPTER] ================================');
+        const errorMessage = 'Failed to connect to VPS relay server';
+        logger.error(errorMessage);
+        
+        // Try to get more details about the failure from the relay bridge
+        const bridgeState = relayConnectionBridge.connectionState || {};
+        const errorDetails = {
+          status: bridgeState.status || 'unknown',
+          error: bridgeState.lastError || 'No error details available',
+          timestamp: new Date().toISOString()
+        };
+        
+        remoteLogger.log('connection:error', errorMessage, errorDetails);
+        logger.debug('Connection failure details:', errorDetails);
         
         this.connectionState.status = 'disconnected';
-        this.connectionState.lastError = 'Connection attempt returned false';
+        this.connectionState.lastError = bridgeState.lastError || 'Connection attempt returned false';
         this.emit('connection-status', this.connectionState);
         return false;
       }
     } catch (error) {
-      console.error('[RELAY-ADAPTER] Failed to connect to relay server:', error);
+      const errorMessage = `Failed to connect to relay server: ${error.message}`;
+      logger.error(errorMessage, error);
+      
+      remoteLogger.log('connection:error', errorMessage, {
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
+      
       this.connectionState = {
         status: 'error',
         lastError: error.message

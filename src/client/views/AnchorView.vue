@@ -201,6 +201,10 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { storeToRefs } from "pinia";
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('AnchorView');
+logger.info('Initializing AnchorView component...');
 import { useRouter } from "vue-router";
 import { useStateDataStore, calculateDistanceMeters } from "@/client/stores/stateDataStore";
 // Alert creation is now handled server-side via the rule engine
@@ -335,9 +339,9 @@ const rodeRangeMax = computed(() => isMetric.value ? 100 : 300); // 100m ≈ 330
 const warningRangeMax = computed(() => isMetric.value ? 20 : 60 ); // 500m ≈ 1500ft
 const anchorDragTriggerDistance = computed(() => isMetric.value ? 1 : 3 ); // 1m ≈~ 3ft
 
-console.log("------STATE :  ", state.value);
-console.log("+++++++++[ANCHOR STATE]", anchorState.value);
-console.log("!!!!!!!!!!!!!![ALERT STATE]", alertState.value);
+logger.debug('Current state:', state.value);
+logger.debug('Anchor state:', anchorState.value);
+logger.debug('Alert state:', alertState.value);
 
 // View persistence
 const { saveViewState, restoreViewState } = useMapPersist(map);
@@ -351,29 +355,82 @@ const { fitToFeatures, validateCoordinates } = useMapTools(
 
 // Feature Updates
 const updateBoatPosition = debounce(() => {
-  if (!validateCoordinates(boatPosition.value)) {
-    return clearFeature(FEATURE_TYPES.BOAT);
+  // Get the raw state to ensure we're accessing the data directly
+  const state = stateStore.state;
+  const pos = state?.navigation?.position;
+  
+  // Skip the update if either latitude or longitude is null or undefined
+  if (!pos || !pos.latitude || !pos.longitude || pos.latitude.value === null || pos.longitude.value === null) {
+    logger.debug('Skipping boat position update - invalid coordinates');
+    return;
   }
-
-  // Safely extract coordinates using same logic as validateCoordinates
-  const coord = boatPosition.value;
-  const lon = coord.longitude?.value ?? coord.longitude;
-  const lat = coord.latitude?.value ?? coord.latitude;
-
-  updateFeature(
-    FEATURE_TYPES.BOAT,
-    new Point(fromLonLat([lon, lat])), // Use extracted values
-    STYLES.BOAT
-  );
+  
+  // Get coordinates directly from state
+  const lat = pos.latitude.value;
+  const lon = pos.longitude.value;
+  
+  // Additional validation to ensure we have numeric values
+  if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
+    logger.debug('Skipping boat position update - non-numeric coordinates');
+    return;
+  }
+  
+  logger.debug('Updating boat position:', { lat, lon });
+  
+  try {
+    // Create the map point
+    const point = new Point(fromLonLat([lon, lat]));
+    
+    // Update the boat feature
+    updateFeature(
+      FEATURE_TYPES.BOAT,
+      point,
+      STYLES.BOAT
+    );
+    
+    // Center map on boat if needed
+    if (map.value && !map.value.getView().getCenter()) {
+      map.value.getView().setCenter(fromLonLat([lon, lat]));
+      map.value.getView().setZoom(15); // Set a reasonable zoom level
+    }
+  } catch (error) {
+    logger.error('Error updating boat position', { error });
+  }
 }, 100);
 
-// Computed property for location modal visibility
+// Track the last known valid position to prevent flickering
+const lastKnownValidPosition = ref({
+  hasPosition: false,
+  timestamp: 0
+});
+
+// Computed property for location modal visibility with debounce to prevent flickering
 const showLocationModal = computed(() => {
-  const pos = navigationState.value?.position;
-  return !(pos?.latitude?.value && pos?.longitude?.value);
+  // Get the raw state to ensure we're accessing the data directly
+  const state = stateStore.state;
+  const pos = state?.navigation?.position;
+  
+  // Check if we have valid coordinates
+  const hasValidPosition = pos?.latitude?.value && pos?.longitude?.value;
+  
+  // If we have a valid position, update our last known state
+  if (hasValidPosition) {
+    lastKnownValidPosition.value = {
+      hasPosition: true,
+      timestamp: Date.now()
+    };
+  }
+  
+  // Only show the modal if we've never had a valid position OR
+  // if we haven't had a valid position for more than 10 seconds
+  const shouldShowModal = !lastKnownValidPosition.value.hasPosition || 
+    (!hasValidPosition && (Date.now() - lastKnownValidPosition.value.timestamp > 10000));
+  
+  return shouldShowModal;
 });
 
 const updateAnchorPoints = () => {
+  logger.debug('Updating anchor points...');
   // Clear all anchor-related features
   clearFeature(FEATURE_TYPES.CIRCLE);
   clearFeature(FEATURE_TYPES.ANCHOR_DROP_LOCATION);
@@ -464,7 +521,7 @@ const createCircleWithRadius = (centerLonLat, radius) => {
 };
 
 const updateCriticalRangeCircle = debounce(() => {
-  console.log('Updating critical range circle:', {
+  logger.debug('Updating critical range circle', {
     anchorDeployed: anchorState.value.anchorDeployed,
     anchorLocation: anchorState.value.anchorLocation,
     criticalRange: anchorState.value.criticalRange
@@ -480,7 +537,7 @@ const updateCriticalRangeCircle = debounce(() => {
     return;
   }
   
-  console.log('CRITICAL RANGE DEBUG - Creating circle with:', {
+  logger.debug('Creating circle with:', {
     anchorLocation: [
       anchorState.value.anchorLocation.longitude,
       anchorState.value.anchorLocation.latitude
@@ -493,7 +550,7 @@ const updateCriticalRangeCircle = debounce(() => {
   const longitude = position.longitude?.value ?? position.longitude;
   const radiusInMeters = anchorState.value.criticalRange.r;
 
-  console.log('Drawing circle at:', {
+  logger.debug('Drawing circle at:', {
     center: [longitude, latitude],
     radius: radiusInMeters
   });
@@ -520,7 +577,7 @@ const updateCriticalRangeCircle = debounce(() => {
       isMetric.value
     );
     
-    console.log('CRITICAL RANGE DEBUG - Distance verification:', {
+    logger.debug('Distance verification:', {
       boatPosition: [boatLon, boatLat],
       anchorPosition: [longitude, latitude],
       criticalRange: radiusInMeters,
@@ -532,45 +589,51 @@ const updateCriticalRangeCircle = debounce(() => {
     // Critical range alerts are now handled by the server-side rule engine
     // Just log for debugging purposes
     if (distanceToAnchor > radiusInMeters) {
-      console.debug('Distance to anchor:', distanceToAnchor, 'Critical range:', radiusInMeters);
+      logger.debug(`Distance to anchor: ${distanceToAnchor}, Critical range: ${radiusInMeters}`);
     }
   }
   
-  console.log('Circle created with radius:', radiusInMeters, 'meters at latitude', latitude);
+  logger.debug(`Circle created with radius: ${radiusInMeters} meters at latitude ${latitude}`);
 }, 50);
 
 const updateRodeLine = debounce(() => {
-  // console.log('RODE LINE DEBUG - Starting updateRodeLine function');
+  // logger.debug('Starting updateRodeLine function');
   
   // First, clear any existing rode line
   clearFeature(FEATURE_TYPES.RODE);
   
   // Exit if anchor is not deployed
   if (!anchorState.value.anchorDeployed) {
-    console.log('RODE LINE DEBUG - Anchor not deployed, exiting');
+    logger.debug('Anchor not deployed, skipping rode line update');
     return;
   }
   
-  // Get positions
-  const boatPos = boatPosition.value;
-  const anchorPos = anchorState.value.anchorLocation?.position;
+  // Directly access the raw state data
+  const state = stateStore.state;
   
-  // Validate positions
-  if (!boatPos || !anchorPos) {
-    // console.log('RODE LINE DEBUG - Missing position data');
-    return;
-  }
+  // Get positions directly from state with the correct structure
+  const boatPos = state?.navigation?.position;
+  const anchorPos = state?.anchor?.anchorLocation?.position;
   
-  // Extract coordinates
-  const boatLon = boatPos.longitude?.value ?? boatPos.longitude;
-  const boatLat = boatPos.latitude?.value ?? boatPos.latitude;
-  const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
-  const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+  // Access the coordinates directly from the nested structure
+  const boatLat = boatPos?.latitude?.value;
+  const boatLon = boatPos?.longitude?.value;
+  const anchorLat = anchorPos?.latitude?.value;
+  const anchorLon = anchorPos?.longitude?.value;
   
-  // Validate coordinates
+  // Log the raw values for debugging
+  logger.debug('Direct state access - Coordinates:', {
+    boatPosition: { lat: boatLat, lon: boatLon },
+    anchorPosition: { lat: anchorLat, lon: anchorLon },
+    hasBoatPos: !!boatPos,
+    hasAnchorPos: !!anchorPos,
+    anchorDeployed: state?.anchor?.anchorDeployed
+  });
+  
+  // Simple validation
   if (typeof boatLon !== 'number' || typeof boatLat !== 'number' || 
       typeof anchorLon !== 'number' || typeof anchorLat !== 'number') {
-    console.log('RODE LINE DEBUG - Invalid coordinates');
+    logger.warn('Invalid coordinates - using fallback values');
     return;
   }
   
@@ -591,7 +654,7 @@ const updateRodeLine = debounce(() => {
     // Get the rode length from the state - useful for debugging
     // const rodeLength = anchorState.value.rode?.value || 0;
     
-    // console.log('RODE LINE DEBUG - Distance verification:', {
+    // logger.debug('Distance verification:', {
     //   boatPosition: [boatLon, boatLat],
     //   anchorPosition: [anchorLon, anchorLat],
     //   rodeLength: rodeLength,
@@ -625,26 +688,26 @@ const updateRodeLine = debounce(() => {
     // We don't need to store the feature reference manually
     
     // Inspect the vector source
-    // console.log('RODE LINE DEBUG - Vector source:', vectorSource);
-    // console.log('RODE LINE DEBUG - Vector source features:', vectorSource.getFeatures().length);
-    // console.log('RODE LINE DEBUG - Vector source feature types:', vectorSource.getFeatures().map(f => f.get('type')));
+    // logger.debug('Vector source:', vectorSource);
+    // logger.debug(`Vector source features: ${vectorSource.getFeatures().length}`);
+    // logger.debug('Vector source feature types:', vectorSource.getFeatures().map(f => f.get('type')));
     
     // Force the map to render
     if (map.value) {
-      // console.log('RODE LINE DEBUG - Map object:', map.value);
+      // logger.debug('Map object:', map.value);
       map.value.renderSync();
       
       // Uncomment to debug layer visibility
       // const layers = map.value.getLayers().getArray();
-      // console.log('RODE LINE DEBUG - Map layers:', layers);
+      // logger.debug('Map layers:', layers);
       // layers.forEach((layer, i) => {
-      //   console.log(`RODE LINE DEBUG - Layer ${i} visible:`, layer.getVisible());
+      //   logger.debug(`Layer ${i} visible:`, layer.getVisible());
       // });
     }
     
-    // console.log('RODE LINE DEBUG - Rode line created with direct approach');
+    // logger.debug('Rode line created with direct approach');
   } catch (error) {
-    console.error('RODE LINE DEBUG - Error creating rode line:', error);
+    logger.error('Error creating rode line', { error });
   }
 }, 100);
 
@@ -656,11 +719,11 @@ const getAisStyle = () => {
 };
 
 const updateAisTargets = debounce(() => {
-  console.log("Updating AIS targets", aisTargets.value?.length);
+  logger.debug(`Updating ${aisTargets.value?.length || 0} AIS targets`);
 
   // Skip if no targets
   if (!aisTargets.value || aisTargets.value.length === 0) {
-    console.log("No AIS targets, clearing feature");
+    logger.debug('No AIS targets, clearing feature');
     clearFeature(FEATURE_TYPES.AIS);
     // Reset AIS warning flag when no targets
     if (anchorState.value && anchorState.value.aisWarning) {
@@ -671,17 +734,17 @@ const updateAisTargets = debounce(() => {
 
   // Skip proximity check if anchor is not deployed
   const isAnchorDeployed = anchorState.value && anchorState.value.anchorDeployed;
-  console.log("Anchor deployed?", isAnchorDeployed);
+  logger.debug(`Anchor deployed: ${isAnchorDeployed}`);
   
   // Get boat position for distance calculations
   const boatLat = boatPosition.value?.latitude?.value ?? boatPosition.value?.latitude;
   const boatLon = boatPosition.value?.longitude?.value ?? boatPosition.value?.longitude;
   const hasValidBoatPosition = typeof boatLat === "number" && typeof boatLon === "number";
-  console.log("Boat position valid?", hasValidBoatPosition, { boatLat, boatLon });
+  logger.debug(`Boat position valid: ${hasValidBoatPosition}`, { boatLat, boatLon });
   
   // Get warning range radius
   const warningRadius = anchorState.value?.warningRange?.r ?? 15; // Default to 15 if not set
-  console.log("Warning range radius:", warningRadius);
+  logger.debug(`Warning range radius: ${warningRadius}`);
   
   // Track if any targets are within warning range
   let hasTargetsInWarningRange = false;
@@ -697,7 +760,7 @@ const updateAisTargets = debounce(() => {
 
       const isValid = typeof lat === "number" && typeof lon === "number";
       if (!isValid) {
-        console.log("Invalid AIS target coordinates:", target);
+        logger.warn('Invalid AIS target coordinates:', target);
       }
       return isValid;
     })
@@ -717,11 +780,11 @@ const updateAisTargets = debounce(() => {
 
         // Log details about this target with appropriate units
         // const unitLabel = isMetric.value ? 'm' : 'ft';
-        // console.log(`AIS Target: ${target.name || 'Unknown'} (${target.mmsi || 'No MMSI'})`);
-        // console.log(`  Position: ${lat}, ${lon}`);
-        // console.log(`  Distance from boat: ${distance.toFixed(2)}${unitLabel}`);
-        // console.log(`  Warning radius: ${warningRadius.toFixed(2)}${unitLabel}`);
-        // console.log(`  In warning range? ${distance <= warningRadius}`);
+        // logger.debug(`AIS Target: ${target.name || 'Unknown'} (${target.mmsi || 'No MMSI'})`);
+        // logger.debug(`  Position: ${lat}, ${lon}`);
+        // logger.debug(`  Distance from boat: ${distance.toFixed(2)}${unitLabel}`);
+        // logger.debug(`  Warning radius: ${warningRadius.toFixed(2)}${unitLabel}`);
+        // logger.debug(`  In warning range? ${distance <= warningRadius}`);
         
         // Check if within warning range
         isInWarningRange = distance <= warningRadius;
@@ -729,7 +792,7 @@ const updateAisTargets = debounce(() => {
         // Update the warning flag if any target is in range
         if (isInWarningRange) {
           hasTargetsInWarningRange = true;
-          console.log(`  *** TARGET IN WARNING RANGE ***`);
+          logger.warn('TARGET IN WARNING RANGE', target);
         }
       }
 
@@ -756,7 +819,7 @@ const updateAisTargets = debounce(() => {
 
   // Update the aisWarning flag in the anchor state
   if (anchorState.value) {
-    console.log(`Setting aisWarning flag to: ${hasTargetsInWarningRange}`);
+    logger.debug(`Setting aisWarning flag to: ${hasTargetsInWarningRange}`);
     
     // Check if the aisWarning state has changed from false to true
     if (!anchorState.value.aisWarning && hasTargetsInWarningRange) {
@@ -770,7 +833,7 @@ const updateAisTargets = debounce(() => {
     anchorState.value.aisWarning = hasTargetsInWarningRange;
     
     // Log the current state of all relevant flags
-    console.log('Current anchor state flags:', {
+    logger.debug('Current anchor state flags:', {
       anchorDeployed: anchorState.value.anchorDeployed,
       dragging: anchorState.value.dragging,
       aisWarning: anchorState.value.aisWarning
@@ -795,7 +858,7 @@ const updateBreadcrumbs = debounce(() => {
     return;
   }
 
-  console.log("Updating breadcrumbs:", breadcrumbs.value.length);
+  logger.debug(`Updating ${breadcrumbs.value.length} breadcrumbs`);
 
   // Filter for valid breadcrumbs and create features
   const validCrumbs = breadcrumbs.value
@@ -829,7 +892,7 @@ const updateBreadcrumbs = debounce(() => {
       };
     });
 
-  console.log("Valid breadcrumbs:", validCrumbs.length);
+  logger.debug(`Found ${validCrumbs.length} valid breadcrumbs`);
 
   // Update the feature group
   updateFeatureGroup(FEATURE_TYPES.BREADCRUMB, validCrumbs);
@@ -837,11 +900,30 @@ const updateBreadcrumbs = debounce(() => {
 
 // Map Initialization
 const initializeMap = () => {
-  const pos = navigationState.value?.position;
-  const defaultCenter =
-    pos?.latitude?.value && pos?.longitude?.value
-      ? fromLonLat([pos.longitude.value, pos.latitude.value])
-      : fromLonLat([0, 0]);
+  logger.info('Initializing map...');
+  logger.debug('Starting map initialization');
+  
+  // Get position from state
+  const state = stateStore.state;
+  const pos = state?.navigation?.position;
+  
+  logger.debug('Position data:', pos ? pos : 'No position data');
+  
+  // Determine center coordinates
+  let centerLat = 0;
+  let centerLon = 0;
+  let hasValidPosition = false;
+  
+  if (pos?.latitude?.value && pos?.longitude?.value) {
+    centerLat = pos.latitude.value;
+    centerLon = pos.longitude.value;
+    hasValidPosition = true;
+    logger.debug('Using valid position:', { lat: centerLat, lon: centerLon });
+  } else {
+    logger.debug('Using default position (0,0)');
+  }
+  
+  const defaultCenter = fromLonLat([centerLon, centerLat]);
 
   // Create the map with minimal interactions initially
   map.value = new Map({
@@ -866,6 +948,29 @@ const initializeMap = () => {
     }),
     pixelRatio: window.devicePixelRatio,
   });
+  
+  // Add boat feature immediately if we have valid position
+  if (hasValidPosition) {
+    logger.debug('Adding initial boat feature');
+    try {
+      // Create a boat feature with the current position
+      const boatFeature = new Feature({
+        geometry: new Point(fromLonLat([centerLon, centerLat])),
+        name: 'Boat',
+        type: FEATURE_TYPES.BOAT
+      });
+      
+      // Set the boat style
+      boatFeature.setStyle(STYLES.BOAT);
+      
+      // Add the boat feature to the vector source
+      vectorSource.addFeature(boatFeature);
+      
+      logger.debug('Boat feature added successfully');
+    } catch (error) {
+      logger.error('Error adding boat feature', { error });
+    }
+  }
 
   // Set willReadFrequently attribute on the canvas for better performance
   // We need to wait for the map to be properly rendered before accessing the canvas
@@ -874,7 +979,7 @@ const initializeMap = () => {
     if (canvas) {
       // The correct way to set willReadFrequently is to get a new context with the attribute
       canvas.getContext('2d', { willReadFrequently: true });
-      console.log('[AnchorView] Set willReadFrequently on map canvas for better performance');
+      logger.debug('Set willReadFrequently on map canvas for better performance');
     }
   }, 100);
 
@@ -903,11 +1008,20 @@ const initializeMap = () => {
   };
 
 // Watchers
-watch(boatPosition, updateBoatPosition, { immediate: true });
+// Watch for changes in the state's navigation position
+watch(
+  () => stateStore.state.navigation?.position,
+  (newPos) => {
+    logger.debug('Navigation position updated', { position: newPos });
+    logger.debug('Navigation position changed, updating boat position');
+    updateBoatPosition();
+  },
+  { immediate: true, deep: true }
+);
 
 // Watch for anchor state changes
 watch(anchorState, () => {
-  console.log('WATCH DEBUG - Anchor state changed:', anchorState.value);
+  logger.debug('Anchor state changed:', anchorState.value);
   if (anchorState.value.anchorDeployed) {
     updateAnchorPoints();
     updateCriticalRangeCircle();
@@ -921,7 +1035,8 @@ watch(anchorState, () => {
 }, { deep: true, immediate: true });
 
 // Watch boat position to update rode line when anchor is deployed and detect anchor dragging
-watch(boatPosition, () => {
+watch(boatPosition, (newPosition) => {
+  logger.debug('Boat position updated', { position: newPosition });
   if (anchorState.value.anchorDeployed) {
     // Get current boat position
     const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
@@ -941,11 +1056,11 @@ watch(boatPosition, () => {
       isMetric.value
     ));
     
-    // console.log('ANCHOR DEBUG - Distance to anchor:', distanceToAnchor, 'Rode length:', rodeLength);
+    // logger.debug(`Distance to anchor: ${distanceToAnchor}, Rode length: ${rodeLength}`);
     
     // Check if the anchor is dragging (distance > rode length)
     if (distanceToAnchor > rodeLength + anchorDragTriggerDistance.value) {
-      console.warn('ANCHOR DRAGGING DETECTED! Distance exceeds rode length. Distance to anchor:', distanceToAnchor, 'Rode length:', rodeLength  );
+      logger.warn('Anchor dragging detected - distance exceeds rode length', { distanceToAnchor, rodeLength });
       
       // Send an anchor dragging alert to the server
       createAnchorDraggingAlert(distanceToAnchor, rodeLength, isMetric.value);
@@ -1073,7 +1188,7 @@ const updateBoatRangeCircle = debounce(() => {
   
   // Skip if invalid coordinates
   if (!validateCoordinates({ latitude: lat, longitude: lon })) {
-    console.log('BOAT RANGE DEBUG - Invalid boat coordinates, skipping');
+    logger.debug('Invalid boat coordinates, skipping boat range update');
     return;
   }
   
@@ -1099,7 +1214,7 @@ const updateBoatRangeCircle = debounce(() => {
 watch(
   [criticalRange, () => anchorState.value?.dragging],
   ([range, isDragging]) => {
-    console.log('WATCH DEBUG - Critical anchor state changed:', {
+    logger.debug('Critical anchor state changed:', {
       criticalRange: range,
       isDragging: isDragging
     });
@@ -1173,9 +1288,9 @@ watch(
 watch(
   criticalRange,
   (newVal) => {
-    console.log("Critical range changed:", newVal);
-    console.log("Anchor drop location:", anchorDropLocation.value);
-    console.log("Anchor deployed:", anchorDeployed.value);
+    logger.debug('Critical range changed:', newVal);
+    logger.debug('Anchor drop location:', anchorDropLocation.value);
+    logger.debug('Anchor deployed:', anchorDeployed.value);
   },
   { immediate: true }
 );
@@ -1201,8 +1316,9 @@ const locationRequestFailed = ref(false);
 
 // Modal Handlers
 const handleSetAnchor = () => {
+  logger.info('Handling set anchor action...');
   if (!validateCoordinates(boatPosition.value)) {
-    console.log("Cannot set anchor: Invalid boat position");
+    logger.warn('Cannot set anchor: Invalid boat position');
     return;
   }
 
@@ -1224,7 +1340,7 @@ const handleSetAnchor = () => {
     const depth = navigationState.value?.depth?.value ?? 0; // Use 0 as default if no depth
 
     // Debug the values being passed to getComputedAnchorLocation
-    console.log('ANCHOR DEBUG - Computing anchor location with:', {
+    logger.debug('Computing anchor location with:', {
       dropLocation: { latitude: boatLat, longitude: boatLon },
       rode: rode,
       bearing: bearingRad,
@@ -1240,7 +1356,7 @@ const handleSetAnchor = () => {
       isMetric.value
     );
     
-    console.log('ANCHOR DEBUG - Computed anchor location:', computedAnchorLocation);
+    logger.debug('Computed anchor location:', computedAnchorLocation);
     
     // Calculate the distance between boat and anchor positions
     const distanceToAnchor = calculateDistanceMeters(
@@ -1251,7 +1367,7 @@ const handleSetAnchor = () => {
       isMetric.value
     );
     
-    console.log('ANCHOR DEBUG - Distance calculations:', {
+    logger.debug('Distance calculations:', {
       boatPosition: [boatLon, boatLat],
       anchorPosition: [computedAnchorLocation.longitude, computedAnchorLocation.latitude],
       rodeLength: rode,
@@ -1324,15 +1440,15 @@ const handleSetAnchor = () => {
     };
 
     // Log the state for debugging
-    console.log("Anchor deployed status:", anchorState.value.anchorDeployed);
-    console.log("Full anchor state:", anchorState.value);
+    logger.debug('Anchor deployed status:', anchorState.value.anchorDeployed);
+    logger.debug('Full anchor state:', anchorState.value);
 
     try {
       // Save to local storage
       localStorage.setItem("anchorState", JSON.stringify(storageState));
-      console.log("Anchor state saved to local storage");
+      logger.debug('Anchor state saved to local storage');
     } catch (e) {
-      console.error("Failed to save anchor state:", e);
+      logger.error('Failed to save anchor state', { error: e });
     }
 
     // Close the dialog
@@ -1343,17 +1459,17 @@ const handleSetAnchor = () => {
     updateCriticalRangeCircle();
     
     // Force update the rode line with a slight delay to ensure other updates are complete
-    console.log('FORCE UPDATE - Calling updateRodeLine directly');
+    logger.debug('Force update - Calling updateRodeLine directly');
     updateRodeLine();
     
     // Force update the boat range circle
-    console.log('FORCE UPDATE - Calling updateBoatRangeCircle directly');
+    logger.debug('Force update - Calling updateBoatRangeCircle directly');
     updateBoatRangeCircle();
 
     // Close the modal
     showSetAnchorDialog.value = false;
   } catch (error) {
-    console.error("Failed to save anchor state:", error);
+    logger.error('Failed to save anchor state', { error });
     alert("Error saving anchor position. See console for details.");
     // Close the modal even if there's an error
     showSetAnchorDialog.value = false;
@@ -1362,7 +1478,8 @@ const handleSetAnchor = () => {
 
 // Handler for the anchor-dropped event from AnchorInfoGrid
 const handleAnchorDropped = () => {
-  console.log('AnchorView: Received anchor-dropped event');
+  logger.info('Handling anchor dropped event...');
+  logger.debug('Received anchor-dropped event');
   
   // Call the handleSetAnchor method to perform all the necessary operations
   handleSetAnchor();
@@ -1381,11 +1498,13 @@ const handleUpdateDropLocation = () => {
 };
 
 const confirmUpdateDropLocation = () => {
+  logger.info('Confirming update of drop location...');
   handleUpdateDropLocation();
   showUpdateDropConfirm.value = false;
 };
 
-const handleCancelAnchor = () => { 
+const handleCancelAnchor = () => {
+  logger.info('Handling cancel anchor action...'); 
   // First, identify all features we want to keep
   const boatFeatures = [];
   const aisFeatures = [];
@@ -1400,7 +1519,7 @@ const handleCancelAnchor = () => {
     }
   });
   
-  console.log('Found features to preserve:', {
+  logger.debug('Found features to preserve', {
     boatFeatures: boatFeatures.length,
     aisFeatures: aisFeatures.length
   });
@@ -1429,11 +1548,16 @@ const handleCancelAnchor = () => {
   // Close the dialog
   showCancelDialog.value = false;
   
-  // console.log('All anchor-related features have been cleared from the map');
+  // logger.debug('All anchor-related features have been cleared from the map');
 };
 
 // Handle map clicks to detect feature clicks
 const handleMapClick = (event) => {
+  logger.debug('Map click detected', { 
+    coordinate: event.coordinate,
+    pixel: event.pixel,
+    type: event.type
+  });
   // Get features at the click position
   const clickedFeatures = map.value.getFeaturesAtPixel(event.pixel);
   
@@ -1445,7 +1569,7 @@ const handleMapClick = (event) => {
       const mmsi = aisFeature.get('mmsi');
       const name = aisFeature.get('name');
       
-      console.log(`Clicked on AIS target: ${name} (MMSI: ${mmsi})`);
+      logger.debug(`Clicked on AIS target: ${name || 'Unnamed'} (MMSI: ${mmsi || 'N/A'})`);
       
       // Navigate to the AIS target detail page
       if (mmsi) {
@@ -1457,6 +1581,7 @@ const handleMapClick = (event) => {
 
 // Wheel event handler for map zooming
 const handleWheelEvent = (event) => {
+  logger.debug('Mouse wheel event', { deltaY: event.deltaY });
   // Only handle events on the map element
   if (!mapElement.value?.contains(event.target)) {
     return;
@@ -1482,6 +1607,7 @@ const handleWheelEvent = (event) => {
 
 // Custom zoom functions
 const zoomIn = () => {
+  logger.debug('Zooming in...');
   if (!map.value) return;
   const view = map.value.getView();
   if (!view) return;
@@ -1503,7 +1629,7 @@ const zoomIn = () => {
       duration: 250
     });
     
-    console.log('Zooming in to boat position:', { newZoom, boatCoords });
+    logger.debug('Zooming in to boat position', { newZoom, boatCoords });
   } else {
     // If no boat position, just change zoom without changing center
     view.animate({
@@ -1514,6 +1640,7 @@ const zoomIn = () => {
 };
 
 const zoomOut = () => {
+  logger.debug('Zooming out...');
   if (!map.value) return;
   const view = map.value.getView();
   if (!view) return;
@@ -1535,7 +1662,7 @@ const zoomOut = () => {
       duration: 250
     });
     
-    console.log('Zooming out to boat position:', { newZoom, boatCoords });
+    logger.debug('Zooming out to boat position', { newZoom, boatCoords });
   } else {
     // If no boat position, just change zoom without changing center
     view.animate({
@@ -1547,7 +1674,7 @@ const zoomOut = () => {
 
 // Handler for the custom anchor-dropped event
 const handleAnchorDroppedEvent = (event) => {
-  console.log('Received anchor-dropped event:', event.detail);
+  logger.debug('Received anchor-dropped event', event.detail);
   
   // Update the map features
   updateAnchorPoints();
@@ -1578,14 +1705,25 @@ function deg2rad(deg) {
 
 // Lifecycle hooks
 onMounted(() => {
-  initializeMap();
-  // Add event listener for the anchor-dropped event
-  document.addEventListener('anchor-dropped', handleAnchorDroppedEvent);
+  logger.info('Component mounted, initializing map...');
+  try {
+    initializeMap();
+    // Add event listener for the anchor-dropped event
+    window.addEventListener('anchor-dropped', handleAnchorDroppedEvent);
+    logger.info('Map initialized and event listeners added');
+  } catch (error) {
+    logger.error('Error during component mount', {
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
 });
 
 onUnmounted(() => {
   clearAll();
   map.value?.dispose();
+  window.removeEventListener('anchor-dropped', handleAnchorDroppedEvent);
   document.removeEventListener('anchor-dropped', handleAnchorDroppedEvent);
 });
 </script>

@@ -63,8 +63,15 @@ export const useMapTools = (mapRef, vectorSource) => {
 // In mapUtils.js - Update validateCoordinates
 const validateCoordinates = (coord) => {
     if (!coord) return false;
+    
+    // Handle both nested and direct coordinate structures
     const lat = coord.latitude?.value ?? coord.latitude;
     const lon = coord.longitude?.value ?? coord.longitude;
+    
+    // If either lat or lon is null or undefined, return false
+    if (lat === null || lat === undefined || lon === null || lon === undefined) {
+      return false;
+    }
     
     // If we have a number but it's NaN, return false
     if (typeof lat === 'number' && Number.isNaN(lat)) return false;
@@ -74,7 +81,10 @@ const validateCoordinates = (coord) => {
     if (typeof lat !== 'number' || typeof lon !== 'number') return false;
     
     // Check range for valid numbers
-    return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    const isLatValid = lat >= -90 && lat <= 90;
+    const isLonValid = lon >= -180 && lon <= 180;
+    
+    return isLatValid && isLonValid;
   };
 
 // In src/client/utils/mapUtils.js

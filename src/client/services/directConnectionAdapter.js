@@ -1,6 +1,9 @@
 // directConnectionAdapter.js
 import { EventEmitter } from "events";
 import { stateUpdateProvider } from './stateUpdateProvider.js';
+import { createLogger } from './logger.js';
+
+const logger = createLogger('direct-connection');
 
 // Get the appropriate WebSocket URL based on environment
 const getWebSocketUrl = () => {
@@ -19,7 +22,7 @@ const getWebSocketUrl = () => {
 
 class DirectConnectionAdapter extends EventEmitter {
   constructor() {
-    console.log("[DIRECT-ADAPTER] DirectConnectionAdapter constructor called");
+    logger.info('DirectConnectionAdapter constructor called');
     super();
     this.mode = "direct";
     this.connectionState = {
@@ -32,11 +35,11 @@ class DirectConnectionAdapter extends EventEmitter {
     this._reconnectDelay = 2000;
     this._manualClose = false;
     this._wsUrl = getWebSocketUrl();
-    console.log(`[DIRECT-ADAPTER] Using WebSocket URL: ${this._wsUrl}`);
+    logger.info(`Using WebSocket URL: ${this._wsUrl}`);
   }
 
   connect() {
-    console.log("[DIRECT-ADAPTER] connect method called");
+    logger.info('Connecting to WebSocket server...');
     return new Promise((resolve, reject) => {
       if (
         this.ws &&
@@ -48,14 +51,11 @@ class DirectConnectionAdapter extends EventEmitter {
       }
       this._manualClose = false;
       this.connectionState.status = "connecting";
-      console.log(
-        "[DIRECT-ADAPTER] Attempting to open WebSocket to",
-        this._wsUrl
-      );
+      logger.info('Attempting to open WebSocket to', this._wsUrl);
       this.ws = new WebSocket(this._wsUrl);
-      console.log("[DIRECT-ADAPTER] Attaching WebSocket event handlers");
+      
       this.ws.onopen = (event) => {
-        console.log("[DIRECT-ADAPTER] WebSocket onopen event:", event);
+        logger.info('WebSocket connection established:', event);
         this.connectionState.status = "connected";
         this._reconnectAttempts = 0;
         this.emit("connected");
@@ -65,32 +65,52 @@ class DirectConnectionAdapter extends EventEmitter {
         try {
           let msg = event.data;
           if (typeof msg === 'string') {
-            msg = JSON.parse(msg);
-            if (typeof msg === 'string') {
+            try {
               msg = JSON.parse(msg);
+              // Handle the case where the message is double-encoded
+              if (typeof msg === 'string') {
+                msg = JSON.parse(msg);
+              }
+            } catch (e) {
+              console.warn('[DIRECT-ADAPTER] Error parsing message:', e);
+              return;
             }
           }
-          // First notify stateUpdateProvider
+          
+          console.log('[DIRECT-ADAPTER] Received message type:', msg.type);
+          
+          // Handle different message types
           if (msg.type === 'state:full-update' || msg.type === 'state:patch') {
+            // Make sure the data structure is correct
+            if (!msg.data) {
+              console.warn('[DIRECT-ADAPTER] Missing data in message:', msg);
+              return;
+            }
+            
+            // Notify the state update provider
             stateUpdateProvider._notify(msg);
-          }
-          // Then emit events as before
-          if (msg.type === 'state:full-update') {
-            this.emit('state:full-update', msg);
-          } else if (msg.type === 'state:patch') {
-            this.emit('state:patch', msg);
+            
+            // Also emit the event for other listeners
+            if (msg.type === 'state:full-update') {
+              this.emit('state:full-update', msg.data);
+            } else {
+              this.emit('state:patch', msg.data);
+            }
           } else {
+            // Handle other message types
             this._handleMessage(msg);
           }
         } catch (e) {
-          console.warn('[DIRECT-ADAPTER] Invalid JSON:', event.data, 'Error:', e);
+          logger.error('[DIRECT-ADAPTER] Error processing message:', e, 'Raw data:', event.data);
         }
       };
-      this.ws.onerror = (err) => {
+      this.ws.onerror = (error) => {
+        const errorMessage = error.message || "Unknown error";
+        logger.error('WebSocket error:', error);
+        this.connectionState.lastError = errorMessage;
         this.connectionState.status = "error";
-        this.connectionState.lastError = err.message || "WebSocket error";
-        this.emit("error", err);
-        reject(err);
+        this.emit("error", error);
+        reject(error);
       };
       this.ws.onclose = () => {
         this.connectionState.status = "disconnected";
@@ -155,23 +175,20 @@ class DirectConnectionAdapter extends EventEmitter {
         this.ws.send(msg);
         return true;
       } catch (error) {
-        console.error('[DIRECT-ADAPTER] Error sending message:', error);
+        logger.error('Error sending message:', error);
         return false;
       }
     } else {
-      console.warn('[DIRECT-ADAPTER] Cannot send message: WebSocket not connected');
+      logger.warn('Cannot send message: WebSocket not connected');
       return false;
     }
   }
 
   _handleMessage(msg) {
     try {
-      console.error("[DIRECT-ADAPTER] __handleMessage ENTRY", msg);
+      logger.debug('Received message from server:', msg);
       if (!msg || !msg.type) {
-        console.warn(
-          "[DIRECT-ADAPTER] _handleMessage: Missing or invalid msg/type",
-          msg
-        );
+        logger.warn('Missing or invalid message type:', msg);
         return;
       }
       // Always emit the raw type for compatibility
@@ -186,7 +203,7 @@ class DirectConnectionAdapter extends EventEmitter {
 
       // Emit 'state-update' for Pinia sync consumers if appropriate
       if (msg.type === "full-state") {
-        console.log("[DIRECT-ADAPTER] Handling 'full-state' branch", msg);
+        logger('Handling full state update');
         this.emit("state-update", {
           full: true,
           state: msg.state,
@@ -306,7 +323,7 @@ class DirectConnectionAdapter extends EventEmitter {
           }
           break;
         case "full-state":
-          console.warn('[DIRECT-ADAPTER] Unexpected legacy "full-state" message received:', msg);
+          logger.warn('Unexpected legacy "full-state" message received:', msg);
           break;
         case "connection-status":
           //console.log("[DIRECT-ADAPTER] switch: connection-status", msg.data);
@@ -329,7 +346,7 @@ class DirectConnectionAdapter extends EventEmitter {
       }
       // console.log("[DIRECTs-ADAPTER] _handleMessage EXIT", msg);
     } catch (err) {
-      console.error("[DIRECT-ADAPTER] Exception in __handleMessage:", err, msg.type, msg);
+      logger.error('Exception in _handleMessage:', { error: err.message, type: msg?.type, message: msg });
     }
   }
 }

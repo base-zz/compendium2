@@ -3,6 +3,9 @@
 
 import { relayConnectionAdapter } from './relayConnectionAdapter';
 import { directConnectionAdapter } from './directConnectionAdapter';
+import { createLogger } from './logger';
+
+const logger = createLogger('state-update-provider');
 
 class StateUpdateProvider {
   constructor() {
@@ -22,12 +25,86 @@ class StateUpdateProvider {
   }
 
   _notify(evt) {
+    logger.debug('Notifying subscribers of event type:', evt?.type);
+    
+    // Make sure the event has the expected structure
+    if (!evt || !evt.type) {
+      logger.warn('Invalid event received', { event: evt });
+      return;
+    }
+    
+    // Make a deep copy of the event to prevent mutation
+    let eventCopy;
+    try {
+      eventCopy = JSON.parse(JSON.stringify(evt));
+    } catch (err) {
+      logger.error('Failed to clone event', { error: err.message, event: evt });
+      return;
+    }
+    
+    // Notify all subscribers
+    const subscriberCount = this.subscribers.size;
+    if (subscriberCount === 0) {
+      logger.warn('No subscribers to notify');
+      return;
+    }
+    
+    logger.debug(`Notifying ${subscriberCount} subscribers`);
+    let errorCount = 0;
+    
     for (const cb of this.subscribers) {
       try {
-        cb(evt);
+        cb(eventCopy);
       } catch (err) {
-        console.error('[StateUpdateProvider] Error in subscriber:', err);
+        errorCount++;
+        logger.error('Error in subscriber', { 
+          error: err.message, 
+          stack: err.stack,
+          subscriberType: typeof cb === 'function' ? 'function' : typeof cb
+        });
       }
+    }
+    
+    if (errorCount > 0) {
+      logger.warn(`Encountered errors in ${errorCount} of ${subscriberCount} subscribers`);
+    }
+  }
+
+  /**
+   * Test the relay connection without switching to it
+   * This allows us to verify if the relay connection works even when using direct mode
+   * @returns {Promise<boolean>} - True if the relay connection test succeeded
+   */
+  async testRelayConnection() {
+    remoteLogger.log('STATE-PROVIDER', 'Testing relay connection...');
+    try {
+      // Get connection state before attempting
+      const prevState = relayConnectionAdapter.connectionState?.status || 'unknown';
+      remoteLogger.log('STATE-PROVIDER', `Relay connection state before attempt: ${prevState}`);
+      
+      // Log the relay server URL being used
+      const relayUrl = relayConnectionAdapter.config?.relayServerUrl || 'unknown';
+      remoteLogger.log('STATE-PROVIDER', `Using relay server URL: ${relayUrl}`);
+      
+      // Attempt to connect to the relay server
+      const result = await relayConnectionAdapter.connect();
+      
+      // Get connection state after attempt
+      const newState = relayConnectionAdapter.connectionState?.status || 'unknown';
+      remoteLogger.log('STATE-PROVIDER', `Relay connection state after attempt: ${newState}`);
+      
+      remoteLogger.log('STATE-PROVIDER', `Relay connection test result: ${result ? 'SUCCESS' : 'FAILED'}`);
+      
+      if (!result) {
+        // Log the last error if available
+        const lastError = relayConnectionAdapter.connectionState?.lastError || 'No error details available';
+        remoteLogger.log('STATE-PROVIDER', `Relay connection failure reason: ${lastError}`);
+      }
+      
+      return result;
+    } catch (error) {
+      remoteLogger.log('STATE-PROVIDER', `Error testing relay connection: ${error.message}`, error);
+      return false;
     }
   }
 
@@ -37,6 +114,13 @@ class StateUpdateProvider {
     this.mode = mode;
     if (mode === 'relay') {
       this.currentAdapter = relayConnectionAdapter;
+      // Ensure we connect to the relay server when switching to relay mode
+      if (this.currentAdapter.connectionState.status !== 'connected') {
+        console.log('[STATE-PROVIDER] Initiating relay connection');
+        this.currentAdapter.connect();
+      } else {
+        console.log('[STATE-PROVIDER] Relay connection already established');
+      }
     } else if (mode === 'direct') {
       this.currentAdapter = directConnectionAdapter;
       if (this.currentAdapter.connectionState.status !== 'connected') {

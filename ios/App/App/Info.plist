@@ -57,6 +57,9 @@
 	<key>NSBonjourServices</key>
 	<array>
     	<string>_http._tcp</string>
+    	<string>_ws._tcp</string>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app needs access to the local network to connect to your boat server</string>
 </dict>
 </plist>

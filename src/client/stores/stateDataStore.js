@@ -16,6 +16,9 @@ import { Preferences } from "@capacitor/preferences";
 import { getUserUnitPreferences, setUnitPreference, setUnitPreset, UNIT_TYPES } from "@/shared/unitPreferences";
 import { createStateDataModel } from "@/shared/stateDataModel.js";
 import { UnitConversion } from "@/shared/unitConversion";
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('state-data-store');
 
 /**
  * Calculate the distance between two lat/lon points (Haversine formula)
@@ -72,12 +75,23 @@ export function calculateDestinationLatLon(lat1, lon1, distance, bearing) {
     Math.cos(angularDistance) - Math.sin(lat1Rad) * Math.sin(lat2)
   );
 
-  // Normalize longitude to [-180, 180]
-  const normalizeLon = (lon) => ((lon % 360) + 540) % 360 - 180;
+  // Convert back to degrees
+  const lat2Deg = lat2 * 180 / Math.PI;
+  let lon2Deg = lon2 * 180 / Math.PI;
+  
+  // Normalize longitude to [-180, 180] in a more straightforward way
+  lon2Deg = ((lon2Deg + 180) % 360 + 360) % 360 - 180;
+  
+  // Debug logging
+  logger.debug('📡 [calculateDestinationLatLon]', {
+    input: { lat1, lon1, distance, bearing },
+    output: { lat2: lat2Deg, lon2: lon2Deg },
+    normalizedLon: lon2Deg
+  });
 
   return {
-    latitude: lat2 * 180 / Math.PI,
-    longitude: normalizeLon(lon2 * 180 / Math.PI)
+    latitude: lat2Deg,
+    longitude: lon2Deg
   };
 }
 
@@ -99,7 +113,7 @@ export function getComputedAnchorLocation(
     !rode ||
     bearing === undefined
   ) {
-    console.warn('Missing data for anchor location computation', { anchorDropLocation, rode, bearing, depth });
+    logger.warn('Missing data for anchor location computation', { anchorDropLocation, rode, bearing, depth });
     return { ...anchorDropLocation, distanceFromDropLocation: 0 };
   }
   
@@ -118,13 +132,13 @@ export function getComputedAnchorLocation(
   if (Math.abs(bearing) <= Math.PI * 2) {
     // Likely in radians, convert to degrees
     bearingDegrees = (bearing * 180 / Math.PI + 360) % 360;
-    console.log('Converting bearing from radians to degrees:', bearing, '->', bearingDegrees);
+    logger.debug('Converting bearing from radians to degrees:', bearing, '->', bearingDegrees);
   }
   
   // Ensure bearing is between 0 and 360 degrees
   bearingDegrees = (bearingDegrees + 360) % 360;
   
-  console.log('Computing anchor location with:', {
+  logger.debug('Computing anchor location with:', {
     dropLocation: [anchorDropLocation.longitude, anchorDropLocation.latitude],
     horizontalRode: horizontalRodeMeters,
     bearing: bearingDegrees,
@@ -159,13 +173,14 @@ export function getComputedAnchorLocation(
 // Using dynamic import for SSR compatibility
 let stateData;
 
+
 async function ensureStateDataLoaded() {
   if (!stateData) {
     try {
       const stateModule = await import("@/client/stateData.js");
       stateData = stateModule.stateData;
     } catch (error) {
-      console.error("Failed to load StateData:", error);
+      logger.error("Failed to load StateData:", error);
       throw error;
     }
   }
@@ -176,12 +191,12 @@ function switchDataSource(mode) {
   stateUpdateProvider.switchSource(mode);
 }
 
-console.log("[PiniaStore] State Data Store initialized");
+logger.info('State Data Store initialized');
 
 // --- Pinia Store Export ---
 // Utility: Deep clone to avoid reference sharing
 function getInitialState() {
-  console.log('DEBUG - Original state structure:', Object.keys(canonicalStateData.state));
+  logger.debug('DEBUG - Original state structure:', Object.keys(canonicalStateData.state));
   const clonedState = structuredClone(canonicalStateData.state);
   return clonedState;
 }
@@ -190,24 +205,221 @@ export const useStateDataStore = defineStore("stateData", () => {
   // Single, canonical, deeply nested state object
   const state = reactive(getInitialState());
   
+  // Create a data logger that uses the 'data' log level
+  const dataLogger = (message, ...args) => {
+    const logger = createLogger('state-data-store');
+    logger.data(message, ...args);
+  };
+  
   // --- Patch and Replace Logic ---
   // Handle full state updates from the server
   function replaceState(newState) {
-    // Make a copy of the new state
-    const updatedState = structuredClone(newState);
-    
-    // If we have an existing anchor state, preserve it
-    if (state.anchor) {
-      updatedState.anchor = state.anchor;
+    dataLogger('Replacing full state', { stateKeys: Object.keys(newState || {}) });
+    try {
+      dataLogger('Starting state replacement', {
+        currentStateKeys: Object.keys(state),
+        newStateKeys: Object.keys(newState)
+      });
+      
+      // Create a deep copy of the new state to avoid modifying the original
+      const updatedState = JSON.parse(JSON.stringify(newState));
+      
+      // Preserve valid navigation position if the incoming position has null values
+      const currentPos = state.navigation?.position;
+      const newPos = updatedState.navigation?.position;
+      
+      // Log detailed position state before update
+      dataLogger('Position State Before Update', {
+        currentPos: currentPos,
+        newPos: newPos
+      });
+      
+      // Log if we're about to preserve position
+      if (currentPos?.latitude?.value && currentPos?.longitude?.value) {
+        if (!newPos?.latitude?.value || !newPos?.longitude?.value) {
+          dataLogger('Will preserve current position due to missing values in update');
+        } else {
+          dataLogger('Will update with new position data');
+        }
+      }
+      
+      // Only delete keys that exist in the new state
+      const keysToUpdate = Object.keys(updatedState);
+      const keysToRemove = Object.keys(state).filter(key => !keysToUpdate.includes(key));
+      
+      if (keysToRemove.length > 0) {
+        dataLogger(`Removing ${keysToRemove.length} keys:`, keysToRemove);
+        keysToRemove.forEach(key => delete state[key]);
+      }
+      
+      // Update state properties reactively, being careful with nested objects
+      dataLogger('Applying new state values');
+      
+      // Handle navigation position separately to ensure proper reactivity
+      if (updatedState.navigation?.position) {
+        if (!state.navigation) state.navigation = {};
+        state.navigation.position = { ...updatedState.navigation.position };
+        delete updatedState.navigation.position; // Remove to avoid overwriting
+      }
+      
+      // Update all other state properties
+      Object.keys(updatedState).forEach(key => {
+        if (key !== 'navigation') { // Skip navigation as we handled it
+          state[key] = updatedState[key];
+        } else if (updatedState.navigation) {
+          // Update other navigation properties if any
+          Object.keys(updatedState.navigation).forEach(navKey => {
+            if (navKey !== 'position') {
+              if (!state.navigation) state.navigation = {};
+              state.navigation[navKey] = updatedState.navigation[navKey];
+            }
+          });
+        }
+      });
+      
+      // Log detailed position state after update
+      dataLogger('State Update Complete', {
+        finalPos: state.navigation?.position
+      });
+      
+      // Log if the position changed
+      if (currentPos && state.navigation?.position) {
+        const latChanged = currentPos.latitude?.value !== state.navigation.position.latitude?.value;
+        const lonChanged = currentPos.longitude?.value !== state.navigation.position.longitude?.value;
+        
+        if (latChanged || lonChanged) {
+          dataLogger('Position changed:', {
+            lat: {
+              from: currentPos.latitude?.value,
+              to: state.navigation.position.latitude?.value,
+              changed: latChanged
+            },
+            lon: {
+              from: currentPos.longitude?.value,
+              to: state.navigation.position.longitude?.value,
+              changed: lonChanged
+            }
+          });
+        } else {
+          dataLogger('Position unchanged');
+        }
+      }
+      
+    } catch (error) {
+      logger.error('Error in replaceState:', {
+        error: error.message,
+        stack: error.stack
+      });
     }
-    
-    // Replace the entire state
-    Object.keys(state).forEach(key => delete state[key]);
-    Object.assign(state, updatedState);
   }
 
-  function applyStatePatch(patch) {
-    applyPatch(state, patch);
+  // Helper function to get nested property by path, handling Vue reactive proxies
+  function getValueByPath(obj, path) {
+    if (!path || !obj) return undefined;
+    
+    // Handle root path
+    if (path === '/') return obj;
+    
+    // Remove leading slash if present and split
+    const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    const parts = cleanPath.split('/').filter(Boolean);
+    
+    let current = obj;
+    
+    for (const part of parts) {
+      // Handle array indices (e.g., 'items/0/name')
+      if (Array.isArray(current) && /^\d+$/.test(part)) {
+        const index = parseInt(part, 10);
+        if (index >= 0 && index < current.length) {
+          current = current[index];
+          continue;
+        }
+        return undefined;
+      }
+      
+      // Handle regular object properties
+      if (current && typeof current === 'object' && part in current) {
+        current = current[part];
+      } else {
+        return undefined;
+      }
+    }
+    
+    return current;
+  }
+
+  function ensurePathExists(obj, path) {
+    const parts = path.split('/').filter(Boolean);
+    let current = obj;
+    
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      if (!current[part]) {
+        current[part] = {};
+      }
+      current = current[part];
+    }
+    return current;
+  }
+
+  function applyStatePatch(patches) {
+    if (!Array.isArray(patches)) {
+      logger.error('Invalid patches format - expected array, got:', typeof patches);
+      return false;
+    }
+
+    if (patches.length === 0) {
+      dataLogger('Empty patches array, nothing to apply');
+      return true;
+    }
+    
+    dataLogger('Applying patches:', patches);
+
+    try {
+
+      // Apply each patch manually to respect Vue reactivity
+      for (const patch of patches) {
+        if (patch.op === 'replace' || patch.op === 'add') {
+          // Get the path parts
+          const pathParts = patch.path.split('/').filter(Boolean);
+          
+          // Ensure parent paths exist
+          if (pathParts.length > 1) {
+            ensurePathExists(state, pathParts.slice(0, -1).join('/'));
+          }
+          
+          // Set the value at the path
+          const targetObj = pathParts.length > 1 
+            ? getValueByPath(state, pathParts.slice(0, -1).join('/')) 
+            : state;
+          
+          if (targetObj) {
+            const prop = pathParts[pathParts.length - 1];
+            targetObj[prop] = patch.value;
+          }
+        } else if (patch.op === 'remove') {
+          // Handle remove operation
+          const pathParts = patch.path.split('/').filter(Boolean);
+          const targetObj = pathParts.length > 1 
+            ? getValueByPath(state, pathParts.slice(0, -1).join('/')) 
+            : state;
+          
+          if (targetObj) {
+            const prop = pathParts[pathParts.length - 1];
+            delete targetObj[prop];
+          }
+        }
+        // Other operations like move, copy, test are not implemented here
+      }
+      
+      return true;
+    } catch (error) {
+      logger.error('Error applying patches:', {
+        error: error.message,
+        stack: error.stack
+      });
+      return false;
+    }
   }
 
   /**
@@ -218,6 +430,10 @@ export const useStateDataStore = defineStore("stateData", () => {
    * @returns {boolean} - Success status
    */
   function sendMessageToServer(messageType, data, options = {}) {
+    dataLogger(`Sending message to server: ${messageType}`, { 
+      data,
+      options
+    });
     const adapter = stateUpdateProvider.currentAdapter;
     
     if (adapter && typeof adapter.send === 'function') {
@@ -242,12 +458,12 @@ export const useStateDataStore = defineStore("stateData", () => {
           }
         }
       } catch (e) {
-        console.warn('[StateDataStore] Could not access localStorage for boatId:', e);
+        logger.warn('Could not access localStorage for boatId:', e);
       }
       
       // If we still don't have a boat ID, we can't route the message
       if (!boatId) {
-        console.error(`[StateDataStore] Cannot send ${messageType}: No boat ID available for routing`);
+        logger.warn(`Cannot send ${messageType}: No boat ID available for routing`);
         return false;
       }
       
@@ -261,14 +477,14 @@ export const useStateDataStore = defineStore("stateData", () => {
       
       const success = adapter.send(message);
       if (success) {
-        console.log(`[StateDataStore] Sent ${messageType} to server for boat ${boatId}`);
+        dataLogger(`Sent ${messageType} to server for boat ${boatId}`);
       } else {
-        console.warn(`[StateDataStore] Failed to send ${messageType} to server for boat ${boatId}`);
+        logger.error(`Failed to send ${messageType} to server for boat ${boatId}`);
       }
       return success;
     }
     
-    console.warn(`[StateDataStore] Cannot send ${messageType}: No valid adapter`);
+    logger.error(`Cannot send ${messageType}: No valid adapter`);
     return false;
   }
   
@@ -377,7 +593,7 @@ export const useStateDataStore = defineStore("stateData", () => {
     // Add to active alerts
     state.alerts.active.push(alert);
     
-    console.log(`New alert added: ${alert.title || alert.label}`);
+    logger(`New alert added: ${alert.title || alert.label}`);
     return alert;
   };
   
@@ -397,7 +613,7 @@ export const useStateDataStore = defineStore("stateData", () => {
     
     if (alertsToResolve.length === 0) return [];
     
-    console.log(`Auto-resolving ${alertsToResolve.length} alerts with trigger: ${triggerType}`);
+    logger(`Auto-resolving ${alertsToResolve.length} alerts with trigger: ${triggerType}`);
     
     // Process each alert to resolve
     alertsToResolve.forEach(alert => {
@@ -504,7 +720,7 @@ export const useStateDataStore = defineStore("stateData", () => {
       
       // If any strategy says to prevent, don't add the alert
       if (shouldPrevent) {
-        console.log(`Prevented alert due to ${strategy} strategy: ${signature}`);
+        logger(`Prevented alert due to ${strategy} strategy: ${signature}`);
         return null;
       }
     }
@@ -729,55 +945,45 @@ export const useStateDataStore = defineStore("stateData", () => {
   // Store for alert rules
   const alertRules = ref([]);
   
-  // Computed property to safely access alert rules
-  const getAlertRules = computed(() => alertRules.value || []);
+  // Initialize logger for alert rules
+  const alertLogger = createLogger('alert-rules');
   
-  /**
-   * Load alert rules from storage
-   * @returns {Promise<Array>} The loaded alert rules
-   */
-  const loadAlertRules = async () => {
+  // Get all alert rules
+  function getAlertRules() {
+    return alertRules.value;
+  }
+  
+  // Load alert rules from storage
+  async function loadAlertRules() {
     try {
-      const { value } = await Preferences.get({ key: 'navcc_alert_rules' });
-      if (value) {
-        alertRules.value = JSON.parse(value);
-        console.log(`Loaded ${alertRules.value.length} alert rules`);
+      const savedRules = localStorage.getItem('alertRules');
+      if (savedRules) {
+        alertRules.value = JSON.parse(savedRules);
+        alertLogger.info('Loaded alert rules from storage');
       }
-      return alertRules.value;
     } catch (error) {
-      console.error('Error loading alert rules:', error);
-      return [];
+      alertLogger.error('Failed to load alert rules', error);
     }
-  };
+  }
   
-  /**
-   * Save alert rules to storage
-   * @returns {Promise<boolean>} Success status
-   */
-  const saveAlertRules = async () => {
+  // Save alert rules to storage
+  async function saveAlertRules() {
     try {
-      await Preferences.set({
-        key: 'navcc_alert_rules',
-        value: JSON.stringify(alertRules.value)
-      });
-      console.log(`Saved ${alertRules.value.length} alert rules`);
+      localStorage.setItem('alertRules', JSON.stringify(alertRules.value));
+      alertLogger.info('Saved alert rules to storage');
       return true;
     } catch (error) {
-      console.error('Error saving alert rules:', error);
+      alertLogger.error('Failed to save alert rules', error);
       return false;
     }
-  };
+  }
   
-  /**
-   * Create a new alert rule
-   * @param {Object} rule - The rule to create
-   * @returns {Object} The created rule
-   */
-  const createAlertRule = (rule) => {
+  // Create a new alert rule
+  function createAlertRule(rule) {
     const newRule = {
-      ...createDefaultRule(rule.source),
+      id: `rule_${Date.now()}`,
+      enabled: true,
       ...rule,
-      id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -785,162 +991,104 @@ export const useStateDataStore = defineStore("stateData", () => {
     alertRules.value.push(newRule);
     saveAlertRules();
     return newRule;
-  };
+  }
   
-  /**
-   * Update an existing alert rule
-   * @param {string} id - The ID of the rule to update
-   * @param {Object} updates - The updates to apply
-   * @returns {Object|null} The updated rule or null if not found
-   */
-  const updateAlertRule = (id, updates) => {
-    const index = alertRules.value.findIndex(rule => rule.id === id);
-    if (index !== -1) {
-      alertRules.value[index] = {
-        ...alertRules.value[index],
-        ...updates,
-        updatedAt: new Date().toISOString()
-      };
-      saveAlertRules();
-      return alertRules.value[index];
-    }
-    return null;
-  };
+  // Update an existing alert rule
+  function updateAlertRule(id, updates) {
+    const ruleIndex = alertRules.value.findIndex(r => r.id === id);
+    if (ruleIndex === -1) return null;
+    
+    const updatedRule = {
+      ...alertRules.value[ruleIndex],
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    
+    alertRules.value[ruleIndex] = updatedRule;
+    saveAlertRules();
+    return updatedRule;
+  }
   
-  /**
-   * Delete an alert rule
-   * @param {string} id - The ID of the rule to delete
-   * @returns {boolean} Success status
-   */
-  const deleteAlertRule = (id) => {
-    const index = alertRules.value.findIndex(rule => rule.id === id);
-    if (index !== -1) {
-      alertRules.value.splice(index, 1);
-      saveAlertRules();
-      return true;
-    }
-    return false;
-  };
+  // Delete an alert rule
+  function deleteAlertRule(id) {
+    const ruleIndex = alertRules.value.findIndex(r => r.id === id);
+    if (ruleIndex === -1) return false;
+    
+    alertRules.value.splice(ruleIndex, 1);
+    saveAlertRules();
+    return true;
+  }
   
-  /**
-   * Enable or disable an alert rule
-   * @param {string} id - The ID of the rule to toggle
-   * @param {boolean} enabled - Whether to enable or disable the rule
-   * @returns {boolean} Success status
-   */
-  const toggleAlertRule = (id, enabled) => {
-    const index = alertRules.value.findIndex(rule => rule.id === id);
-    if (index !== -1) {
-      alertRules.value[index].enabled = enabled;
-      saveAlertRules();
-      return true;
-    }
-    return false;
-  };
+  // Toggle an alert rule's enabled state
+  function toggleAlertRule(id) {
+    const rule = alertRules.value.find(r => r.id === id);
+    if (!rule) return null;
+    
+    rule.enabled = !rule.enabled;
+    rule.updatedAt = new Date().toISOString();
+    saveAlertRules();
+    return rule;
+  }
   
-  /**
-   * Evaluate if a rule should trigger an alert
-   * @param {Object} rule - The rule to evaluate
-   * @param {any} value - The value to evaluate
-   * @returns {boolean} Whether the rule condition is met
-   */
-  const evaluateRule = (rule, value) => {
+  // Evaluate if a rule condition is met
+  function evaluateRule(rule, currentValue) {
     if (!rule.enabled) return false;
     
-    switch (rule.operator) {
-      case ALERT_RULE_OPERATORS.EQUALS:
-        return value === rule.threshold;
-      case ALERT_RULE_OPERATORS.NOT_EQUALS:
-        return value !== rule.threshold;
-      case ALERT_RULE_OPERATORS.LESS_THAN:
-        return value < rule.threshold;
-      case ALERT_RULE_OPERATORS.LESS_THAN_EQUALS:
-        return value <= rule.threshold;
-      case ALERT_RULE_OPERATORS.GREATER_THAN:
-        return value > rule.threshold;
-      case ALERT_RULE_OPERATORS.GREATER_THAN_EQUALS:
-        return value >= rule.threshold;
-      case ALERT_RULE_OPERATORS.BETWEEN:
-        return value > rule.threshold && value < rule.secondaryThreshold;
-      case ALERT_RULE_OPERATORS.NOT_BETWEEN:
-        return value < rule.threshold || value > rule.secondaryThreshold;
-      case ALERT_RULE_OPERATORS.CONTAINS:
-        return String(value).includes(String(rule.threshold));
-      case ALERT_RULE_OPERATORS.NOT_CONTAINS:
-        return !String(value).includes(String(rule.threshold));
+    const { operator, threshold } = rule.condition;
+    
+    switch (operator) {
+      case 'gt':
+        return currentValue > threshold;
+      case 'gte':
+        return currentValue >= threshold;
+      case 'lt':
+        return currentValue < threshold;
+      case 'lte':
+        return currentValue <= threshold;
+      case 'eq':
+        return currentValue === threshold;
+      case 'neq':
+        return currentValue !== threshold;
       default:
         return false;
     }
-  };
+  }
   
-  /**
-   * Create an alert from a rule
-   * @param {Object} rule - The rule to create an alert from
-   * @param {any} value - The value that triggered the alert
-   * @returns {Object} The created alert
-   */
-  const createAlertFromRule = (rule, value) => {
-    const alert = newAlert();
+  // Process alert rules for a specific data path
+  function processAlertRules(dataPath, currentValue) {
+    if (!alertRules.value || alertRules.value.length === 0) return;
     
-    alert.title = rule.name;
-    alert.message = rule.message.replace('{value}', value);
-    alert.type = rule.alertType;
-    alert.category = rule.alertCategory;
-    alert.level = rule.alertLevel;
-    alert.data = {
-      ruleId: rule.id,
-      value: value,
-      threshold: rule.threshold,
-      source: rule.source
-    };
-    
-    if (rule.notifyOnMobile) {
-      alert.phoneNotification = true;
-    }
-    
-    return alert;
-  };
-  
-  /**
-   * Process all alert rules against new data
-   * @param {string} dataPath - The data path that changed
-   * @param {any} newValue - The new value
-   */
-  const processAlertRules = (dataPath, newValue) => {
-    // Skip if value is null or undefined
-    if (newValue === null || newValue === undefined) return;
-    
-    // Find rules that match this data path
+    // Find rules that match the data path
     const matchingRules = alertRules.value.filter(rule => 
-      rule.enabled && rule.source === dataPath
+      rule.condition && rule.condition.dataPath === dataPath
     );
     
-    // Evaluate each matching rule
+    if (matchingRules.length === 0) return;
+    
+    // Process each matching rule
     matchingRules.forEach(rule => {
-      const shouldAlert = evaluateRule(rule, newValue);
+      const isConditionMet = evaluateRule(rule, currentValue);
       
-      if (shouldAlert) {
-        // Create and add the alert
-        const alert = createAlertFromRule(rule, newValue);
+      if (isConditionMet) {
+        // Create an alert if the condition is met
+        const alert = {
+          id: `alert_${Date.now()}`,
+          ruleId: rule.id,
+          message: rule.message || `Alert: ${dataPath} condition met`,
+          severity: rule.severity || 'warning',
+          timestamp: new Date().toISOString(),
+          data: {
+            path: dataPath,
+            value: currentValue,
+            threshold: rule.condition.threshold,
+            operator: rule.condition.operator
+          }
+        };
         
-        // Apply prevention strategies from the rule
-        addAlertWithPrevention(alert, {
-          strategies: rule.strategies,
-          signature: `rule-${rule.id}`,
-          value: newValue,
-          threshold: rule.threshold,
-          isHigherBad: rule.strategyOptions.isHigherBad,
-          cooldownMs: rule.strategyOptions.cooldownMs,
-          debounceMs: rule.strategyOptions.debounceMs,
-          hysteresisMargin: rule.strategyOptions.hysteresisMargin
-        });
+        addAlert(alert);
       }
     });
-  };
-  
-  // Initialize alert rules
-  loadAlertRules();
-  
+  }
   // Watch for navigation data changes to evaluate alert rules
   watch(() => state.navigation, (newVal, oldVal) => {
     // Only process if we have alert rules
@@ -1047,11 +1195,73 @@ export const useStateDataStore = defineStore("stateData", () => {
 
   // --- Subscriptions and Watchers ---
   stateUpdateProvider.subscribe((evt) => {
-    if (evt.type === "state:full-update" && evt.data) {
-      replaceState(evt.data);
-    } else if (evt.type === "state:patch" && evt.data) {
-      applyStatePatch(evt.data);
+    dataLogger('Received event:', {
+      type: evt.type,
+      hasData: !!evt.data,
+      hasWind: !!evt.data?.wind,
+      dataKeys: evt.data ? Object.keys(evt.data) : []
+    });
+    
+    // Handle wind data updates from patch events
+    if (evt.type === 'state:patch' && Array.isArray(evt.data)) {
+      const windPatches = evt.data.filter(patch => 
+        patch.path?.startsWith('/navigation/wind/')
+      );
+      
+      if (windPatches.length > 0) {
+        dataLogger('Processing wind data from patch:', windPatches);
+        
+        // Ensure the wind structure exists
+        if (!state.navigation) state.navigation = {};
+        if (!state.navigation.wind) state.navigation.wind = {};
+        
+        // Process each wind-related patch
+        windPatches.forEach(patch => {
+          const [, , windType, property] = patch.path.split('/');
+          
+          if ((windType === 'apparent' || windType === 'true') && 
+              (property === 'speed' || property === 'angle')) {
+            
+            // Initialize the structure if it doesn't exist
+            if (!state.navigation.wind[windType]) {
+              state.navigation.wind[windType] = {};
+            }
+            if (!state.navigation.wind[windType][property]) {
+              state.navigation.wind[windType][property] = { value: null };
+            }
+            
+            // Update the value
+            state.navigation.wind[windType][property].value = patch.value;
+            dataLogger(`Updated wind.${windType}.${property} =`, patch.value);
+          }
+        });
+        return; // Skip the rest of the handler for wind patches
+      }
     }
+    dataLogger('Received state update:', evt.type);
+    
+    // Log navigation.position before any updates
+    dataLogger('Current position before update:', JSON.parse(JSON.stringify(state.navigation?.position)));
+    
+    if (evt.type === "state:full-update") {
+      dataLogger('Applying full state update');
+      dataLogger('Update data contains navigation:', !!evt.data.navigation);
+      replaceState(evt.data);
+    } else if (evt.type === "state:patch") {
+      dataLogger('Applying patch to state', { patchCount: evt.data?.length || 0 });
+      if (!evt.data) {
+        logger.warn('❌ [StateDataStore] Received patch with no data');
+        return;
+      }
+      dataLogger('🔧 [StateDataStore] Applying state patch');
+      dataLogger('🔍 [StateDataStore] Patch data:', JSON.stringify(evt.data, null, 2));
+      applyStatePatch(evt.data);
+    } else {
+      logger.warn('❓ [StateDataStore] Received unknown event type:', evt.type);
+    }
+    
+    // Log navigation.position after updates
+    dataLogger('📍 [StateDataStore] Current position after update:', JSON.parse(JSON.stringify(state.navigation?.position)));
   });
 
   const breadcrumbs = ref([]);
@@ -1076,6 +1286,8 @@ export const useStateDataStore = defineStore("stateData", () => {
   watch(
     () => state.value?.navigation?.position,
     (newPos) => {
+      if (!newPos) return;
+      logger.debug('Position updated', { position: newPos });
       // Skip if state or position is not available
       if (!newPos?.latitude?.value || !newPos?.longitude?.value) return;
 
@@ -1093,7 +1305,7 @@ export const useStateDataStore = defineStore("stateData", () => {
       // Check if we should add this entry (if it's the first one or if we've moved enough)
       if (breadcrumbs.value.length === 0) {
         breadcrumbs.value.push(newEntry);
-        console.log("[Breadcrumbs] Added first position entry");
+        logger.debug("[Breadcrumbs] Added first position entry");
       } else {
         // Get the most recent breadcrumb
         const lastEntry = breadcrumbs.value[breadcrumbs.value.length - 1];
@@ -1109,7 +1321,7 @@ export const useStateDataStore = defineStore("stateData", () => {
         // Only add if we've moved more than 0.5 meters
         if (distance > 0.5) {
           breadcrumbs.value.push(newEntry);
-          console.log(
+          logger.debug(
             `[Breadcrumbs] Added new position entry, moved ${distance.toFixed(
               2
             )}m`
@@ -1118,7 +1330,7 @@ export const useStateDataStore = defineStore("stateData", () => {
           // Limit to 50 entries
           if (breadcrumbs.value.length > 50) {
             breadcrumbs.value.shift();
-            console.log("[Breadcrumbs] Removed oldest entry, keeping 50 max");
+            logger.debug("[Breadcrumbs] Removed oldest entry, keeping 50 max");
           }
         }
       }
@@ -1134,10 +1346,10 @@ export const useStateDataStore = defineStore("stateData", () => {
   async function loadUnitPreferences() {
     try {
       unitPreferences.value = await getUserUnitPreferences();
-      console.log('[StateDataStore] Loaded unit preferences:', unitPreferences.value);
+      logger.debug('[StateDataStore] Loaded unit preferences:', unitPreferences.value);
       return unitPreferences.value;
     } catch (error) {
-      console.error('[StateDataStore] Failed to load unit preferences:', error);
+      logger.error('[StateDataStore] Failed to load unit preferences:', error);
       return null;
     }
   }
@@ -1150,7 +1362,7 @@ export const useStateDataStore = defineStore("stateData", () => {
       await updateUnitsToPreferences();
       return updatedPrefs;
     } catch (error) {
-      console.error('[StateDataStore] Failed to update unit preference:', error);
+      logger.error('[StateDataStore] Failed to update unit preference:', error);
       throw error;
     }
   }
@@ -1163,7 +1375,7 @@ export const useStateDataStore = defineStore("stateData", () => {
       await updateUnitsToPreferences();
       return updatedPrefs;
     } catch (error) {
-      console.error('[StateDataStore] Failed to update unit preset:', error);
+      logger.error('[StateDataStore] Failed to update unit preset:', error);
       throw error;
     }
   }
@@ -1436,9 +1648,20 @@ export const useStateDataStore = defineStore("stateData", () => {
   
   // Initialize unit preferences and apply conversions immediately
   loadUnitPreferences().then(() => {
+    dataLogger('Unit preferences loaded, applying to state');
     // Apply unit conversions to initial state
     convertStateToPreferredUnits(state);
-    console.log('[StateDataStore] Applied initial unit conversions');
+    dataLogger('Unit conversions applied to initial state');
+    
+    // Load alert rules after unit preferences are loaded
+    return loadAlertRules();
+  }).then(() => {
+    dataLogger('Alert rules loaded');
+  }).catch(error => {
+    logger.error('Failed to initialize store', {
+      error: error.message,
+      stack: error.stack
+    });
   });
   
   return { 

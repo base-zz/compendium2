@@ -110,6 +110,12 @@ const routes = [
     meta: { title: "Pages" },
   },
   {
+    path: "/logging-test",
+    name: "LoggingTest",
+    component: () => import("@client/components/LoggingTest.vue"),
+    meta: { requiresAuth: true, title: "Logging Test" },
+  },
+  {
     path: "/dashboard",
     name: "Dashboard",
     component: DashboardView,
@@ -239,10 +245,10 @@ router.beforeEach((to, from, next) => {
 
 // Navigation guard to enforce authentication
 router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem("auth_token");
-  if (to.meta.requiresAuth && !token) {
+  const isAuthenticated = localStorage.getItem("isAuthenticated") === 'true';
+  if (to.meta.requiresAuth && !isAuthenticated) {
     next({ path: "/login" });
-  } else if ((to.path === "/login" || to.name === "Login") && token) {
+  } else if ((to.path === "/login" || to.name === "Login") && isAuthenticated) {
     next({ path: "/home" });
   } else {
     next();

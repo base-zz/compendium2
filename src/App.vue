@@ -5,51 +5,75 @@
 </template>
 
 <script setup>
-import { IonApp, IonContent, IonButton, IonIcon } from '@ionic/vue';
-import { cloudUploadOutline, cloudOfflineOutline } from 'ionicons/icons';
-import { computed, onMounted } from 'vue';
+import { IonApp } from '@ionic/vue';
+import { computed, onMounted, watch } from 'vue';
 import { useStateDataStore } from './client/stores/stateDataStore';
 import { useRelayPiniaSync } from './client/services/useRelayPiniaSync';
 import { useDirectPiniaSync } from './client/services/useDirectPiniaSync';
-import ConnectionStatusIndicator from './client/components/ConnectionStatusIndicator.vue';
-import RealDataViewer from './client/examples/RealDataViewer.vue';
+import { createLogger } from './client/services/logger';
+
+const logger = createLogger('App');
+logger.info('Initializing application...');
 
 const stateDataStore = useStateDataStore();
 const isConnected = computed(() => stateDataStore.isConnected);
 
 // Start relay-to-pinia data sync
+logger.info('Initializing relay-to-pinia sync...');
 useRelayPiniaSync();
 
 // Start direct-to-pinia data sync
+logger.info('Initializing direct-to-pinia sync...');
 useDirectPiniaSync();
 
 onMounted(() => {
+  logger.info('App component mounted');
   // Removed: stateDataStore.init();
   // Removed: stateDataStore.initRelayMode();
   // The smartConnectionManager will handle initialization and switching.
 });
 
+// Log connection status changes
+watch(isConnected, (newValue) => {
+  logger(`Connection status changed: ${newValue ? 'Connected' : 'Disconnected'}`);
+});
+
 async function initializeRelayMode() {
+  logger('Initializing relay mode...');
   try {
-    console.log('Initializing relay mode...');
-  // Removed: await stateDataStore.initRelayMode();
-  // The smartConnectionManager will handle relay mode if needed.
-    console.log('Relay mode initialized successfully');
+    // Removed: await stateDataStore.initRelayMode();
+    // The smartConnectionManager will handle relay mode if needed.
+    logger('Relay mode initialization completed');
   } catch (error) {
-    console.error('Failed to initialize relay mode:', error);
+    logger.error('Failed to initialize relay mode', {
+      error: error.message,
+      stack: error.stack
+    });
   }
 }
 
 async function disconnectRelay() {
+  logger('Initiating relay disconnection...');
   try {
-    console.log('Disconnecting from relay...');
     // Disconnect from the relay server
     if (stateDataStore.relayConnectionAdapter) {
+      logger('Disconnecting from relay server...');
       await stateDataStore.relayConnectionAdapter.disconnect();
-      console.log('Successfully disconnected from relay');
+      logger('Successfully disconnected from relay server');
+    } else {
+      logger.warn('No relay connection adapter found to disconnect');
     }
   } catch (error) {
-    console.error('Error disconnecting from relay:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : new Error().stack;
+    
+    logger.error('Error disconnecting from relay', {
+      error: errorMessage,
+      stack: errorStack
+    });
+    
+    // Re-throw to allow caller to handle the error
+    throw error;
   }
 }
 </script>

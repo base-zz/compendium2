@@ -3,6 +3,9 @@ import { Preferences } from "@capacitor/preferences";
 import { ref } from "vue";
 import { createWidgetModel } from "@/shared/widgetModel";
 import crypto from 'crypto';
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('dashboard-store');
 
 // Storage key constant
 const DASHBOARD_STORAGE_KEY = "navcc_dashboards";
@@ -22,44 +25,70 @@ export const useDashboardStore = defineStore("dashboards", () => {
   }
 
   const getDashboard = (index) => {
+    logger.debug(`Getting dashboard at index ${index}`);
     if (typeof index === 'undefined' || index < 0 || index >= dashboards.value.length) {
+      logger.warn(`Invalid dashboard index: ${index}`);
       return null;
     }
-    return dashboards.value[index];
+    const dashboard = dashboards.value[index];
+    logger.debug(`Retrieved dashboard: ${dashboard?.name || 'Unnamed'} (${index})`);
+    return dashboard;
   };
 
   /* init from preferences */
   const init = async () => {
-    if (isInitialized.value) return;
+    if (isInitialized.value) {
+      logger.debug('Already initialized');
+      return;
+    }
     
+    logger('Initializing dashboard store...');
     try {
       const { value } = await Preferences.get({ key: DASHBOARD_STORAGE_KEY });
       
       if (value) {
+        logger('Loading dashboards from storage');
         dashboards.value = JSON.parse(value);
+        logger(`Loaded ${dashboards.value.length} dashboards`);
+      } else {
+        logger('No dashboards found in storage');
       }
+      
       isInitialized.value = true;
+      logger('Dashboard store initialized successfully');
     } catch (error) {
-      console.error('Error loading dashboards from preferences:', error);
+      logger.error('Error initializing dashboard store', {
+        error: error.message,
+        stack: error.stack
+      });
       isInitialized.value = true;
     }
   };
 
   const getDashboards = async () => {
+    logger('Fetching all dashboards');
     await init();
     try {
       const { value } = await Preferences.get({ key: DASHBOARD_STORAGE_KEY });
       if (value) {
-        dashboards.value = JSON.parse(value);
+        const parsed = JSON.parse(value);
+        dashboards.value = parsed;
+        logger(`Retrieved ${parsed.length} dashboards`);
+        return parsed;
       }
-      return dashboards.value;
+      logger('No dashboards found in storage');
+      return [];
     } catch (error) {
-      console.error('Error loading dashboards from preferences:', error);
+      logger.error('Error fetching dashboards', {
+        error: error.message,
+        stack: error.stack
+      });
       return [];
     }
   };
 
   const addDashboard = async (dashboard) => {
+    logger('Adding new dashboard');
     await init();
     // Ensure widgets array exists
     if (!dashboard.widgets) {
@@ -72,17 +101,23 @@ export const useDashboardStore = defineStore("dashboards", () => {
     // Save to storage
     try {
       const cleanDashboards = getCleanDashboards();
+      logger(`Saving ${cleanDashboards.length} dashboards`);
       await Preferences.set({
         key: DASHBOARD_STORAGE_KEY,
         value: JSON.stringify(cleanDashboards)
       });
+      logger('Dashboards saved successfully');
       dashboards.value = cleanDashboards;
     } catch (error) {
-      console.error('Error saving dashboards to preferences:', error);
+      logger.error('Error saving dashboards', {
+        error: error.message,
+        stack: error.stack
+      });
     }
   };
 
   const newDashboard = async (name = "New Dashboard") => {
+    logger('Creating new dashboard');
     await init();
     const dashboard = {
       name,
@@ -96,17 +131,23 @@ export const useDashboardStore = defineStore("dashboards", () => {
     // Save to storage
     try {
       const cleanDashboards = getCleanDashboards();
+      logger(`Saving ${cleanDashboards.length} dashboards`);
       await Preferences.set({
         key: DASHBOARD_STORAGE_KEY,
         value: JSON.stringify(cleanDashboards)
       });
+      logger('Dashboards saved successfully');
       dashboards.value = cleanDashboards;
     } catch (error) {
-      console.error('Error saving dashboards to preferences:', error);
+      logger.error('Error saving dashboards', {
+        error: error.message,
+        stack: error.stack
+      });
     }
   };
 
   const deleteDashboard = async (index) => {
+    logger('Deleting dashboard at index', index);
     await init();
     if (index > -1) {
       // Remove the dashboard
@@ -115,36 +156,55 @@ export const useDashboardStore = defineStore("dashboards", () => {
       // Save to storage
       try {
         const cleanDashboards = getCleanDashboards();
+        logger(`Saving ${cleanDashboards.length} dashboards`);
         await Preferences.set({
           key: DASHBOARD_STORAGE_KEY,
           value: JSON.stringify(cleanDashboards)
         });
+        logger('Dashboards saved successfully');
         dashboards.value = cleanDashboards;
       } catch (error) {
-        console.error('Error saving dashboards to preferences:', error);
+        logger.error('Error saving dashboards', {
+          error: error.message,
+          stack: error.stack
+        });
       }
     } else {
-      console.error('Invalid dashboard index:', index);
+      logger.error('Invalid dashboard index:', index);
     }
   };
 
   const deleteAllDashboards = async () => {
+    logger('Deleting all dashboards');
     await init();
     // Clear all dashboards
     dashboards.value = [];
     
-    // Save to storage
-    try {
-      await Preferences.set({
-        key: DASHBOARD_STORAGE_KEY,
-        value: JSON.stringify([])
-      });
-    } catch (error) {
-      console.error('Error saving dashboards to preferences:', error);
-    }
+    const saveDashboards = async () => {
+      logger('Saving dashboards to storage');
+      try {
+        const cleanDashboards = getCleanDashboards();
+        logger(`Saving ${cleanDashboards.length} dashboards`);
+        
+        await Preferences.set({
+          key: DASHBOARD_STORAGE_KEY,
+          value: JSON.stringify(cleanDashboards),
+        });
+        
+        logger('Dashboards saved successfully');
+      } catch (error) {
+        logger.error('Error saving dashboards', {
+          error: error.message,
+          stack: error.stack
+        });
+        throw error;
+      }
+    };
+    await saveDashboards();
   };
 
   const updateDashboard = async (index, dashboard) => {
+    logger('Updating dashboard at index', index);
     await init();
     if (index > -1) {
       // Create a clean copy of the dashboard

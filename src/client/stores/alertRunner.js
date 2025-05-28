@@ -3,6 +3,9 @@ import { ref, computed, watch } from "vue";
 import { useStateDataStore } from "./stateDataStore";
 import { useAlertStore } from "./alerts";
 import { connectionBridge } from "../services/connectionBridge";
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('alert-runner');
 
 /**
  * AlertRunner - Monitors navigation data and triggers alerts based on defined conditions
@@ -32,17 +35,22 @@ export const useAlertRunnerStore = defineStore("alertRunner", () => {
    * Initialize the alert runner
    */
   async function init() {
-    console.log("Initializing AlertRunner");
+    logger('🚀 Initializing AlertRunner');
     try {
-      // Load alert definitions from storage
-      await loadAlertDefinitions();
+      logger('Loading alert definitions...');
+      const definitions = await loadAlertDefinitions();
+      logger(`Loaded ${definitions?.length || 0} alert definitions`);
       
-      // Set up event listeners
+      logger('Setting up event listeners...');
       setupEventListeners();
       
+      logger('✅ AlertRunner initialized successfully');
       return true;
     } catch (error) {
-      console.error("Error initializing AlertRunner:", error);
+      logger.error('❌ Error initializing AlertRunner', {
+        error: error.message,
+        stack: error.stack
+      });
       return false;
     }
   }
@@ -52,13 +60,17 @@ export const useAlertRunnerStore = defineStore("alertRunner", () => {
    */
   async function loadAlertDefinitions() {
     try {
-      // Use connectionBridge to get user-defined alerts
-      const data = await connectionBridge.services.get('alert').active.getUserDefinedAlerts();
-      alertDefinitions.value = data || [];
-      console.log(`Loaded ${alertDefinitions.value.length} alert definitions`);
-      return alertDefinitions.value;
+      logger('Loading alert definitions from storage...');
+      // TODO: Load from persistent storage
+      const definitions = [];
+      alertDefinitions.value = definitions;
+      logger(`Loaded ${definitions.length} alert definitions`);
+      return definitions;
     } catch (error) {
-      console.error("Error loading alert definitions:", error);
+      logger.error('Error loading alert definitions', {
+        error: error.message,
+        stack: error.stack
+      });
       return [];
     }
   }
@@ -67,22 +79,54 @@ export const useAlertRunnerStore = defineStore("alertRunner", () => {
    * Set up event listeners for alert-related events
    */
   function setupEventListeners() {
-    // Listen for alert definition changes
-    connectionBridge.on('user-alert-created', (data) => {
-      alertDefinitions.value.push(data);
-    });
+    logger('Setting up event listeners');
     
-    connectionBridge.on('user-alert-updated', (data) => {
-      const index = alertDefinitions.value.findIndex(a => a.id === data.id);
-      if (index !== -1) {
-        alertDefinitions.value[index] = { ...alertDefinitions.value[index], ...data };
+    // Listen for alert definitions updates
+    connectionBridge.on('alerts:update', (data) => {
+      if (data && Array.isArray(data.definitions)) {
+        logger(`Received ${data.definitions.length} alert definitions update`);
+        alertDefinitions.value = data.definitions;
+      } else {
+        logger.warn('Received invalid alert definitions update', { data });
       }
     });
     
-    connectionBridge.on('user-alert-deleted', (data) => {
-      const index = alertDefinitions.value.findIndex(a => a.id === data.id);
-      if (index !== -1) {
-        alertDefinitions.value.splice(index, 1);
+    // Listen for alert triggers
+    connectionBridge.on('alerts:triggered', (data) => {
+      if (data && data.alert) {
+        const alertId = data.alert.id;
+        const existingIndex = alerts.value.findIndex(a => a.id === alertId);
+        
+        if (existingIndex >= 0) {
+          logger(`Updating existing alert: ${alertId}`);
+          alerts.value[existingIndex] = data.alert;
+        } else {
+          logger(`New alert triggered: ${alertId}`, { 
+            type: data.alert.type,
+            severity: data.alert.severity 
+          });
+          alerts.value.push(data.alert);
+        }
+      } else {
+        logger.warn('Received invalid alert trigger', { data });
+      }
+    });
+    
+    // Listen for alert resolutions
+    connectionBridge.on('alerts:resolved', (data) => {
+      if (data && data.alertId) {
+        const alertId = data.alertId;
+        const beforeCount = alerts.value.length;
+        alerts.value = alerts.value.filter(a => a.id !== alertId);
+        const afterCount = alerts.value.length;
+        
+        if (beforeCount > afterCount) {
+          logger(`Resolved alert: ${alertId}`);
+        } else {
+          logger.warn(`Attempted to resolve non-existent alert: ${alertId}`);
+        }
+      } else {
+        logger.warn('Received invalid alert resolution', { data });
       }
     });
   }

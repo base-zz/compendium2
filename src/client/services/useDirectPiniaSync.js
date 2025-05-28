@@ -2,23 +2,26 @@
 import { useStateDataStore } from '../stores/stateDataStore'
 import { directConnectionAdapter } from './directConnectionAdapter'
 import { stateUpdateProvider } from './stateUpdateProvider'
+import { createLogger } from './logger';
+
+const logger = createLogger('pinia-sync');
 
 let subscribed = false
 
 export function useDirectPiniaSync() {
-  console.log('[PINIA-SYNC] useDirectPiniaSync initialized');
+  logger.info('Initializing Pinia sync');
   if (subscribed) {
-    console.log('[PINIA-SYNC] Already subscribed, skipping initialization');
+    logger.info('Already subscribed, skipping initialization');
     return; // Prevent duplicate subscriptions
   }
   
   subscribed = true;
-  console.log('[PINIA-SYNC] Setting up event listeners');
+  logger.info('Setting up event listeners');
 
   const store = useStateDataStore();
   
   // Listen for direct adapter events
-  console.log('[PINIA-SYNC] Setting up directConnectionAdapter listeners');
+  logger.info('Setting up directConnectionAdapter listeners');
   
   // Listen for full state updates
   directConnectionAdapter.on('state:full-update', (msg) => {
@@ -27,7 +30,7 @@ export function useDirectPiniaSync() {
       // console.log('[PINIA-SYNC] Applying full state update to store');
       store.replaceState(msg.data);
     } else {
-      console.warn('[PINIA-SYNC] Invalid full state update received:', msg);
+      logger.warn('Invalid full state update received', { msg });
     }
   });
   
@@ -38,7 +41,7 @@ export function useDirectPiniaSync() {
       // console.log('[PINIA-SYNC] Applying patch to store with', msg.data.length, 'operations');
       store.applyStatePatch(msg.data);
     } else {
-      console.warn('[PINIA-SYNC] Invalid patch update received:', msg);
+      logger.warn('Invalid patch update received', { msg });
     }
   });
   
@@ -52,7 +55,7 @@ export function useDirectPiniaSync() {
       // console.log('[PINIA-SYNC] Applying patch from state-update event with', data.length, 'operations');
       store.applyStatePatch(data);
     } else {
-      console.warn('[PINIA-SYNC] Unknown or invalid state-update event:', { type, data });
+      logger.warn('Unknown or invalid state-update event', { type, data });
     }
   });
   
@@ -68,5 +71,5 @@ export function useDirectPiniaSync() {
     }
   });
   
-  console.log('[PINIA-SYNC] All event listeners set up successfully');
+  logger.info('All event listeners set up successfully');
 }

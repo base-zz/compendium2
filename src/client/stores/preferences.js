@@ -5,8 +5,12 @@
  * including unit display preferences (metric vs imperial).
  */
 
-import { reactive } from 'vue';
-import { convertByPreference } from '@/utils/unitConversion';
+import { defineStore } from 'pinia';
+import { reactive, computed } from 'vue';
+import { convertByPreference } from '@client/utils/unitConversion';
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('preferences-store');
 
 // Default preferences
 const defaultPreferences = {
@@ -21,184 +25,273 @@ const defaultPreferences = {
   display: {
     darkMode: false,
     highContrast: false
+  },
+  logging: {
+    // Log levels and remote toggle
+    debug: false,
+    data: false,   
+    info: true,
+    warn: true,
+    error: true,
+    remote: false,
+    // Namespace filters (supports * wildcard)
+    namespaces: []
   }
 };
 
-// Initialize preferences from localStorage or use defaults
-const loadSavedPreferences = () => {
-  try {
-    const savedPrefs = localStorage.getItem('userPreferences');
-    return savedPrefs ? JSON.parse(savedPrefs) : defaultPreferences;
-  } catch (error) {
-    console.error('[PreferencesStore] Error loading preferences:', error);
-    return defaultPreferences;
-  }
-};
+export const usePreferencesStore = defineStore('preferences', () => {
+  // State
+  const preferences = reactive(loadSavedPreferences());
 
-// Create reactive store
-const preferences = reactive(loadSavedPreferences());
-
-// Save preferences to localStorage
-const savePreferences = () => {
-  try {
-    localStorage.setItem('userPreferences', JSON.stringify(preferences));
-    console.log('[PreferencesStore] Preferences saved');
-  } catch (error) {
-    console.error('[PreferencesStore] Error saving preferences:', error);
-  }
-};
-
-/**
- * Format a value according to user preferences
- * @param {number} value - The value to format
- * @param {string} unit - The unit type ('depth', 'speed', 'temperature', etc.)
- * @param {number} [customDecimals] - Custom decimal precision (optional)
- * @returns {string} - Formatted value with unit
- */
-function formatValue(value, unit, customDecimals) {
-  if (value === undefined || value === null) {
-    return 'N/A';
-  }
+  // Getters
+  const useImperial = computed(() => preferences.units.useImperial);
+  const darkMode = computed(() => preferences.display.darkMode);
   
-  const useImperial = preferences.units.useImperial;
-  let decimals = customDecimals; // Use custom decimals if provided
+  // Logging related getters
+  const loggingEnabled = computed(() => ({
+    remoteLogging: {
+      ...preferences.logging.remoteLogging
+    },
+    namespaces: [...(preferences.logging.namespaces || [])]
+  }));
   
-  // If no custom decimals provided, get the appropriate decimal precision based on unit type
-  if (decimals === null || decimals === undefined) {
-    switch (unit) {
-      case 'depth':
-      case 'length':
-        decimals = preferences.units.depthDecimals;
-        break;
-      case 'speed':
-        decimals = preferences.units.speedDecimals;
-        break;
-      case 'temperature':
-        decimals = preferences.units.temperatureDecimals;
-        break;
-      case 'distance':
-        decimals = preferences.units.distanceDecimals;
-        break;
-      case 'angle':
-        decimals = preferences.units.angleDecimals;
-        break;
-      case 'ratio':
-        decimals = 1; // Default for ratio
-        break;
-      default:
-        decimals = 1; // Default
+  // Available loggers
+  const availableLoggers = computed(() => [
+    { name: 'app', description: 'Application logs' },
+    { name: 'state', description: 'State management logs' },
+    { name: 'data', description: 'Data logging (high volume)' },
+    { name: 'network', description: 'Network request logs' },
+    { name: 'error', description: 'Error logs' },
+    { name: 'debug', description: 'Debug logs' },
+    { name: 'warn', description: 'Warning logs' },
+    { name: 'info', description: 'Info logs' },
+    { name: 'verbose', description: 'Verbose logs' }
+  ]);
+
+  // Actions
+  function formatValue(value, unit, customDecimals) {
+    if (value === null || value === undefined) return '--';
+    
+    const useImperialVal = useImperial.value;
+    let decimals = customDecimals;
+    
+    // If no custom decimals provided, use the default for the unit type
+    if (decimals === undefined) {
+      switch (unit) {
+        case 'depth':
+          decimals = preferences.units.depthDecimals;
+          break;
+        case 'speed':
+          decimals = preferences.units.speedDecimals;
+          break;
+        case 'temperature':
+          decimals = preferences.units.temperatureDecimals;
+          break;
+        case 'distance':
+          decimals = preferences.units.distanceDecimals;
+          break;
+        case 'angle':
+          decimals = preferences.units.angleDecimals;
+          break;
+        default:
+          decimals = 2;
+      }
     }
+    
+    return convertByPreference(value, unit, useImperialVal, decimals);
   }
-  
-  return convertByPreference(value, unit, useImperial, decimals);
-}
 
-/**
- * Get detailed information about a formatted value
- * @param {number} value - The value to format
- * @param {string} unit - The unit type ('depth', 'speed', 'temperature', etc.)
- * @param {number} [customDecimals] - Custom decimal precision (optional)
- * @returns {Object} - Object containing original and formatted values with units
- */
-function getFormattedValueDetails(value, unit, customDecimals) {
-  if (value === undefined || value === null) {
+  function getFormattedValueDetails(value, unit, customDecimals) {
+    if (value === null || value === undefined) {
+      return {
+        original: value,
+        formatted: '--',
+        unit: '',
+        useImperial: useImperial.value
+      };
+    }
+    
+    const useImperialVal = useImperial.value;
+    let decimals = customDecimals;
+    
+    // If no custom decimals provided, use the default for the unit type
+    if (decimals === undefined) {
+      switch (unit) {
+        case 'depth':
+          decimals = preferences.units.depthDecimals;
+          break;
+        case 'speed':
+          decimals = preferences.units.speedDecimals;
+          break;
+        case 'temperature':
+          decimals = preferences.units.temperatureDecimals;
+          break;
+        case 'distance':
+          decimals = preferences.units.distanceDecimals;
+          break;
+        case 'angle':
+          decimals = preferences.units.angleDecimals;
+          break;
+        default:
+          decimals = 2;
+      }
+    }
+    
+    const formatted = convertByPreference(value, unit === 'distance' ? 'length' : unit, useImperialVal, decimals);
+    
     return {
-      originalValue: value,
-      originalUnits: unit,
-      formattedValue: 'N/A',
-      formattedUnits: unit
+      original: value,
+      formatted,
+      unit: useImperialVal 
+        ? (unit === 'depth' || unit === 'distance' ? 'ft' : 
+           unit === 'speed' ? 'kn' : 
+           unit === 'temperature' ? '°F' : '')
+        : (unit === 'depth' || unit === 'distance' ? 'm' : 
+           unit === 'speed' ? 'kn' : 
+           unit === 'temperature' ? '°C' : ''),
+      useImperial: useImperialVal
     };
   }
-  
-  const useImperial = preferences.units.useImperial;
-  let decimals = customDecimals; // Use custom decimals if provided
-  
-  // If no custom decimals provided, get the appropriate decimal precision based on unit type
-  if (decimals === null || decimals === undefined) {
-    switch (unit) {
-      case 'depth':
-      case 'length':
-        decimals = preferences.units.depthDecimals;
-        break;
-      case 'speed':
-        decimals = preferences.units.speedDecimals;
-        break;
-      case 'temperature':
-        decimals = preferences.units.temperatureDecimals;
-        break;
-      case 'distance':
-        decimals = preferences.units.distanceDecimals;
-        break;
-      case 'angle':
-        decimals = preferences.units.angleDecimals;
-        break;
-      case 'ratio':
-        decimals = 1; // Default for ratio
-        break;
-      default:
-        decimals = 1; // Default
+
+  function toggleUnits() {
+    preferences.units.useImperial = !preferences.units.useImperial;
+    savePreferences();
+    logger(`Units toggled to ${preferences.units.useImperial ? 'imperial' : 'metric'}`);
+    return preferences.units.useImperial;
+  }
+
+  async function resetPreferences() {
+    Object.assign(preferences, JSON.parse(JSON.stringify(defaultPreferences)));
+    await savePreferences();
+  }
+
+  const setLoggingPreference = (key, value, enabled) => {
+    // Handle both simple key-value pairs and namespace-based preferences
+    if (enabled !== undefined) {
+      // Namespace-based preference (backward compatibility)
+      const namespace = key;
+      enabled = value;
+      
+      if (!preferences.logging.namespaces) {
+        preferences.logging.namespaces = [];
+      }
+      
+      const existingIndex = preferences.logging.namespaces.indexOf(namespace);
+      
+      if (enabled && existingIndex === -1) {
+        preferences.logging.namespaces.push(namespace);
+      } else if (!enabled && existingIndex !== -1) {
+        preferences.logging.namespaces.splice(existingIndex, 1);
+      }
+    } else {
+      // Simple key-value preference
+      preferences.logging = {
+        ...preferences.logging,
+        [key]: value
+      };
+    }
+    
+    savePreferences();
+    applyLoggingPreferences();
+    return true;
+  }
+
+  // Alias for backward compatibility
+  const setRemoteLogging = (key, value) => {
+    setLoggingPreference(key, value);
+  }
+
+  function resetLoggingPreferences() {
+    if (defaultPreferences.logging) {
+      preferences.logging = JSON.parse(JSON.stringify(defaultPreferences.logging));
+      savePreferences();
+      applyLoggingPreferences();
+      return true;
+    }
+    return false;
+  }
+
+  async function applyLoggingPreferences() {
+    try {
+      if (!preferences.logging) return false;
+      
+      // Apply logging levels to the logger if available
+      if (window.logger) {
+        // Apply remote logging setting
+        if (typeof preferences.logging.remote !== 'undefined' && 
+            window.logger.setRemoteLogging) {
+          window.logger.setRemoteLogging(preferences.logging.remote);
+        }
+        
+        // Apply individual log level settings
+        const logLevels = ['debug', 'info', 'warn', 'error', 'data'];
+        logLevels.forEach(level => {
+          if (typeof preferences.logging[level] !== 'undefined' && 
+              window.logger[level]?.setRemoteLogging) {
+            window.logger[level].setRemoteLogging(preferences.logging[level]);
+          }
+        });
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error applying logging preferences:', error);
+      return false;
     }
   }
-  
-  const formatted = convertByPreference(value, unit === 'distance' ? 'length' : unit, useImperial, decimals);
-  const [formattedValue, formattedUnits] = formatted.split(' ');
-  
+
+  // Initialize logging when the store is created
+  applyLoggingPreferences();
+
+  // Helper functions
+  function loadSavedPreferences() {
+    logger('Loading preferences from localStorage');
+    try {
+      const savedPrefs = localStorage.getItem('userPreferences');
+      if (savedPrefs) {
+        logger('Found saved preferences');
+        return JSON.parse(savedPrefs);
+      }
+      logger('No saved preferences found, using defaults');
+      return JSON.parse(JSON.stringify(defaultPreferences));
+    } catch (error) {
+      logger.error('Error loading preferences from localStorage:', error);
+      return JSON.parse(JSON.stringify(defaultPreferences));
+    }
+  }
+
+  async function savePreferences() {
+    try {
+      localStorage.setItem('userPreferences', JSON.stringify(preferences));
+      logger('Preferences saved to localStorage');
+      return true;
+    } catch (error) {
+      logger.error('Error saving preferences:', error);
+      return false;
+    }
+  }
+
   return {
-    originalValue: value,
-    originalUnits: unit,
-    formattedValue: formattedValue,
-    formattedUnits: formattedUnits
+    // State
+    preferences,
+    
+    // Getters
+    useImperial,
+    darkMode,
+    loggingEnabled,
+    availableLoggers,
+    
+    // Actions
+    formatValue,
+    getFormattedValueDetails,
+    toggleUnits,
+    resetPreferences,
+    resetLoggingPreferences,
+    setLoggingPreference,
+    setRemoteLogging,
+    applyLoggingPreferences
   };
-}
+});
 
-/**
- * Toggle between metric and imperial units
- */
-function toggleUnits() {
-  preferences.units.useImperial = !preferences.units.useImperial;
-  savePreferences();
-}
-
-/**
- * Set specific unit preference
- * @param {string} key - Preference key
- * @param {any} value - Preference value
- */
-function setPreference(key, value) {
-  // Handle nested preferences
-  if (key.includes('.')) {
-    const [section, setting] = key.split('.');
-    if (preferences[section] && setting in preferences[section]) {
-      preferences[section][setting] = value;
-    }
-  } else if (key in preferences) {
-    preferences[key] = value;
-  }
-  
-  savePreferences();
-}
-
-/**
- * Reset preferences to default values
- */
-function resetPreferences() {
-  Object.assign(preferences, defaultPreferences);
-  savePreferences();
-}
-
-// Export store
-export default {
-  // State
-  preferences,
-  
-  // Getters
-  get useImperial() { return preferences.units.useImperial; },
-  get darkMode() { return preferences.display.darkMode; },
-  
-  // Actions
-  formatValue,
-  getFormattedValueDetails,
-  toggleUnits,
-  setPreference,
-  resetPreferences
-};
+// Export the store definition only, let Pinia handle instantiation
+export default usePreferencesStore;

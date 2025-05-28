@@ -28,11 +28,15 @@
           <ion-label>Device Configuration</ion-label>
         </ion-item> -->
 
+        <!-- Unit Preferences -->
         <ion-item>
           <ion-icon :icon="options" slot="start"></ion-icon>
           <ion-label>Unit Preferences</ion-label>
         </ion-item>
         <unit-preferences-editor />
+        
+        <!-- Logging Preferences -->
+        <logging-preferences />
       </ion-list>
     </ion-content>
   </ion-page>
@@ -40,17 +44,28 @@
 
 <script setup>
 import { IonPage, IonContent, IonList, IonItem, IonLabel, IonIcon } from "@ionic/vue";
-import { personCircle, logOut, desktop, options } from "ionicons/icons";
+import { personCircle, logOut, options } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import GenericHeader from "@/client/components/GenericHeader.vue";
 import UnitPreferencesEditor from "@/client/components/UnitPreferencesEditor.vue";
+import LoggingPreferences from "@/client/components/LoggingPreferences.vue";
 
 const router = useRouter();
 
-const logout = () => {
-  localStorage.removeItem("auth_token");
-   router.push("/login");
-
+const logout = async () => {
+  try {
+    // Clear authentication flags
+    localStorage.removeItem('authenticated');
+    localStorage.removeItem('isAuthenticated');
+    
+    // Clear any user-specific preferences or data if needed
+    // await preferencesStore.clearUserData();
+    
+    // Navigate to login page
+    await router.push('/login');
+  } catch (error) {
+    console.error('Error during logout:', error);
+  }
 };
 </script>
 

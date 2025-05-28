@@ -1,52 +1,59 @@
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
+import { IonicVue } from '@ionic/vue';
 import { startSmartConnectionManager } from '@client/services/smartConnectionManager.js';
-
-console.log('[MAIN] Creating SmartConnectionManager or DirectConnectionAdapter');
-startSmartConnectionManager();
-
-import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import App from './App.vue'
+import { createLogger } from './client/services/logger.js';
+import App from './App.vue';
 import router from './router';
 
-import { IonicVue } from '@ionic/vue';
-
-const pinia = createPinia();
-
-/* Core CSS required for Ionic components to work properly */
+// Import Ionic CSS
 import '@ionic/vue/css/core.css';
-
-/* Basic CSS for apps built with Ionic */
 import '@ionic/vue/css/normalize.css';
 import '@ionic/vue/css/structure.css';
 import '@ionic/vue/css/typography.css';
-
-/* Optional CSS utils that can be commented out */
 import '@ionic/vue/css/padding.css';
 import '@ionic/vue/css/float-elements.css';
 import '@ionic/vue/css/text-alignment.css';
 import '@ionic/vue/css/text-transformation.css';
 import '@ionic/vue/css/flex-utils.css';
 import '@ionic/vue/css/display.css';
-
-/**
- * Ionic Dark Mode
- * -----------------------------------------------------
- * For more info, please see:
- * https://ionicframework.com/docs/theming/dark-mode
- */
-
-/* @import '@ionic/vue/css/palettes/dark.always.css'; */
-/* @import '@ionic/vue/css/palettes/dark.class.css'; */
 import '@ionic/vue/css/palettes/dark.system.css';
-
-/* Theme variables */
 import './theme/variables.css';
 
-const app = createApp(App)
-  .use(pinia)
-  .use(IonicVue)
-  .use(router);
+// Create Pinia and app
+const pinia = createPinia();
+const app = createApp(App);
 
+// Setup Pinia first
+app.use(pinia);
+
+// Now that Pinia is set up, we can create the logger
+const logger = createLogger('main');
+
+// Log app initialization
+logger.info('===== Application Initialization =====');
+logger.info(`Environment: ${import.meta.env.MODE || 'development'}`);
+logger.info('Starting connection management system...');
+
+// Initialize the smart connection manager which will handle direct/relay connections
+try {
+  startSmartConnectionManager();
+  logger.info('Connection management system started successfully');
+} catch (error) {
+  logger.error('Failed to start connection management system', {
+    error: error instanceof Error ? error.message : 'Unknown error',
+    stack: error instanceof Error ? error.stack : undefined
+  });
+  throw error; // Re-throw to prevent app from starting in a bad state
+}
+
+// Configure Vue app
+app.use(IonicVue).use(router);
+
+logger.info('Vue application created and configured');
+
+// Wait for router to be ready before mounting
 router.isReady().then(() => {
   app.mount('#app');
+  logger.info('Application mounted');
 });
