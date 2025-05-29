@@ -27,33 +27,70 @@ const app = createApp(App);
 // Setup Pinia first
 app.use(pinia);
 
-// Now that Pinia is set up, we can create the logger
+// Import the preferences store
+import { usePreferencesStore } from './client/stores/preferences'; // No .ts extension
+
+// Create a function to initialize the store after Pinia is set up
+const initializeStores = () => {
+  const preferencesStore = usePreferencesStore();
+  
+  if (import.meta.env.DEV) {
+    console.log('Preferences store initialized:', {
+      store: preferencesStore,
+      methods: Object.getOwnPropertyNames(Object.getPrototypeOf(preferencesStore)),
+      hasSavePreferences: typeof preferencesStore.savePreferences === 'function'
+    });
+  }
+  
+  return { preferencesStore };
+};
+
+// Create the logger early
 const logger = createLogger('main');
 
-// Log app initialization
-logger.info('===== Application Initialization =====');
-logger.info(`Environment: ${import.meta.env.MODE || 'development'}`);
-logger.info('Starting connection management system...');
+// Initialize stores after Pinia is set up
+const initApp = async () => {
+  try {
+    // Initialize stores
+    const { preferencesStore } = initializeStores();
+    
+    // Wait for store to initialize if needed
+    if (preferencesStore.init) {
+      await preferencesStore.init();
+    }
+    
+    // Setup other plugins
+    app.use(router);
+    app.use(IonicVue);
+    
+    // Log app initialization
+    logger.info('===== Application Initialization =====');
+    logger.info(`Environment: ${import.meta.env.MODE || 'development'}`);
+    logger.info('Starting connection management system...');
 
-// Initialize the smart connection manager which will handle direct/relay connections
-try {
-  startSmartConnectionManager();
-  logger.info('Connection management system started successfully');
-} catch (error) {
-  logger.error('Failed to start connection management system', {
-    error: error instanceof Error ? error.message : 'Unknown error',
-    stack: error instanceof Error ? error.stack : undefined
-  });
-  throw error; // Re-throw to prevent app from starting in a bad state
-}
+    // Initialize the smart connection manager
+    try {
+      startSmartConnectionManager();
+      logger.info('Connection management system started successfully');
+    } catch (error) {
+      logger.error('Failed to start connection management system', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      // Don't rethrow - we still want the app to mount
+    }
 
-// Configure Vue app
-app.use(IonicVue).use(router);
+    // Mount the app
+    app.mount('#app');
+    logger.info('Application mounted');
+  } catch (error) {
+    console.error('Failed to initialize app:', error);
+    // Still mount the app even if initialization fails
+    app.use(router);
+    app.use(IonicVue);
+    app.mount('#app');
+  }
+};
 
-logger.info('Vue application created and configured');
-
-// Wait for router to be ready before mounting
-router.isReady().then(() => {
-  app.mount('#app');
-  logger.info('Application mounted');
-});
+// Start the app
+initApp();

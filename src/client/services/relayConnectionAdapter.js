@@ -12,6 +12,8 @@ import { remoteLogger } from '../utils/remoteLogger';
 
 const logger = createLogger('relay-adapter');
 
+console.log("LOGGER", logger);
+
 class RelayConnectionAdapter extends EventEmitter {
   constructor() {
     super();

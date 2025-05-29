@@ -39,6 +39,7 @@ function getCallerInfo() {
         return `[${fileName}:${lineNum}]`;
       }
     }
+    return ''; // Return empty string if no match found in the loop
   } catch (e) {
     // Don't log the error to avoid infinite loops
     return '';
@@ -92,26 +93,34 @@ function formatObject(obj) {
 
 // Check if logging is enabled for a specific level and namespace
 async function isLoggingEnabled(level, namespace) {
-  // Default to true for error and warn levels if we can't access preferences
-  if (level === 'error' || level === 'warn') {
-    return true;
-  }
-  
-  // For other levels, check preferences if available
   try {
     const preferencesStore = await getPreferencesStore();
-    // If we got here, Pinia is available
-    const prefs = preferencesStore.logging || {};
+    // Use optional chaining and nullish coalescing for safety
+    const loggingPrefs = preferencesStore?.preferences?.logging ?? DEFAULT_LOGGING_PREFS;
     
-    // Check if logging is enabled for this level and namespace
-    return prefs[level] !== false && 
-           (!namespace || !prefs.disabledNamespaces?.includes(namespace));
-  } catch (error) {
-    // If we can't access preferences (Pinia not initialized), use safe defaults
-    if (level === 'debug' || level === 'data') {
-      return false; // Disable debug/data logs by default when Pinia isn't available
+    // Update the cache if we want remote logging to be dynamic (optional step for later)
+    // Object.assign(cachedLoggingPrefs, loggingPrefs);
+
+    // Check level-specific toggle
+    if (loggingPrefs[level] === false) {
+      return false;
     }
-    return true; // Enable info/warn/error logs by default
+
+    // Check if the namespace is in the list of *disabled* namespaces
+    // Assumes loggingPrefs.namespaces is an array of strings representing disabled namespaces.
+    if (namespace && Array.isArray(loggingPrefs.namespaces) && loggingPrefs.namespaces.includes(namespace)) {
+      return false; // Namespace is explicitly disabled
+    }
+    
+    // If not disabled by level or by being in the disabled namespaces list, it's enabled.
+    return true;
+
+  } catch (error) {
+    console.error('[LOGGER] Error accessing preferences store in isLoggingEnabled:', error);
+    // Fallback to default behavior or cached preferences in case of error
+    // Assuming DEFAULT_LOGGING_PREFS.disabledNamespaces is also a list of disabled namespaces
+    return DEFAULT_LOGGING_PREFS[level] !== false && 
+           !(namespace && Array.isArray(DEFAULT_LOGGING_PREFS.disabledNamespaces) && DEFAULT_LOGGING_PREFS.disabledNamespaces.includes(namespace));
   }
 }
 
@@ -122,6 +131,8 @@ export function createLogger(namespace) {
   
   // Default to info level
   logger.setDefaultLevel('info');
+  
+  // logger.setLevel is available synchronously from loglevel, no await needed here.
   
   // Create a proxy to handle the logging
   const proxyLogger = new Proxy({}, {

@@ -250,14 +250,14 @@ export const usePreferencesStore = defineStore('preferences', () => {
 
   // Helper functions
   function loadSavedPreferences() {
-    logger.info('Loading preferences from localStorage');
+    logger('Loading preferences from localStorage');
     try {
       const savedPrefs = localStorage.getItem('userPreferences');
       if (savedPrefs) {
-        logger.info('Found saved preferences');
+        logger('Found saved preferences');
         return JSON.parse(savedPrefs);
       }
-      logger.info('No saved preferences found, using defaults');
+      logger('No saved preferences found, using defaults');
       return JSON.parse(JSON.stringify(defaultPreferences));
     } catch (error) {
       logger.error('Error loading preferences from localStorage:', error);
@@ -267,14 +267,11 @@ export const usePreferencesStore = defineStore('preferences', () => {
 
   async function savePreferences() {
     try {
-      // Attempt to stringify first to catch serialization errors more directly
-      const preferencesString = JSON.stringify(preferences);
-      localStorage.setItem('userPreferences', preferencesString);
-      logger.info('Preferences saved to localStorage'); // Corrected logger call
+      localStorage.setItem('userPreferences', JSON.stringify(preferences));
+      logger('Preferences saved to localStorage');
       return true;
     } catch (error) {
-      // Log both the error and the preferences object for better debugging
-      logger.error('Error saving preferences. Error:', error, 'Preferences object:', preferences);
+      logger.error('Error saving preferences:', error);
       return false;
     }
   }
@@ -318,7 +315,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
     setLoggingPreference,
     setRemoteLogging,
     applyLoggingPreferences,
-    savePreferences, // Expose savePreferences as an action
+    savePreferences,
   };
 });
 
