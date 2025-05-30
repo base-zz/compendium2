@@ -13,6 +13,8 @@
     "module": "ESNext",
     "moduleResolution": "Node",
     "strict": true,
+    "allowJs": true,
+    "checkJs": true,
     "jsx": "preserve",
     "resolveJsonModule": true,
     "isolatedModules": true,

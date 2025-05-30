@@ -5,6 +5,9 @@ import { createWidgetModel } from "@/shared/widgetModel";
 import crypto from 'crypto';
 import { createLogger } from '../services/logger';
 
+/** @type {import('@/shared/types').Dashboard[]} */
+let dashboardsList = [];
+
 const logger = createLogger('dashboard-store');
 
 // Storage key constant
@@ -14,8 +17,8 @@ const DASHBOARD_STORAGE_KEY = "navcc_dashboards";
  * Dashboard store for managing dashboard configurations
  */
 export const useDashboardStore = defineStore("dashboards", () => {
-  /* the dashboards container */
-  const dashboards = ref([]);
+  /** @type {import('vue').Ref<import('@/shared/types').Dashboard[]>} */
+  const dashboards = ref(dashboardsList);
   const isInitialized = ref(false);
   const currentDashboardIndex = ref(0);
 
@@ -24,6 +27,11 @@ export const useDashboardStore = defineStore("dashboards", () => {
     return JSON.parse(JSON.stringify(dashboards.value));
   }
 
+  /**
+   * Get dashboard by index
+   * @param {number} index - Index of the dashboard to retrieve
+   * @returns {import('@/shared/types').Dashboard | null}
+   */
   const getDashboard = (index) => {
     logger.debug(`Getting dashboard at index ${index}`);
     if (typeof index === 'undefined' || index < 0 || index >= dashboards.value.length) {
@@ -37,25 +45,27 @@ export const useDashboardStore = defineStore("dashboards", () => {
 
   /* init from preferences */
   const init = async () => {
+    /** @type {Error | null} */
+    let error = null;
     if (isInitialized.value) {
       logger.debug('Already initialized');
       return;
     }
     
-    logger('Initializing dashboard store...');
+    logger.debug('Initializing dashboard store...');
     try {
       const { value } = await Preferences.get({ key: DASHBOARD_STORAGE_KEY });
       
       if (value) {
-        logger('Loading dashboards from storage');
+        logger.debug('Loading dashboards from storage');
         dashboards.value = JSON.parse(value);
-        logger(`Loaded ${dashboards.value.length} dashboards`);
+        logger.debug(`Loaded ${dashboards.value.length} dashboards`);
       } else {
-        logger('No dashboards found in storage');
+        logger.debug('No dashboards found in storage');
       }
       
       isInitialized.value = true;
-      logger('Dashboard store initialized successfully');
+      logger.debug('Dashboard store initialized successfully');
     } catch (error) {
       logger.error('Error initializing dashboard store', {
         error: error.message,
@@ -65,18 +75,24 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Get all dashboards
+   * @returns {Promise<import('@/shared/types').Dashboard[]>}
+   */
   const getDashboards = async () => {
-    logger('Fetching all dashboards');
+    /** @type {Error | null} */
+    let error = null;
+    logger.debug('Fetching all dashboards');
     await init();
     try {
       const { value } = await Preferences.get({ key: DASHBOARD_STORAGE_KEY });
       if (value) {
         const parsed = JSON.parse(value);
         dashboards.value = parsed;
-        logger(`Retrieved ${parsed.length} dashboards`);
+        logger.debug(`Retrieved ${parsed.length} dashboards`);
         return parsed;
       }
-      logger('No dashboards found in storage');
+      logger.debug('No dashboards found in storage');
       return [];
     } catch (error) {
       logger.error('Error fetching dashboards', {
@@ -87,8 +103,13 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Add a new dashboard
+   * @param {Omit<import('@/shared/types').Dashboard, 'id'>} dashboard - Dashboard to add
+   * @returns {Promise<void>}
+   */
   const addDashboard = async (dashboard) => {
-    logger('Adding new dashboard');
+    logger.debug('Adding new dashboard');
     await init();
     // Ensure widgets array exists
     if (!dashboard.widgets) {
@@ -116,8 +137,15 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Create a new dashboard with default values
+   * @param {string} [name="New Dashboard"] - Name for the new dashboard
+   * @returns {Promise<import('@/shared/types').Dashboard>}
+   */
   const newDashboard = async (name = "New Dashboard") => {
-    logger('Creating new dashboard');
+    /** @type {Error | null} */
+    let error = null;
+    logger.debug('Creating new dashboard');
     await init();
     const dashboard = {
       name,
@@ -146,8 +174,13 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Delete a dashboard by index
+   * @param {number} index - Index of the dashboard to delete
+   * @returns {Promise<void>}
+   */
   const deleteDashboard = async (index) => {
-    logger('Deleting dashboard at index', index);
+    logger.debug(`Deleting dashboard at index ${index}`);
     await init();
     if (index > -1) {
       // Remove the dashboard
@@ -174,14 +207,20 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Delete all dashboards
+   * @returns {Promise<void>}
+   */
   const deleteAllDashboards = async () => {
-    logger('Deleting all dashboards');
+    /** @type {Error | null} */
+    let error = null;
+    logger.debug('Deleting all dashboards');
     await init();
     // Clear all dashboards
     dashboards.value = [];
     
     const saveDashboards = async () => {
-      logger('Saving dashboards to storage');
+      logger.debug('Saving dashboards to storage');
       try {
         const cleanDashboards = getCleanDashboards();
         logger(`Saving ${cleanDashboards.length} dashboards`);
@@ -203,8 +242,14 @@ export const useDashboardStore = defineStore("dashboards", () => {
     await saveDashboards();
   };
 
+  /**
+   * Update a dashboard
+   * @param {number} index - Index of the dashboard to update
+   * @param {Partial<import('@/shared/types').Dashboard>} dashboard - Updated dashboard data
+   * @returns {Promise<void>}
+   */
   const updateDashboard = async (index, dashboard) => {
-    logger('Updating dashboard at index', index);
+    logger.debug(`Updating dashboard at index ${index}`);
     await init();
     if (index > -1) {
       // Create a clean copy of the dashboard
@@ -234,6 +279,12 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Update dashboard layout
+   * @param {number} index - Index of the dashboard to update
+   * @param {any} layout - New layout configuration
+   * @returns {Promise<void>}
+   */
   const updateLayout = async (index, layout) => {
     await init();
     if (index > -1 && dashboards.value[index]) {
@@ -283,6 +334,12 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Add a widget to a dashboard
+   * @param {number} dashboardIndex - Index of the dashboard
+   * @param {Omit<import('@/shared/types').Widget, 'id'>} widget - Widget to add
+   * @returns {Promise<void>}
+   */
   const addWidget = async (dashboardIndex, widget) => {
     console.log('dashboardStore - addWidget called with dashboardIndex:', dashboardIndex, 'widget:', widget);
     await init();
@@ -342,6 +399,13 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Update a widget in a dashboard
+   * @param {number} dashboardIndex - Index of the dashboard
+   * @param {string} widgetId - ID of the widget to update
+   * @param {Partial<import('@/shared/types').Widget>} updatedWidget - Updated widget data
+   * @returns {Promise<void>}
+   */
   const updateWidget = async (dashboardIndex, widgetId, updatedWidget) => {
     console.log('Updating widget:', { dashboardIndex, widgetId, updatedWidget });
     await init();
@@ -414,6 +478,12 @@ export const useDashboardStore = defineStore("dashboards", () => {
     }
   };
 
+  /**
+   * Remove a widget from a dashboard
+   * @param {number} dashboardIndex - Index of the dashboard
+   * @param {string} widgetId - ID of the widget to remove
+   * @returns {Promise<void>}
+   */
   const removeWidget = async (dashboardIndex, widgetId) => {
     await init();
     if (dashboardIndex > -1 && dashboards.value[dashboardIndex]) {

@@ -58,21 +58,7 @@
       </ion-item>
     </ion-list>
 
-    <!-- Logger Selection -->
-    <ion-list v-if="availableLoggers.length > 0">
-      <ion-list-header>
-        <ion-label>Logger Selection</ion-label>
-      </ion-list-header>
-      <ion-item v-for="logger in availableLoggers" :key="logger">
-        <ion-label>{{ capitalize(logger) }}</ion-label>
-        <ion-toggle
-          :checked="isLoggerEnabled(logger)"
-          @ionChange="toggleLogger(logger, $event.detail.checked)"
-        ></ion-toggle>
-      </ion-item>
-    </ion-list>
-
-    <!-- Reset Button -->
+<!-- Reset Button -->
     <ion-button expand="block" fill="clear" @click="resetLogging">
       <ion-icon :icon="bug" slot="start"></ion-icon>
       Reset to Defaults
@@ -80,24 +66,10 @@
   </div>
 </template>
 
-<script setup>
-import { computed, onMounted, ref } from "vue";
-import { bug, close } from "ionicons/icons";
-import { usePreferencesStore } from "@client/stores/preferences";
-
-// Debug store import
-console.log('usePreferencesStore function:', typeof usePreferencesStore);
-
-// Initialize the store
-const preferencesStore = usePreferencesStore();
-
-// Debug store instance
-console.log('preferencesStore instance:', preferencesStore);
-console.log('Store methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(preferencesStore)));
-console.log('preferences property:', preferencesStore.preferences);
-console.log('Has savePreferences:', typeof preferencesStore.savePreferences === 'function');
-console.log('Has setLoggingPreference:', typeof preferencesStore.setLoggingPreference === 'function');
-
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import { bug } from 'ionicons/icons';
+import { usePreferencesStore } from '@client/stores/preferences';
 import {
   IonLabel,
   IonList,
@@ -108,212 +80,108 @@ import {
   IonIcon,
   toastController,
   loadingController,
-} from "@ionic/vue";
+} from '@ionic/vue';
 
-// Import the close icon from ionicons
-const closeIcon = close;
-
-
-// Debug what's actually available in the store
-onMounted(() => {
-  console.log('Full store instance:', preferencesStore)
-  console.log('Available methods:', Object.keys(preferencesStore))
-  
-  // Try to access setLoggingPreference directly
-  if (preferencesStore.setLoggingPreference) {
-    console.log('setLoggingPreference is a:', typeof preferencesStore.setLoggingPreference)
-  } else {
-    console.error('setLoggingPreference is MISSING from store instance')
-  }
-})
-
+const preferencesStore = usePreferencesStore();
 const isLoading = ref(true);
-const availableLoggers = ref([
-  { name: "app", description: "Application logs" },
-  { name: "state", description: "State management logs" },
-  { name: "data", description: "Data logging" },
-  { name: "network", description: "Network requests" },
-  { name: "error", description: "Error logs" },
-]);
 
-// Get current logging preferences with safe defaults
-const logging = computed(() => {
+interface LoggingState {
+  remote: boolean;
+  debug: boolean;
+  data: boolean;
+  info: boolean;
+  warn: boolean;
+  error: boolean;
+  namespaces: string[];
+  [key: string]: boolean | string[];
+}
+
+const logging = computed<LoggingState>(() => {
   const prefs = preferencesStore.preferences?.logging || {};
   return {
-    debug: prefs.debug ?? false,
-    data: prefs.data ?? false,
-    info: prefs.info ?? true,
-    warn: prefs.warn ?? true,
-    error: prefs.error ?? true,
-    remote: prefs.remote ?? false,
-    namespaces: [...(prefs.namespaces || [])],
+    remote: Boolean(prefs.remote),
+    debug: Boolean(prefs.debug),
+    data: Boolean(prefs.data),
+    info: Boolean(prefs.info),
+    warn: Boolean(prefs.warn),
+    error: Boolean(prefs.error),
+    namespaces: Array.isArray(prefs.namespaces) ? prefs.namespaces : []
   };
 });
 
-// Initialize the store
-const initializeStore = async () => {
+const presentToast = async (message: string, color: string = 'primary') => {
   try {
-    // Show loading indicator
+    const toast = await toastController.create({
+      message,
+      duration: 2000,
+      color,
+      position: 'bottom',
+      buttons: [{
+        icon: 'close',
+        role: 'cancel'
+      }]
+    });
+    await toast.present();
+  } catch (error) {
+    console.error('Error presenting toast:', error);
+  }
+};
+
+const updatePreference = async (key: string, value: boolean) => {
+  try {
+    (preferencesStore as unknown as PreferencesState).$patch((state: any) => {
+      if (!state.preferences) state.preferences = {};
+      if (!state.preferences.logging) state.preferences.logging = {};
+      state.preferences.logging[key] = value;
+    });
+    
+    await (preferencesStore as unknown as PreferencesState).savePreferences();
+    await (preferencesStore as unknown as PreferencesState).applyLoggingPreferences();
+    presentToast(`${key} logging ${value ? 'enabled' : 'disabled'}`);
+  } catch (error) {
+    console.error('Failed to update preference:', error);
+    presentToast('Failed to update preference', 'danger');
+  }
+};
+
+const updateLoggingPreference = (key: string, value: boolean) => {
+  updatePreference(key, value);
+};
+
+const updateRemoteLogging = (key: string, value: boolean) => {
+  updatePreference(key, value);
+};
+
+const resetLogging = async () => {
+  try {
+    await (preferencesStore as unknown as PreferencesState).resetLoggingPreferences();
+    presentToast('Logging preferences reset to defaults', 'success');
+  } catch (error) {
+    console.error('Failed to reset logging preferences:', error);
+    presentToast('Failed to reset logging preferences', 'danger');
+  }
+};
+
+onMounted(async () => {
+  try {
     const loading = await loadingController.create({
-      message: "Loading preferences...",
-      spinner: "crescent",
+      message: 'Loading preferences...',
+      spinner: 'crescent',
     });
 
     await loading.present();
 
-    // Ensure we have preferences loaded
-    if (!preferencesStore.preferences) {
-      // If no preferences exist, they will be loaded from localStorage by the store
-      console.log("Waiting for preferences to be loaded...");
-      // Wait a moment for the store to initialize
+    if (!(preferencesStore as any).preferences) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
     await loading.dismiss();
     isLoading.value = false;
   } catch (error) {
-    console.error("Failed to initialize preferences store:", error);
-    presentToast("Failed to load preferences. Please refresh the page.", "danger");
-    isLoading.value = false;
+    console.error('Failed to initialize preferences store:', error);
+    presentToast('Failed to load preferences. Please refresh the page.', 'danger');
   }
-};
-
-// Initialize on mount
-onMounted(initializeStore);
-onMounted(() => {
-  console.log("Store methods:", Object.keys(preferencesStore));
 });
-
-
-// Check if a logger is enabled
-const isLoggerEnabled = (namespace) => {
-  return logging.value.namespaces.includes(namespace);
-};
-
-// Present toast notification
-const presentToast = async (message, color = "primary") => {
-  try {
-    const toast = await toastController.create({
-      message: message,
-      duration: 2000,
-      position: "bottom",
-      color: color,
-      buttons: [
-        {
-          icon: closeIcon,
-          role: "cancel",
-        },
-      ],
-    });
-    await toast.present();
-  } catch (error) {
-    console.error("Failed to show toast:", error);
-  }
-};
-
-// Update a single logging preference
-const updatePreference = async (key, value) => {
-  try {
-    console.log(`Updating preference: ${key} =`, value);
-    
-    // Update the preference in the store
-    preferencesStore.$patch((state) => {
-      // Ensure preferences object exists
-      if (!state.preferences) {
-        state.preferences = {};
-      }
-      // Ensure logging object within preferences exists
-      if (!state.preferences.logging) {
-        state.preferences.logging = {};
-      }
-      state.preferences.logging[key] = value;
-    });
-    
-    // Save the preferences
-    await preferencesStore.savePreferences();
-    
-    // Apply the logging preferences
-    await preferencesStore.applyLoggingPreferences();
-
-    presentToast(`${key} logging ${value ? "enabled" : "disabled"}`);
-  } catch (error) {
-    console.error("Failed to update preference:", error);
-    presentToast(`Failed to update preference: ${error.message}`, "danger");
-  }
-};
-
-// Toggle a logger namespace
-const toggleLogger = async (namespace, enabled) => {
-  try {
-    const currentNamespaces = [
-      ...(preferencesStore.preferences?.logging?.namespaces || []),
-    ];
-    let newNamespaces;
-
-    if (enabled) {
-      // Add the namespace if it's not already there
-      newNamespaces = [...new Set([...currentNamespaces, namespace])];
-    } else {
-      // Remove the namespace
-      newNamespaces = currentNamespaces.filter((ns) => ns !== namespace);
-    }
-
-    // Update the namespaces in the store using $patch
-    preferencesStore.$patch((state) => {
-      if (!state.preferences.logging) {
-        state.preferences.logging = {};
-      }
-      state.preferences.logging.namespaces = newNamespaces;
-    });
-
-    // Save the preferences
-    await preferencesStore.savePreferences();
-
-    // Apply the logging preferences
-    preferencesStore.applyLoggingPreferences();
-
-    presentToast(`${namespace} logger ${enabled ? "enabled" : "disabled"}`);
-  } catch (error) {
-    console.error("Failed to toggle logger:", error);
-    presentToast("Failed to update logger", "danger");
-  }
-};
-
-// Reset all logging preferences to defaults
-const resetLogging = async () => {
-  try {
-    if (!confirm("Are you sure you want to reset all logging preferences to defaults?")) {
-      return;
-    }
-
-    await preferencesStore.resetLoggingPreferences();
-    presentToast("Logging preferences reset to defaults");
-  } catch (error) {
-    console.error("Failed to reset logging preferences:", error);
-    presentToast("Failed to reset preferences", "danger");
-  }
-};
-
-// Alias for template compatibility
-const updateLoggingPreference = (key, value) => {
-  if (key === "namespaces") {
-    toggleLogger(value, true);
-  } else {
-    updatePreference(key, value);
-  }
-};
-
-// Alias for remote logging toggle
-const updateRemoteLogging = (key, value) => {
-  updatePreference(key, value);
-};
-
-// Helper to capitalize first letter
-const capitalize = (value) => {
-  if (!value && value !== 0) return "";
-  const str = String(value);
-  return str.charAt(0).toUpperCase() + str.slice(1);
-};
 </script>
 
 <style scoped>

@@ -37,6 +37,13 @@
         
         <!-- Logging Preferences -->
         <logging-preferences />
+        
+        <!-- Connection Status -->
+        <ion-item>
+          <ion-icon :icon="wifi" slot="start"></ion-icon>
+          <ion-label>Connection Status</ion-label>
+        </ion-item>
+        <connectivity-component />
       </ion-list>
     </ion-content>
   </ion-page>
@@ -44,11 +51,12 @@
 
 <script setup>
 import { IonPage, IonContent, IonList, IonItem, IonLabel, IonIcon } from "@ionic/vue";
-import { personCircle, logOut, options } from "ionicons/icons";
+import { personCircle, logOut, options, wifi } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import GenericHeader from "@/client/components/GenericHeader.vue";
 import UnitPreferencesEditor from "@/client/components/UnitPreferencesEditor.vue";
 import LoggingPreferences from "@/client/components/LoggingPreferences.vue";
+import ConnectivityComponent from "@/client/components/ConnectivityComponent.vue";
 
 const router = useRouter();
 

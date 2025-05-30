@@ -352,6 +352,7 @@ export class RelayConnectionBridge {
             this.reconnectAttempts = 0;
             this.isReconnecting = false;
             this.emit("connection-status", this.connectionState);
+            this.emit('vps-connection-status', { status: 'connected' });
 
             // Immediately request the full state from the server
             this._sendMessage({
@@ -457,6 +458,7 @@ export class RelayConnectionBridge {
             if (!this.isReconnecting) {
               this.connectionState.status = "disconnected";
               this.emit("connection-status", this.connectionState);
+              this.emit('vps-connection-status', { status: 'disconnected' });
 
               // Attempt to reconnect
               this._attemptReconnect();
@@ -491,6 +493,7 @@ export class RelayConnectionBridge {
               lastError: "WebSocket connection error",
             };
             this.emit("connection-status", this.connectionState);
+            this.emit('vps-connection-status', { status: 'error', error: error.message });
 
             // If we're still in the connecting state, reject the promise
             if (this.connectionState.status === "connecting") {
@@ -545,6 +548,7 @@ export class RelayConnectionBridge {
       lastError: null,
     };
     this.emit("connection-status", this.connectionState);
+    this.emit('vps-connection-status', { status: 'reconnecting' });
 
     if (this.reconnectAttempts < maxReconnectAttempts) {
       this.reconnectAttempts++;
@@ -568,8 +572,8 @@ export class RelayConnectionBridge {
           this.connect();
         } catch (error) {
           this._log('ERROR', 'Error during reconnection attempt', {
-            error: error.message,
-            stack: error.stack,
+            error: error?.message,
+            stack: error?.stack,  
             attempt: this.reconnectAttempts,
             maxAttempts: maxReconnectAttempts
           });
@@ -577,7 +581,7 @@ export class RelayConnectionBridge {
           // Update connection state
           this.connectionState = {
             status: "error",
-            lastError: `Reconnection failed: ${error.message}`,
+            lastError: `Reconnection failed: ${error?.message}`,
           };
           this.emit("connection-status", this.connectionState);
           
@@ -610,6 +614,30 @@ export class RelayConnectionBridge {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
       console.log('[RELAY-CLIENT][DEBUG] Stopped heartbeat interval');
+    }
+  }
+
+  /**
+   * Start heartbeat to keep connection alive
+   */
+  _startHeartbeat() {
+    this._stopHeartbeat(); // Clear any existing interval
+
+    this.heartbeatInterval = setInterval(() => {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        try {
+          this._sendMessage({
+            type: "ping",
+            timestamp: Date.now(),
+          });
+        } catch (error) {
+          console.error('[RELAY-CLIENT] Error sending heartbeat:', error);
+        }
+      }
+    }, this.config.heartbeatInterval || 30000); // Default to 30 seconds if not configured
+
+    if (this.config.relayDebug) {
+      console.log('[RELAY-CLIENT][DEBUG] Started heartbeat interval');
     }
   }
 
@@ -1343,11 +1371,18 @@ export class RelayConnectionBridge {
     if (this.socket) {
       try {
         this.socket.close();
+        // Emit disconnected status when WebSocket is closed
+        this.emit('vps-connection-status', { status: 'disconnected' });
       } catch (e) {
         console.warn(
           "[RELAY-CLIENT] Error closing socket during disconnect:",
           e
         );
+        // Emit error status if disconnect fails
+        this.emit('vps-connection-status', { 
+          status: 'error', 
+          error: e.message 
+        });
       }
       this.socket = null;
     }

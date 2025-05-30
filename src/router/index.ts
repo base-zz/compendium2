@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "@ionic/vue-router";
+import { useBoatConnectionStore } from "@client/stores/boatConnection";
 import AnchorView from "@client/views/AnchorView.vue";
 import SplashScreen from "@client/views/SplashScreen.vue";
 import Settings from "@client/views/SettingsView.vue";
@@ -10,6 +11,7 @@ import SailView from "@client/views/SailView.vue";
 import ConnectionStatusExample from "@client/examples/ConnectionStatusExample.vue";
 import DashboardView from "@client/views/DashboardView.vue";
 import HomePage from "@client/views/HomePage.vue";
+import BoatPairing from "@client/components/onboarding/BoatPairing.vue";
 const routes = [
   {
     path: "/:pathMatch(.*)*",
@@ -17,7 +19,12 @@ const routes = [
     meta: { title: "Page Not Found" },
     component: () => import("@client/views/NotFoundView.vue"),
   },
-
+  {
+    path: "/pair",
+    name: "BoatPairing",
+    component: BoatPairing,
+    meta: { requiresAuth: false, title: "Connect to Boat" },
+  },
   {
     path: "/",
     name: "Splash",
@@ -218,18 +225,52 @@ const router = createRouter({
   },
 });
 
+// Boat connection guard
+router.beforeEach(async (to, from, next) => {
+  // Skip for auth pages and pairing page
+  if (!to.meta.requiresAuth || to.name === 'BoatPairing') {
+    return next();
+  }
+
+  const boatStore = useBoatConnectionStore();
+  
+  // If we're already connected, proceed
+  if (boatStore.isConnected) {
+    return next();
+  }
+  
+  // If we have a boat ID but not connected, try to connect
+  if (boatStore.boatId) {
+    try {
+      await boatStore.initializeConnection();
+      return next();
+    } catch (error) {
+      console.error('Boat connection failed:', error);
+      return next({ name: 'BoatPairing' });
+    }
+  }
+  
+  // No boat ID and not connected, go to pairing
+  return next({ name: 'BoatPairing' });
+});
+
 // Add navigation guard for page transitions
 router.beforeEach((to, from, next) => {
+  // Skip for boat pairing to prevent transition
+  if (to.name === 'BoatPairing') {
+    return next();
+  }
+  
   // Add transition class to the root element
-  const app = document.getElementById("app");
+  const app = document.getElementById('app');
   if (app) {
-    app.classList.add("page-transition");
+    app.classList.add('page-transition');
   }
 
   // Remove the class after the transition ends
   const removeTransitionClass = () => {
     if (app) {
-      app.classList.remove("page-transition");
+      app.classList.remove('page-transition');
     }
     document.removeEventListener("transitionend", removeTransitionClass);
   };
