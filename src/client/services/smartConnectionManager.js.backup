@@ -2,7 +2,6 @@
 // Seamless hot-swapping connection manager for direct/relay
 import { stateUpdateProvider } from './stateUpdateProvider.js';
 import { createLogger } from './logger.js';
-import { directConnectionAdapter } from './directConnectionAdapter.js';
 
 const logger = createLogger('smart-connection');
 
@@ -28,7 +27,8 @@ const getWebSocketUrl = () => {
 // Use the same URL determination logic as DirectConnectionAdapter
 const DIRECT_WS_URL = getWebSocketUrl();
 
-// Track the current connection mode
+// We'll store the active WebSocket connection here when established
+let activeConnection = null;
 let currentMode = null;
 let notificationElement = null;
 let notificationTimeout = null;
@@ -49,8 +49,7 @@ function getPlatformInfo() {
   return platform;
 }
 
-
-// Test DNS resolution for a hostname// Test DNS resolution for a hostname
+// Test DNS resolution for a hostname
 async function testDnsResolution(hostname) {
   logger.debug(`Testing DNS resolution for ${hostname}`);
   
@@ -60,24 +59,41 @@ async function testDnsResolution(hostname) {
     hostname = url.hostname;
   }
   
-  // For localhost or IP addresses, just return true
-  if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
-    logger.debug(`Using localhost or IP address: ${hostname}`);
-    return true;
-  }
-  
-  // For browser environment, we'll try to resolve using a more reliable method
   try {
-    // This creates a URL object which will validate the hostname format
-    // It will throw if the hostname is invalid
-    new URL(`http://${hostname}`);
+    // Use fetch with a timeout to test if the hostname resolves
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
     
-    // If we get here, the hostname is at least syntactically valid
-    // For actual resolution, we'll assume it will work since we can't do DNS lookups in the browser
-    logger.debug(`Hostname ${hostname} is syntactically valid`);
-    return true;
+    // Try to make a request to the hostname to see if DNS resolves
+    logger.info(`Attempting to resolve hostname: ${hostname}`);
+    const testUrl = `http://${hostname}:3009/ping`;
+    
+    try {
+      await fetch(testUrl, {
+        method: 'HEAD',
+        mode: 'no-cors',
+        cache: 'no-cache',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      logger.debug(`DNS resolution for ${hostname} successful`);
+      return true;
+    } catch (fetchError) {
+      // Check if this is a network error (which means DNS resolved) or a DNS error
+      if (fetchError.name === 'TypeError' && fetchError.message.includes('Failed to fetch')) {
+        logger.warn(`Network error but hostname may have resolved: ${hostname}`, fetchError);
+        // This could be a network error after DNS resolution succeeded
+        return 'network_error';
+      } else if (fetchError.name === 'AbortError') {
+        logger.warn(`Request timed out for hostname: ${hostname}`);
+        return 'timeout';
+      }
+      
+      logger.error(`DNS resolution error for ${hostname}:`, fetchError);
+      return false;
+    }
   } catch (error) {
-    logger.warn(`Invalid hostname format: ${hostname}`, error);
+    logger.error(`DNS resolution error for ${hostname}:`, error);
     return false;
   }
 }
@@ -141,21 +157,99 @@ async function testNetworkConnectivity() {
   });
 }
 
+function handleMessage(event) {
+  try {
+    stateUpdateProvider._notify(JSON.parse(event.data));
+  } catch (error) {
+    logger.error('Error processing message:', error);
+  }
+}
+
 async function tryDirectConnection() {
-  if (directConnectionAdapter.connectionState.status === 'connected') {
-    logger.info('Using existing direct connection');
+  // If we already have an active connection that's open, use it
+  if (activeConnection?.readyState === WebSocket.OPEN) {
+    logger.info('Using existing open WebSocket connection');
     return true;
   }
   
-  logger.info('Connecting via directConnectionAdapter...');
-  try {
-    await directConnectionAdapter.connect();
-    logger.info('Direct connection established');
-    return true;
-  } catch (error) {
-    logger.error('Direct connection failed:', error);
-    return false;
+  // If we have an active connection that's connecting, wait for it
+  if (activeConnection?.readyState === WebSocket.CONNECTING) {
+    logger.info('Connection in progress, waiting for it to complete...');
+    return new Promise((resolve) => {
+      const onOpen = () => {
+        activeConnection.removeEventListener('open', onOpen);
+        activeConnection.removeEventListener('error', onError);
+        logger.info('Connection completed successfully');
+        resolve(true);
+      };
+      
+      const onError = (error) => {
+        activeConnection.removeEventListener('open', onOpen);
+        activeConnection.removeEventListener('error', onError);
+        logger.error('Error while waiting for connection:', error);
+        resolve(false);
+      };
+      
+      activeConnection.addEventListener('open', onOpen);
+      activeConnection.addEventListener('error', onError);
+      
+      // Timeout after 2 seconds
+      setTimeout(() => {
+        activeConnection.removeEventListener('open', onOpen);
+        activeConnection.removeEventListener('error', onError);
+        logger.warn('Connection attempt timed out after 2 seconds');
+        resolve(false);
+      }, 2000);
+    });
   }
+  
+  // Otherwise, create a new connection
+  logger.info('Creating new WebSocket connection to:', DIRECT_WS_URL);
+  return new Promise((resolve) => {
+    try {
+      const ws = new WebSocket(DIRECT_WS_URL);
+      activeConnection = ws; // Set as active immediately to prevent multiple attempts
+      
+      ws.onopen = () => {
+        logger.info('WebSocket connection established successfully');
+        ws.onmessage = handleMessage;
+        resolve(true);
+      };
+      
+      ws.onerror = (err) => {
+        const platformInfo = getPlatformInfo();
+        logger.error('WebSocket connection error', {
+          url: DIRECT_WS_URL,
+          errorType: err.type,
+          errorMessage: err.message || 'No message',
+          platform: platformInfo.isIOS ? 'iOS' : platformInfo.isAndroid ? 'Android' : 'Other',
+          capacitor: platformInfo.isCapacitor,
+          readyState: ws.readyState
+        });
+        if (activeConnection === ws) activeConnection = null;
+        resolve(false);
+      };
+      
+      ws.onclose = (event) => {
+        logger.info(`WebSocket connection closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
+        if (activeConnection === ws) activeConnection = null;
+      };
+      
+      // Timeout after 2 seconds
+      setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          logger.warn('WebSocket connection attempt timed out after 2 seconds');
+          ws.close();
+          if (activeConnection === ws) activeConnection = null;
+          resolve(false);
+        }
+      }, 2000);
+    } catch (err) {
+      logger.error('Error creating WebSocket connection:', err);
+      activeConnection = null;
+      resolve(false);
+    }
+  });
 }
 
 /**
@@ -286,13 +380,22 @@ async function autoSwitchConnection() {
   // Only switch if the mode is actually changing
   if (canDirect && currentMode !== 'direct') {
     logger.info('Switching to direct connection mode');
-    await stateUpdateProvider.switchSource('direct');
+    // Use the existing connection when switching to direct mode
+    if (activeConnection && activeConnection.readyState === WebSocket.OPEN) {
+      stateUpdateProvider.switchSourceWithConnection('direct', activeConnection);
+    } else {
+      stateUpdateProvider.switchSource('direct');
+    }
     currentMode = 'direct';
+    
+    // Show notification for direct mode
     showConnectionNotification('direct');
   } else if (!canDirect && currentMode !== 'relay') {
     logger.warn('Falling back to relay connection mode');
-    await stateUpdateProvider.switchSource('relay');
+    stateUpdateProvider.switchSource('relay');
     currentMode = 'relay';
+    
+    // Show notification for relay mode
     showConnectionNotification('relay');
   } else {
     logger.info(`Staying in ${currentMode} mode`);

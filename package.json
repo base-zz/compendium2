@@ -42,6 +42,7 @@
     "mitt": "^3.0.1",
     "node-fetch": "^3.3.2",
     "ol": "^10.5.0",
+    "openmeteo": "^1.2.0",
     "pinia": "^3.0.1",
     "pocketbase": "^0.25.2",
     "sqlite3": "^5.1.7",

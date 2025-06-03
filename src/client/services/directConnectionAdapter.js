@@ -1,9 +1,9 @@
 // directConnectionAdapter.js
 import { EventEmitter } from "events";
-import { stateUpdateProvider } from './stateUpdateProvider.js';
-import { createLogger } from './logger.js';
+import { stateUpdateProvider } from "./stateUpdateProvider.js";
+import { createLogger } from "./logger.js";
 
-const logger = createLogger('direct-connection');
+const logger = createLogger("direct-connection");
 
 // Get the appropriate WebSocket URL based on environment
 const getWebSocketUrl = () => {
@@ -11,18 +11,18 @@ const getWebSocketUrl = () => {
   if (import.meta.env.VITE_DIRECT_WS_URL) {
     return import.meta.env.VITE_DIRECT_WS_URL;
   }
-  
+
   // For production (mobile app), use the current hostname with the standard port
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.hostname;
   const port = 3009; // Standard port for direct WebSocket server
-  
+
   return `${protocol}//${host}:${port}`;
 };
 
 class DirectConnectionAdapter extends EventEmitter {
   constructor() {
-    logger.info('DirectConnectionAdapter constructor called');
+    logger.info("DirectConnectionAdapter constructor called");
     super();
     this.mode = "direct";
     this.connectionState = {
@@ -35,318 +35,607 @@ class DirectConnectionAdapter extends EventEmitter {
     this._reconnectDelay = 2000;
     this._manualClose = false;
     this._wsUrl = getWebSocketUrl();
+    this._heartbeatInterval = 30000; // 30 seconds
+    this._lastPingTime = null;
+    this._lastPongTime = null;
+    this._heartbeatTimer = null;
+    this._connectionTimeout = null;
     logger.info(`Using WebSocket URL: ${this._wsUrl}`);
   }
 
-  connect() {
-    logger.info('Connecting to WebSocket server...');
-    return new Promise((resolve, reject) => {
+  /**
+   * Sets up the WebSocket heartbeat mechanism
+   * @private
+   */
+  _setupHeartbeat() {
+    console.log("🔄 [DIRECT] _setupHeartbeat called");
+    logger.info("🔄 Setting up WebSocket heartbeat...");
+    // Clear any existing heartbeat
+    this._clearHeartbeat();
+
+    if (!this.ws) {
+      const error = "Cannot setup heartbeat: WebSocket is not initialized";
+      console.error("❌ [DIRECT]", error);
+      logger.error(error);
+      return;
+    }
+
+    const stateMsg = `WebSocket state during heartbeat setup: ${this.ws.readyState} (1=OPEN, 2=CLOSING, 3=CLOSED)`;
+    console.log(`ℹ️ [DIRECT] ${stateMsg}`);
+    logger.info(stateMsg);
+
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      const error = `Cannot setup heartbeat: WebSocket is not in OPEN state (state=${this.ws.readyState})`;
+      console.error(`❌ [DIRECT] ${error}`);
+      logger.error(error);
+      return;
+    }
+
+    // Setup ping interval
+    logger.info(`Starting heartbeat interval: ${this._heartbeatInterval}ms`);
+    this._heartbeatTimer = setInterval(() => {
+      const timestamp = Date.now();
+      logger.info(`💓 Sending ping at ${new Date(timestamp).toISOString()}`);
+
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          this._lastPingTime = timestamp;
+          const pingMsg = JSON.stringify({
+            type: "ping",
+            timestamp: this._lastPingTime,
+          });
+          this.ws.send(pingMsg);
+          logger.info(`✅ Sent ping: ${pingMsg}`);
+        } catch (error) {
+          logger.error("❌ Error sending ping:", error);
+        }
+      } else {
+        logger.warn(
+          `⚠️  Cannot send ping - WebSocket not in OPEN state (state=${
+            this.ws ? this.ws.readyState : "no WebSocket"
+          })`
+        );
+      }
+    }, this._heartbeatInterval);
+
+    // Set a timeout to detect unresponsive connections
+    const timeoutMs = this._heartbeatInterval * 1.5;
+    logger.info(`Setting connection timeout: ${timeoutMs}ms`);
+    this._connectionTimeout = setTimeout(() => {
       if (
         this.ws &&
-        (this.ws.readyState === WebSocket.OPEN ||
-          this.ws.readyState === WebSocket.CONNECTING)
+        this._lastPingTime &&
+        this._lastPongTime &&
+        this._lastPingTime > this._lastPongTime
       ) {
-        resolve();
-        return;
+        const timeSincePing = Date.now() - this._lastPingTime;
+        logger.warn(
+          `⚠️  No pong received in ${timeSincePing}ms, connection may be stale`
+        );
+        this.ws.close(1001, "No pong received");
       }
-      this._manualClose = false;
-      this.connectionState.status = "connecting";
-      logger.info('Attempting to open WebSocket to', this._wsUrl);
-      this.ws = new WebSocket(this._wsUrl);
-      
-      this.ws.onopen = (event) => {
-        logger.info('WebSocket connection established:', event);
-        this.connectionState.status = "connected";
-        this._reconnectAttempts = 0;
-        this.emit("connected");
-        resolve();
-      };
-      this.ws.onmessage = (event) => {
-        try {
-          let msg = event.data;
-          if (typeof msg === 'string') {
-            try {
-              msg = JSON.parse(msg);
-              // Handle the case where the message is double-encoded
-              if (typeof msg === 'string') {
-                msg = JSON.parse(msg);
-              }
-            } catch (e) {
-              console.warn('[DIRECT-ADAPTER] Error parsing message:', e);
-              return;
+    }, timeoutMs);
+
+    logger.info("✅ Heartbeat setup complete");
+  }
+
+  /**
+   * Clears all heartbeat-related timers and timeouts
+   * @private
+   */
+  _clearHeartbeat() {
+    logger.debug("Clearing heartbeat timers...");
+
+    // Clear the heartbeat interval
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
+
+    // Clear the connection timeout
+    if (this._connectionTimeout) {
+      clearTimeout(this._connectionTimeout);
+      this._connectionTimeout = null;
+    }
+
+    // Reset ping/pong tracking
+    this._lastPingTime = null;
+    this._lastPongTime = null;
+
+    logger.debug("Heartbeat timers cleared");
+  }
+
+  /**
+   * Handles ping/pong messages for WebSocket keepalive
+   * @param {{type: string, timestamp: number}} msg - The ping/pong message
+   */
+  _handlePingPong(msg) {
+    if (msg.type === "ping") {
+      // Respond to ping with pong
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: "pong",
+            timestamp: msg.timestamp,
+          })
+        );
+        logger.debug("Responded to ping");
+      } catch (error) {
+        logger.error("Error sending pong:", error);
+      }
+    } else if (msg.type === "pong") {
+      this._lastPongTime = Date.now();
+      const rtt = this._lastPongTime - (msg.timestamp || this._lastPingTime);
+      logger.debug(`Received pong, RTT: ${rtt}ms`);
+    }
+  }
+
+  /**
+   * Establishes a WebSocket connection to the server
+   * @returns {Promise<void>} Resolves when connected, rejects on error
+   */
+  connect() {
+    logger.info("Connecting to WebSocket server...");
+
+    // Return immediately if already connected
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      logger.info("WebSocket already connected, reusing existing connection");
+      return Promise.resolve();
+    }
+
+    // If connecting, return a promise that resolves when connection is complete
+    if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+      logger.info(
+        "WebSocket connection in progress, waiting for it to complete..."
+      );
+      return new Promise((resolve, reject) => {
+        const onOpen = () => {
+          cleanup();
+          logger.info("Existing WebSocket connection completed");
+          resolve();
+        };
+
+        const onError = (error) => {
+          cleanup();
+          logger.error("Error in existing WebSocket connection:", error);
+          reject(error);
+        };
+
+        const cleanup = () => {
+          this.ws.removeEventListener("open", onOpen);
+          this.ws.removeEventListener("error", onError);
+          clearTimeout(timeoutId);
+        };
+
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          reject(new Error("Connection attempt timed out"));
+        }, 5000);
+
+        this.ws.addEventListener("open", onOpen);
+        this.ws.addEventListener("error", onError);
+      });
+    }
+
+    // Clean up any existing connection
+    this.cleanup();
+
+    // Create new connection
+    this._manualClose = false;
+    this._reconnectAttempts = 0;
+    this.connectionState = {
+      status: "connecting",
+      lastError: null,
+    };
+
+    logger.info("Opening new WebSocket connection to", this._wsUrl);
+
+    return new Promise((resolve, reject) => {
+      try {
+        this.ws = new WebSocket(this._wsUrl);
+
+        /**
+         * Handles the WebSocket open event
+         * @private
+         */
+        this.onOpen = () => {
+          try {
+            logger.info("✅ WebSocket connection established");
+
+            // Update connection state
+            this.connectionState = {
+              status: "connected",
+              lastError: null,
+            };
+            this._reconnectAttempts = 0;
+
+            // Set up heartbeat
+            logger.debug("Setting up heartbeat...");
+            this._setupHeartbeat();
+
+            // Notify listeners
+            this.emit("connected");
+
+            // Resolve the connect promise
+            if (this._connectResolve) {
+              this._connectResolve();
+              this._connectResolve = null;
+              this._connectReject = null;
             }
-          }
-          
-          console.log('[DIRECT-ADAPTER] Received message type:', msg.type);
-          
-          // Handle different message types
-          if (msg.type === 'state:full-update' || msg.type === 'state:patch') {
-            // Make sure the data structure is correct
-            if (!msg.data) {
-              console.warn('[DIRECT-ADAPTER] Missing data in message:', msg);
-              return;
-            }
-            
-            // Notify the state update provider
-            stateUpdateProvider._notify(msg);
-            
-            // Also emit the event for other listeners
-            if (msg.type === 'state:full-update') {
-              this.emit('state:full-update', msg.data);
+          } catch (error) {
+            logger.error("❌ Error in WebSocket onOpen handler:", error);
+
+            // Reject the connect promise if it exists
+            if (this._connectReject) {
+              this._connectReject(error);
+              this._connectResolve = null;
+              this._connectReject = null;
             } else {
-              this.emit('state:patch', msg.data);
+              // If no connect promise, emit error
+              this.emit("error", error);
             }
-          } else {
-            // Handle other message types
-            this._handleMessage(msg);
           }
-        } catch (e) {
-          logger.error('[DIRECT-ADAPTER] Error processing message:', e, 'Raw data:', event.data);
-        }
-      };
-      this.ws.onerror = (error) => {
-        const errorMessage = error.message || "Unknown error";
-        logger.error('WebSocket error:', error);
-        this.connectionState.lastError = errorMessage;
+        };
+
+        this.ws.onopen = this.onOpen.bind(this);
+
+        this.ws.onmessage = (event) => {
+          try {
+            let msg = event.data;
+            if (typeof msg === "string") {
+              try {
+                msg = JSON.parse(msg);
+                // Handle the case where the message is double-encoded
+                if (typeof msg === "string") {
+                  msg = JSON.parse(msg);
+                }
+              } catch (e) {
+                console.warn("[DIRECT-ADAPTER] Error parsing message:", e);
+                return;
+              }
+            }
+
+            console.log("[DIRECT-ADAPTER] Received message type:", msg.type);
+
+            // Handle ping/pong messages
+            if (msg.type === "ping" || msg.type === "pong") {
+              this._handlePingPong(msg);
+              return;
+            }
+
+            // Handle other message types
+            if (
+              msg.type === "state:full-update" ||
+              msg.type === "state:patch"
+            ) {
+              // Make sure the data structure is correct
+              if (!msg.data) {
+                console.warn("[DIRECT-ADAPTER] Missing data in message:", msg);
+                return;
+              }
+
+              // Notify the state update provider
+              stateUpdateProvider._notify(msg);
+
+              // To:
+              if (
+                msg.type === "state:full-update" ||
+                msg.type === "state:patch"
+              ) {
+                this.emit("state-update", {
+                  type: msg.type,
+                  data: msg.data,
+                  // Include any other relevant fields
+                });
+              }
+            } else {
+              // Handle other message types
+              this.emit("message", msg);
+            }
+          } catch (e) {
+            logger.error(
+              "[DIRECT-ADAPTER] Error processing message:",
+              e,
+              "Raw data:",
+              event.data
+            );
+          }
+        };
+
+        /**
+         * Handles WebSocket errors
+         * @param {Event|Error} error - The error event or error object
+         * @private
+         */
+        this.onError = (error) => {
+          const errorMessage = error.message || "Unknown WebSocket error";
+          logger.error(`WebSocket error: ${errorMessage}`, error);
+
+          // Update connection state
+          this.connectionState = {
+            status: "error",
+            lastError: errorMessage,
+          };
+
+          // Reject the connect promise if it exists
+          if (this._connectReject) {
+            this._connectReject(error);
+            this._connectResolve = null;
+            this._connectReject = null;
+          } else {
+            // Otherwise emit the error
+            this.emit("error", error);
+          }
+
+          // Clean up if needed
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            try {
+              this.ws.close(1011, "WebSocket error occurred");
+            } catch (closeError) {
+              logger.warn("Error closing WebSocket after error:", closeError);
+            }
+          }
+        };
+
+        this.ws.onerror = this.onError.bind(this);
+
+        /**
+         * Handles WebSocket close events
+         * @param {CloseEvent} event - The close event
+         * @private
+         */
+        this.onClose = (event) => {
+          const closeReason = event.reason || "No reason provided";
+          const closeMessage = `WebSocket connection closed: ${
+            event.code
+          } (${getCloseReason(event.code)}) - ${closeReason}`;
+
+          if (event.code === 1000) {
+            logger.info(closeMessage);
+          } else {
+            logger.warn(closeMessage);
+          }
+
+          // Update connection state
+          this.connectionState = {
+            status: "disconnected",
+            lastError: closeReason,
+          };
+
+          // Clear heartbeat timers
+          this._clearHeartbeat();
+
+          // Notify listeners
+          this.emit("disconnected", event);
+
+          // Handle reconnection if this wasn't a manual close
+          if (!this._manualClose) {
+            if (this._reconnectAttempts < this._maxReconnects) {
+              const delay =
+                this._reconnectDelay * Math.pow(1.5, this._reconnectAttempts);
+              logger.info(
+                `Attempting to reconnect in ${delay}ms (attempt ${
+                  this._reconnectAttempts + 1
+                }/${this._maxReconnects})...`
+              );
+
+              setTimeout(() => {
+                this._reconnectAttempts++;
+                this.connect().catch((error) => {
+                  logger.error("Reconnection attempt failed:", error);
+                });
+              }, delay);
+            } else {
+              logger.error(
+                `Max reconnection attempts (${this._maxReconnects}) reached. Giving up.`
+              );
+              this.emit("reconnection_failed");
+            }
+          }
+
+          // Clean up the WebSocket reference
+          if (this.ws) {
+            this.ws.onopen = null;
+            this.ws.onmessage = null;
+            this.ws.onerror = null;
+            this.ws.onclose = null;
+            this.ws = null;
+          }
+        };
+
+        // Helper function to get close reason from code
+        const getCloseReason = (code) => {
+          const reasons = {
+            1000: "Normal Closure",
+            1001: "Going Away",
+            1002: "Protocol Error",
+            1003: "Unsupported Data",
+            1005: "No Status Received",
+            1006: "Abnormal Closure",
+            1007: "Invalid Frame Payload Data",
+            1008: "Policy Violation",
+            1009: "Message Too Big",
+            1010: "Missing Extension",
+            1011: "Internal Error",
+            1012: "Service Restart",
+            1013: "Try Again Later",
+            1014: "Bad Gateway",
+            1015: "TLS Handshake Failed",
+          };
+          return reasons[code] || "Unknown";
+        };
+
+        this.ws.onclose = this.onClose.bind(this);
+      } catch (error) {
+        logger.error("Error creating WebSocket connection:", error);
+        this.connectionState.lastError = error.message;
         this.connectionState.status = "error";
-        this.emit("error", error);
         reject(error);
-      };
-      this.ws.onclose = () => {
-        this.connectionState.status = "disconnected";
-        this.emit("disconnected");
-        if (
-          !this._manualClose &&
-          this._reconnectAttempts < this._maxReconnects
-        ) {
-          setTimeout(() => {
-            this._reconnectAttempts++;
-            this.connect().catch(() => {});
-          }, this._reconnectDelay);
-        }
-      };
+      }
     });
   }
 
+  /**
+   * Cleans up resources and closes the WebSocket connection
+   */
   cleanup() {
+    logger.info("Cleaning up WebSocket connection...");
     this._manualClose = true;
+
+    // Clear any pending heartbeats or timeouts
+    this._clearHeartbeat();
+
     if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+      try {
+        // Remove all event listeners first
+        this.ws.onopen = null;
+        this.ws.onmessage = null;
+        this.ws.onerror = null;
+        this.ws.onclose = null;
+
+        // Only try to close if the connection is open or connecting
+        if (
+          this.ws.readyState === WebSocket.OPEN ||
+          this.ws.readyState === WebSocket.CONNECTING
+        ) {
+          logger.info("Closing WebSocket connection...");
+          try {
+            this.ws.close(1000, "Client closed connection");
+          } catch (closeError) {
+            logger.warn("Error while closing WebSocket:", closeError);
+          }
+        }
+
+        this.ws = null;
+      } catch (error) {
+        logger.error("Error during WebSocket cleanup:", error);
+      } finally {
+        // Ensure we always clean up our state
+        this.connectionState = {
+          status: "disconnected",
+          lastError: null,
+        };
+        this._reconnectAttempts = 0;
+        this._lastPingTime = null;
+        this._lastPongTime = null;
+      }
     }
-    this.connectionState.status = "disconnected";
+
+    logger.info("WebSocket cleanup completed");
   }
 
-  on(event, callback) {
-    super.on(event, callback);
-  }
+  /**
+   * Sends a command to the server
+   * @param {string} serviceName - The name of the service
+   * @param {string} action - The action to perform
+   * @param {Object} data - The data to send
+   * @returns {Promise<boolean>} Resolves to true if the message was sent, false otherwise
+   */
+  async sendCommand(serviceName, action, data) {
+    // Ensure we're connected
+    if (this.connectionState.status !== "connected") {
+      logger.warn(
+        `Cannot send command: Not connected (state: ${this.connectionState.status})`
+      );
+      try {
+        await this.connect();
+      } catch (error) {
+        logger.error(
+          "Failed to establish connection for sending command:",
+          error
+        );
+        return false;
+      }
+    }
 
-  off(event, callback) {
-    super.off(event, callback);
-  }
+    // Double-check WebSocket state
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      logger.error(
+        `Cannot send command: WebSocket is not in OPEN state (state: ${
+          this.ws ? this.ws.readyState : "no WebSocket"
+        })`
+      );
+      return false;
+    }
 
-  emit(event, data) {
-    super.emit(event, data);
-  }
-
-  sendCommand(serviceName, action, data) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const msg = JSON.stringify({
+    try {
+      const message = JSON.stringify({
         type: "command",
         service: serviceName,
         action,
         data,
+        timestamp: Date.now(),
       });
-      this.ws.send(msg);
-    } else {
-      throw new Error("WebSocket is not connected");
-    }
-  }
-  
-  /**
-   * Send a generic message to the server
-   * @param {Object|string} message - The message to send (object will be stringified)
-   * @returns {boolean} - Success status
-   */
-  send(message) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      try {
-        const msg = typeof message === 'string' ? message : JSON.stringify(message);
-        this.ws.send(msg);
-        return true;
-      } catch (error) {
-        logger.error('Error sending message:', error);
-        return false;
-      }
-    } else {
-      logger.warn('Cannot send message: WebSocket not connected');
+
+      logger.debug(`Sending command: ${serviceName}.${action}`, data);
+      this.ws.send(message);
+      return true;
+    } catch (error) {
+      logger.error("Error sending command:", error);
       return false;
     }
   }
 
-  _handleMessage(msg) {
+  /**
+   * Sends a message to the server
+   * @param {Object|string} message - The message to send
+   * @returns {Promise<boolean>} Resolves to true if the message was sent, false otherwise
+   */
+  async send(message) {
+    // Ensure we're connected
+    if (this.connectionState.status !== "connected") {
+      logger.warn(
+        `Cannot send message: Not connected (state: ${this.connectionState.status})`
+      );
+      try {
+        await this.connect();
+      } catch (error) {
+        logger.error(
+          "Failed to establish connection for sending message:",
+          error
+        );
+        return false;
+      }
+    }
+
+    // Double-check WebSocket state
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      logger.error(
+        `Cannot send message: WebSocket is not in OPEN state (state: ${
+          this.ws ? this.ws.readyState : "no WebSocket"
+        })`
+      );
+      return false;
+    }
+
     try {
-      logger.debug('Received message from server:', msg);
-      if (!msg || !msg.type) {
-        logger.warn('Missing or invalid message type:', msg);
-        return;
-      }
-      // Always emit the raw type for compatibility
-      if (msg.type === "full-state") {
-        this.emit("full-state", msg.state);
-        // console.log(`[DIRECT-ADAPTER] Emitted 'full-state'`, msg.state);
-      } else {
-        // console.log("[DIRECT-ADAPTER] Emitting raw type:", msg.type, msg.data);
-        this.emit(msg.type, msg.data);
-        // console.log(`[DIRECT-ADAPTER] Emitted '${msg.type}'`, msg.data);
-      }
-
-      // Emit 'state-update' for Pinia sync consumers if appropriate
-      if (msg.type === "full-state") {
-        logger('Handling full state update');
-        this.emit("state-update", {
-          full: true,
-          state: msg.state,
-          data: msg.state,
-          type: "full-state",
-        });
-        // console.log(
-        //   `[DIRECT-ADAPTER] Emitted 'state-update' (full-state)`,
-        //   msg.state
-        // );
-      } else if (msg.type === "state-update") {
-        // console.log("[DIRECT-ADAPTER] Handling 'state-update' branch", msg);
-        this.emit("state-update", {
-          patch: msg.patch,
-          data: msg.patch,
-          type: "state-update",
-        });
-        // console.log(
-        //   `[DIRECT-ADAPTER] Emitted 'state-update' (patch)`,
-        //   msg.patch
-        // );
-      }
-
-      // Harmonize with relay events
-      // console.log("[DIRECT-ADAPTER] Entering switch(msg.type)", msg.type);
-      switch (msg.type) {
-        case "navigation":
-          // console.log("[DIRECT-ADAPTER] switch: navigation", msg.data);
-          if (msg.data && msg.data.position) {
-            this.emit("nav-position", {
-              position: msg.data.position,
-              timestamp: msg.data.timestamp,
+      const messageStr =
+        typeof message === "string"
+          ? message
+          : JSON.stringify({
+              ...message,
+              timestamp: message.timestamp || Date.now(),
             });
-            // console.log(`[DIRECT-ADAPTER] Emitted 'nav-position'`, {
-            //  position: msg.data.position,
-            //  timestamp: msg.data.timestamp,
-            // });
-          }
-          if (msg.data) {
-            const navData = msg.data;
-            const instrumentData = {};
-            if (navData.speed !== undefined)
-              instrumentData.speed = navData.speed;
-            if (navData.course !== undefined)
-              instrumentData.cog = navData.course;
-            if (navData.heading !== undefined)
-              instrumentData.heading = navData.heading;
-            if (Object.keys(instrumentData).length > 0) {
-              this.emit("nav-instruments", instrumentData);
-              // console.log(
-              //   `[DIRECT-ADAPTER] Emitted 'nav-instruments'`,
-              //   instrumentData
-              // );
-            }
-          }
-          break;
-        case "anchor":
-          // console.log("[DIRECT-ADAPTER] switch: anchor", msg.data);
-          if (msg.data) {
-            this.emit("anchor-position", msg.data);
-            // console.log(
-            //   `[DIRECT-ADAPTER] Emitted 'anchor-position'`,
-            //   msg.data
-            // );
-            if (msg.data.status !== undefined) {
-              this.emit("anchor-status", msg.data.status);
-              // console.log(
-              //   `[DIRECT-ADAPTER] Emitted 'anchor-status'`,
-              //   msg.data.status
-              // );
-            }
-          }
-          break;
-        case "vessel":
-          // console.log("[DIRECT-ADAPTER] switch: vessel", msg.data);
-          if (msg.data) {
-            this.emit("vessel-update", msg.data);
-            // console.log(`[DIRECT-ADAPTER] Emitted 'vessel-update'`, msg.data);
-          }
-          break;
-        case "alert":
-          // console.log("[DIRECT-ADAPTER] switch: alert", msg.data);
-          if (msg.data) {
-            this.emit("signalk-alert", msg.data);
-            //console.log(`[DIRECT-ADAPTER] Emitted 'signalk-alert'`, msg.data);
-          }
-          break;
-        case "env-wind":
-          console.log("[DIRECT-ADAPTER] switch: env-wind", msg.data);
-          if (msg.data) {
-            this.emit("env-wind", msg.data);
-            //console.log(`[DIRECT-ADAPTER] Emitted 'env-wind'`, msg.data);
-          }
-          break;
-        case "env-depth":
-          //console.log("[DIRECT-ADAPTER] switch: env-depth", msg.data);
-          if (msg.data) {
-            this.emit("env-depth", msg.data);
-            //console.log(`[DIRECT-ADAPTER] Emitted 'env-depth'`, msg.data);
-          }
-          break;
-        case "env-temperature":
-          //console.log("[DIRECT-ADAPTER] switch: env-temperature", msg.data);
-          if (msg.data) {
-            this.emit("env-temperature", msg.data);
-            //console.log(
-            //  `[DIRECT-ADAPTER] Emitted 'env-temperature'`,
-            //  msg.data
-            //);
-          }
-          break;
-        case "environment":
-          //console.log("[DIRECT-ADAPTER] switch: environment", msg.data);
-          if (msg.data) {
-            this.emit("environment", msg.data);
-            //console.log(`[DIRECT-ADAPTER] Emitted 'environment'`, msg.data);
-          }
-          break;
-        case "full-state":
-          logger.warn('Unexpected legacy "full-state" message received:', msg);
-          break;
-        case "connection-status":
-          //console.log("[DIRECT-ADAPTER] switch: connection-status", msg.data);
-          if (msg.data) {
-            this.emit("connection-status", msg.data);
-            //console.log(
-            //  `[DIRECT-ADAPTER] Emitted 'connection-status'`,
-            //  msg.data
-            //);
-          }
-          break;
-        default:
-          //console.log(
-          //  "[DIRECT-ADAPTER] switch: default (unknown type)",
-          //  msg.type,
-          //  msg.data
-          //);
-          // No-op for unknown types
-          break;
+
+      logger.debug(
+        "Sending message:",
+        messageStr.length > 200
+          ? `${messageStr.substring(0, 200)}...`
+          : messageStr
+      );
+      this.ws.send(messageStr);
+      return true;
+    } catch (error) {
+      logger.error("Error sending message:", error);
+
+      // If the error is due to connection issues, try to reconnect
+      if (error instanceof DOMException && error.name === "InvalidStateError") {
+        logger.warn("Connection lost, attempting to reconnect...");
+        this.connectionState.status = "disconnected";
+        this.cleanup();
       }
-      // console.log("[DIRECTs-ADAPTER] _handleMessage EXIT", msg);
-    } catch (err) {
-      logger.error('Exception in _handleMessage:', { error: err.message, type: msg?.type, message: msg });
+
+      return false;
     }
   }
 }

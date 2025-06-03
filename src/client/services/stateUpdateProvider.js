@@ -76,100 +76,65 @@ class StateUpdateProvider {
    * @returns {Promise<boolean>} - True if the relay connection test succeeded
    */
   async testRelayConnection() {
-    remoteLogger.log('STATE-PROVIDER', 'Testing relay connection...');
+    logger.info('Testing relay connection...');
     try {
       // Get connection state before attempting
       const prevState = relayConnectionAdapter.connectionState?.status || 'unknown';
-      remoteLogger.log('STATE-PROVIDER', `Relay connection state before attempt: ${prevState}`);
+      logger.info(`Relay connection state before attempt: ${prevState}`);
       
       // Log the relay server URL being used
       const relayUrl = relayConnectionAdapter.config?.relayServerUrl || 'unknown';
-      remoteLogger.log('STATE-PROVIDER', `Using relay server URL: ${relayUrl}`);
+      logger.info(`Using relay server URL: ${relayUrl}`);
       
       // Attempt to connect to the relay server
       const result = await relayConnectionAdapter.connect();
       
       // Get connection state after attempt
       const newState = relayConnectionAdapter.connectionState?.status || 'unknown';
-      remoteLogger.log('STATE-PROVIDER', `Relay connection state after attempt: ${newState}`);
+      logger.info(`Relay connection state after attempt: ${newState}`);
       
-      remoteLogger.log('STATE-PROVIDER', `Relay connection test result: ${result ? 'SUCCESS' : 'FAILED'}`);
+      logger.info(`Relay connection test result: ${result ? 'SUCCESS' : 'FAILED'}`);
       
       if (!result) {
         // Log the last error if available
         const lastError = relayConnectionAdapter.connectionState?.lastError || 'No error details available';
-        remoteLogger.log('STATE-PROVIDER', `Relay connection failure reason: ${lastError}`);
+        logger.warn(`Relay connection failure reason: ${lastError}`);
       }
       
       return result;
     } catch (error) {
-      remoteLogger.log('STATE-PROVIDER', `Error testing relay connection: ${error.message}`, error);
+      logger.error(`Error testing relay connection: ${error.message}`, error);
       return false;
     }
   }
 
-  switchSource(mode) {
-    // Cleanup previous listeners
-    this._cleanupListeners();
-    this.mode = mode;
-    if (mode === 'relay') {
-      this.currentAdapter = relayConnectionAdapter;
-      // Ensure we connect to the relay server when switching to relay mode
-      if (this.currentAdapter.connectionState.status !== 'connected') {
-        console.log('[STATE-PROVIDER] Initiating relay connection');
-        this.currentAdapter.connect();
-      } else {
-        console.log('[STATE-PROVIDER] Relay connection already established');
-      }
-    } else if (mode === 'direct') {
-      this.currentAdapter = directConnectionAdapter;
-      if (this.currentAdapter.connectionState.status !== 'connected') {
-        this.currentAdapter.connect();
-      }
-    } else {
-      // fallback to direct
-      this.currentAdapter = directConnectionAdapter;
-      if (this.currentAdapter.connectionState.status !== 'connected') {
-        this.currentAdapter.connect();
-      }
-    }
-
-    this._setupListeners();
-  }
-  
-  // New method to switch source with an existing connection
-  switchSourceWithConnection(mode, existingConnection) {
+  async switchSource(mode) {
     // Cleanup previous listeners
     this._cleanupListeners();
     this.mode = mode;
     
-    if (mode === 'direct') {
-      this.currentAdapter = directConnectionAdapter;
-      
-      // Set the existing connection on the adapter
-      if (this.currentAdapter.ws !== existingConnection) {
-        // Close any existing connection first
-        if (this.currentAdapter.ws) {
-          this.currentAdapter._manualClose = true;
-          this.currentAdapter.ws.close();
-        }
-        
-        // Assign the existing connection
-        this.currentAdapter.ws = existingConnection;
-        this.currentAdapter.connectionState.status = 'connected';
-        
-        // We don't need to add a new message listener here
-        // The directConnectionAdapter already has its own onmessage handler
-        // Adding another one would cause duplicate events and potential issues
-        // Just make sure the connection is properly set up
+    // Select the appropriate adapter
+    this.currentAdapter = mode === 'relay' ? relayConnectionAdapter : directConnectionAdapter;
+    
+    // Ensure we're connected
+    if (this.currentAdapter.connectionState.status !== 'connected') {
+      logger.info(`[STATE-PROVIDER] Connecting to ${mode} adapter...`);
+      try {
+        await this.currentAdapter.connect();
+        logger.info(`[STATE-PROVIDER] Successfully connected to ${mode} adapter`);
+      } catch (error) {
+        logger.error(`[STATE-PROVIDER] Failed to connect to ${mode} adapter:`, error);
+        throw error;
       }
     } else {
-      // For other modes, just use the regular switchSource
-      this.switchSource(mode);
-      return;
+      logger.info(`[STATE-PROVIDER] Using existing ${mode} connection`);
     }
     
+    // Set up event listeners
     this._setupListeners();
+    
+    // Notify subscribers of the source change
+    this._notify({ type: 'source-changed', source: mode });
   }
  
 

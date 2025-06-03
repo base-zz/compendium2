@@ -58,6 +58,16 @@ export function useDirectPiniaSync() {
       logger.warn('Unknown or invalid state-update event', { type, data });
     }
   });
+
+  directConnectionAdapter.on('tide-update', (data) => {
+    const store = useStateDataStore();
+    store.updateTideData(data);
+  });
+  
+  directConnectionAdapter.on('weather-update', (data) => {
+    const store = useStateDataStore();
+    store.updateForecastData(data);
+  });
   
   // Also listen to the stateUpdateProvider directly as a fallback
   stateUpdateProvider.subscribe((evt) => {

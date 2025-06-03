@@ -31,6 +31,16 @@ export function useRelayPiniaSync() {
       logger.warn('Received unknown state update type from relay', { type });
     }
   });
+
+  relayConnectionBridge.on('tide-update', (data) => {
+    logger.debug('Received tide update from relay');
+    store.updateTideData(data);
+  });
+  
+  relayConnectionBridge.on('weather-update', (data) => {
+    logger.debug('Received weather update from relay');
+    store.updateForecastData(data);
+  });  
   
   logger.info('Relay Pinia sync initialized successfully');
 }

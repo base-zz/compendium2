@@ -648,5 +648,7 @@ export function createStateDataModel(unitPreferences = UNIT_PRESETS.IMPERIAL) {
       muted: [], // Alert ids currently muted (optional)
       deviceSubscriptions: {}, // deviceId => [alert types/categories] (optional)
     },
+    tides: {},
+    forecast: {},
   };
 }

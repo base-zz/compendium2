@@ -50,6 +50,18 @@ class RelayConnectionAdapter extends EventEmitter {
         this.emit('state-update', { type, data, boatId, timestamp });
       }
     });
+
+
+    relayConnectionBridge.on('tide-update', (data) => {
+      logger.debug('Tide update received:', data);
+      this.emit('tide-update', data);
+    });
+  
+    relayConnectionBridge.on('weather-update', (data) => {
+      logger.debug('Weather update received:', data);
+      this.emit('weather-update', data);
+    });
+
     
     relayConnectionBridge.on('nav-instruments', (data) => {
       logger.debug('Received nav-instruments data');
