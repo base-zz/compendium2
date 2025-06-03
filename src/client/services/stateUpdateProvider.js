@@ -109,9 +109,16 @@ class StateUpdateProvider {
   }
 
   async switchSource(mode) {
+    // Only proceed if the mode is actually changing
+    if (this.mode === mode) {
+      logger.debug(`[STATE-PROVIDER] Already in ${mode} mode, skipping switch`);
+      return;
+    }
+
+    logger.info(`[STATE-PROVIDER] Switching to ${mode} adapter...`);
+    
     // Cleanup previous listeners
     this._cleanupListeners();
-    this.mode = mode;
     
     // Select the appropriate adapter
     this.currentAdapter = mode === 'relay' ? relayConnectionAdapter : directConnectionAdapter;
@@ -133,8 +140,17 @@ class StateUpdateProvider {
     // Set up event listeners
     this._setupListeners();
     
-    // Notify subscribers of the source change
-    this._notify({ type: 'source-changed', source: mode });
+    // Update the current mode
+    const previousMode = this.mode;
+    this.mode = mode;
+    
+    // Only notify if the mode actually changed
+    if (previousMode !== mode) {
+      logger.info(`[STATE-PROVIDER] Notifying subscribers of source change from ${previousMode || 'none'} to ${mode}`);
+      this._notify({ type: 'source-changed', source: mode });
+    } else {
+      logger.debug(`[STATE-PROVIDER] Source already in ${mode} mode, skipping notification`);
+    }
   }
  
 

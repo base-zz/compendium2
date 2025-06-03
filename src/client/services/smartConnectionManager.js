@@ -142,11 +142,41 @@ async function testNetworkConnectivity() {
 }
 
 async function tryDirectConnection() {
+  // If already connected, return true
   if (directConnectionAdapter.connectionState.status === 'connected') {
-    logger.info('Using existing direct connection');
+    logger.debug('Using existing direct connection');
     return true;
   }
   
+  // If connecting, wait for the connection to complete
+  if (directConnectionAdapter.ws && directConnectionAdapter.ws.readyState === WebSocket.CONNECTING) {
+    logger.debug('Connection in progress, waiting for it to complete...');
+    try {
+      await new Promise((resolve, reject) => {
+        const onConnect = () => {
+          directConnectionAdapter.removeListener('connect', onConnect);
+          directConnectionAdapter.removeListener('error', onError);
+          resolve();
+        };
+        
+        const onError = (error) => {
+          directConnectionAdapter.removeListener('connect', onConnect);
+          directConnectionAdapter.removeListener('error', onError);
+          reject(error);
+        };
+        
+        directConnectionAdapter.once('connect', onConnect);
+        directConnectionAdapter.once('error', onError);
+      });
+      logger.debug('Connection completed successfully');
+      return true;
+    } catch (error) {
+      logger.error('Connection attempt failed:', error);
+      return false;
+    }
+  }
+  
+  // If not connected and not connecting, start a new connection
   logger.info('Connecting via directConnectionAdapter...');
   try {
     await directConnectionAdapter.connect();
@@ -266,36 +296,90 @@ function showConnectionNotification(mode) {
   logger.debug(`Notification will auto-dismiss in ${NOTIFICATION_DURATION/1000} seconds`);
 }
 
+// Track the last connection check time
+let lastConnectionCheck = 0;
+
+// Only run the connection check if it's been at least 30 seconds since the last check
+// and the connection status might have changed
+async function shouldRunConnectionCheck() {
+  const now = Date.now();
+  const timeSinceLastCheck = now - lastConnectionCheck;
+  
+  // Don't check more often than every 30 seconds
+  if (timeSinceLastCheck < 30000) {
+    logger.debug(`Skipping connection check - last check was ${timeSinceLastCheck}ms ago`);
+    return false;
+  }
+  
+  // If we're in direct mode and the connection is good, don't run the check
+  if (directConnectionAdapter.connectionState.status === 'connected') {
+    logger.debug('Skipping connection check - direct connection is healthy');
+    return false;
+  }
+  
+  return true;
+}
+
 async function autoSwitchConnection() {
-  logger.info('Starting connection mode check...');
-  
-  // Get platform info for debugging
-  const platformInfo = getPlatformInfo();
-  const platformName = platformInfo.isIOS ? 'iOS' : platformInfo.isAndroid ? 'Android' : 'Web';
-  logger.info(`Running on platform: ${platformName} (Capacitor: ${platformInfo.isCapacitor ? 'yes' : 'no'})`);
-  
-  // Test basic network connectivity first
-  const isServerReachable = await testNetworkConnectivity();
-  logger.info(`Server reachable via HTTP: ${isServerReachable ? 'yes' : 'no'}`);
-  
-  // Check if we can establish a direct connection
-  logger.info('Attempting direct WebSocket connection...');
-  const canDirect = await tryDirectConnection();
-  logger.info(`Direct connection ${canDirect ? 'succeeded' : 'failed'}`);
-  
-  // Only switch if the mode is actually changing
-  if (canDirect && currentMode !== 'direct') {
-    logger.info('Switching to direct connection mode');
-    await stateUpdateProvider.switchSource('direct');
-    currentMode = 'direct';
-    showConnectionNotification('direct');
-  } else if (!canDirect && currentMode !== 'relay') {
-    logger.warn('Falling back to relay connection mode');
-    await stateUpdateProvider.switchSource('relay');
-    currentMode = 'relay';
-    showConnectionNotification('relay');
-  } else {
-    logger.info(`Staying in ${currentMode} mode`);
+  try {
+    // Skip the check if we don't need to run it
+    if (!await shouldRunConnectionCheck()) {
+      return;
+    }
+    
+    lastConnectionCheck = Date.now();
+    logger.info('Starting connection mode check...');
+    
+    // Get platform info for debugging
+    const platformInfo = getPlatformInfo();
+    const platformName = platformInfo.isIOS ? 'iOS' : platformInfo.isAndroid ? 'Android' : 'Web';
+    logger.debug(`Running on platform: ${platformName} (Capacitor: ${platformInfo.isCapacitor ? 'yes' : 'no'})`);
+    
+    // Test basic network connectivity first
+    const isServerReachable = await testNetworkConnectivity();
+    logger.debug(`Server reachable via HTTP: ${isServerReachable ? 'yes' : 'no'}`);
+    
+    // If server is not reachable, fall back to relay immediately
+    if (!isServerReachable) {
+      logger.warn('Server not reachable, falling back to relay mode');
+      if (currentMode !== 'relay') {
+        await stateUpdateProvider.switchSource('relay');
+        currentMode = 'relay';
+        showConnectionNotification('relay');
+      }
+      return;
+    }
+    
+    // Check if we can establish a direct connection
+    logger.debug('Testing direct WebSocket connection...');
+    const canDirect = await tryDirectConnection();
+    logger.info(`Direct connection test ${canDirect ? 'succeeded' : 'failed'}`);
+    
+    // Only switch if the mode is actually changing
+    if (canDirect) {
+      if (currentMode !== 'direct') {
+        logger.info('Switching to direct connection mode');
+        await stateUpdateProvider.switchSource('direct');
+        currentMode = 'direct';
+        showConnectionNotification('direct');
+      } else {
+        logger.debug('Already in direct mode with good connection');
+      }
+    } else {
+      if (currentMode !== 'relay') {
+        logger.warn('Falling back to relay connection mode');
+        await stateUpdateProvider.switchSource('relay');
+        currentMode = 'relay';
+        showConnectionNotification('relay');
+      } else {
+        logger.debug('Staying in relay mode');
+      }
+    }
+  } catch (error) {
+    logger.error('Error in autoSwitchConnection:', error);
+  } finally {
+    // Schedule the next check
+    setTimeout(autoSwitchConnection, CHECK_INTERVAL_MS);
   }
 }
 
@@ -309,14 +393,11 @@ export function startSmartConnectionManager() {
   logger.info(`Platform: ${platformInfo.isIOS ? 'iOS' : platformInfo.isAndroid ? 'Android' : 'Web'}`);
   logger.info(`User Agent: ${platformInfo.userAgent}`);
   
-  // Run initial connection check
-  autoSwitchConnection();
-  
-  // Set up periodic connection checks
-  setInterval(() => {
-    logger.debug('Running scheduled connection check...');
+  // Run initial connection check after a short delay to allow other initialization to complete
+  setTimeout(() => {
+    logger.debug('Running initial connection check...');
     autoSwitchConnection();
-  }, CHECK_INTERVAL_MS);
+  }, 1000);
   
   logger.info('Smart Connection Manager started');
 }

@@ -49,7 +49,8 @@ export function useDirectPiniaSync() {
   directConnectionAdapter.on('state-update', ({ type, data }) => {
     // console.log('[PINIA-SYNC] state-update event received', { type, data });
     if (type === 'state:full-update' && data) {
-      // console.log('[PINIA-SYNC] Applying full state update from state-update event');
+      console.log('[PINIA-SYNC] Applying full state update from state-update event', data);
+
       store.replaceState(data);
     } else if (type === 'state:patch' && data) {
       // console.log('[PINIA-SYNC] Applying patch from state-update event with', data.length, 'operations');
@@ -60,6 +61,7 @@ export function useDirectPiniaSync() {
   });
 
   directConnectionAdapter.on('tide-update', (data) => {
+    console.log("--------============ tidal data");
     const store = useStateDataStore();
     store.updateTideData(data);
   });
