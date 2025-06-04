@@ -40,6 +40,14 @@
           <ion-icon :icon="notifications" class="custom-icon"></ion-icon>
         </ion-button>
 
+        <ion-button @click="router.push('/weather')" size="large" class="nav-button">
+          <ion-icon :icon="partlySunny" class="custom-icon"></ion-icon>
+        </ion-button>
+
+        <ion-button @click="router.push('/tides')" size="large" class="nav-button">
+          <ion-icon :icon="water" class="custom-icon"></ion-icon>
+        </ion-button>
+
         <ion-button @click="router.push('/settings')" size="large" class="nav-button">
           <ion-icon src="/img/cog.svg" class="custom-icon"></ion-icon>
         </ion-button>
@@ -66,7 +74,7 @@ import {
 } from "@ionic/vue";
 import { useRouter } from "vue-router";
 import { ref, computed, watch, onMounted } from "vue";
-import { notifications, dice, tv } from "ionicons/icons";
+import { notifications, dice, tv, partlySunny, water } from "ionicons/icons";
 
  
 const router = useRouter();

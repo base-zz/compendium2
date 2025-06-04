@@ -9,9 +9,13 @@ import StateManagementView from "@client/views/StateManagementView.vue";
 import MappingManager from "@client/views/MappingManager.vue";
 import SailView from "@client/views/SailView.vue";
 import ConnectionStatusExample from "@client/examples/ConnectionStatusExample.vue";
+import TideChart from "@client/components/charts/TideChart.vue";
 import DashboardView from "@client/views/DashboardView.vue";
 import HomePage from "@client/views/HomePage.vue";
 import BoatPairing from "@client/components/onboarding/BoatPairing.vue";
+import WeatherComponent from "@client/components/WeatherComponent.vue";
+import WeatherView from "@client/views/WeatherView.vue";
+import TidalView from "@client/views/TidalView.vue";
 const routes = [
   {
     path: "/:pathMatch(.*)*",
@@ -122,6 +126,25 @@ const routes = [
     component: () => import("@client/components/LoggingTest.vue"),
     meta: { requiresAuth: true, title: "Logging Test" },
   },
+  {
+    path: "/weather",
+    name: "Weather",
+    component: WeatherView,
+    meta: { title: "Weather" },
+  },
+  {
+    path: "/tides",
+    name: "Tides",
+    component: TidalView,
+    meta: { title: "Tides" },
+  },
+  {
+    path: "/tide-chart",
+    name: "TideChartPage",
+    component: TideChart,
+    meta: { requiresAuth: true, title: "Tide Chart" },
+  },
+
   {
     path: "/dashboard",
     name: "Dashboard",
