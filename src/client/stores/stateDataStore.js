@@ -1347,12 +1347,13 @@ export const useStateDataStore = defineStore("stateData", () => {
 
   // --- Subscriptions and Watchers ---
   stateUpdateProvider.subscribe((evt) => {
-    dataLogger("Received event:", {
-      type: evt.type,
-      hasData: !!evt.data,
-      hasWind: !!evt.data?.wind,
-      dataKeys: evt.data ? Object.keys(evt.data) : [],
-    });
+    // Only process events we care about
+    if (!['state:patch', 'state:full-update', 'patch-update', 'full-update'].includes(evt.type)) {
+      return; // Silently ignore other event types
+    }
+
+    // Log basic event info at debug level
+    dataLogger(`[StateDataStore] Processing ${evt.type} event`);
 
     // Handle wind data updates from patch events
     if (evt.type === "state:patch" && Array.isArray(evt.data)) {
@@ -1391,41 +1392,24 @@ export const useStateDataStore = defineStore("stateData", () => {
         return; // Skip the rest of the handler for wind patches
       }
     }
-    dataLogger("Received state update:", evt.type);
 
-    // Log navigation.position before any updates
-    dataLogger(
-      "Current position before update:",
-      JSON.parse(JSON.stringify(state.navigation?.position))
-    );
-
-    if (evt.type === "state:full-update") {
-      dataLogger("Applying full state update");
-      dataLogger("Update data contains navigation:", !!evt.data.navigation);
-      replaceState(evt.data);
-    } else if (evt.type === "state:patch") {
-      dataLogger("Applying patch to state", {
-        patchCount: evt.data?.length || 0,
-      });
+    // Handle state updates
+    if (evt.type === "state:full-update" || evt.type === "full-update") {
       if (!evt.data) {
-        logger.warn("❌ [StateDataStore] Received patch with no data");
+        logger.debug("[StateDataStore] Received full update with no data");
         return;
       }
-      dataLogger("🔧 [StateDataStore] Applying state patch");
-      dataLogger(
-        "🔍 [StateDataStore] Patch data:",
-        JSON.stringify(evt.data, null, 2)
-      );
+      dataLogger("Applying full state update");
+      replaceState(evt.data);
+    } 
+    else if (evt.type === "state:patch" || evt.type === "patch-update") {
+      if (!evt.data) {
+        logger.debug("[StateDataStore] Received patch with no data");
+        return;
+      }
+      dataLogger(`Applying patch with ${evt.data?.length || 0} operations`);
       applyStatePatch(evt.data);
-    } else {
-      logger.warn("❓ [StateDataStore] Received unknown event type:", evt.type);
     }
-
-    // Log navigation.position after updates
-    dataLogger(
-      "📍 [StateDataStore] Current position after update:",
-      JSON.parse(JSON.stringify(state.navigation?.position))
-    );
   });
 
   const breadcrumbs = ref([]);

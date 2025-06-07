@@ -12,6 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@abandonware/noble": "^1.9.2-26",
     "@capacitor/android": "7.2.0",
     "@capacitor/app": "7.0.0",
     "@capacitor/core": "7.2.0",
@@ -40,6 +41,7 @@
     "lodash-es": "^4.17.21",
     "loglevel": "^1.9.2",
     "mitt": "^3.0.1",
+    "nobel": "^0.3.0",
     "node-fetch": "^3.3.2",
     "ol": "^10.5.0",
     "openmeteo": "^1.2.0",
@@ -56,8 +58,8 @@
   },
   "devDependencies": {
     "@capacitor/cli": "7.2.0",
-    "@vitejs/plugin-legacy": "^5.0.0",
-    "@vitejs/plugin-vue": "^4.0.0",
+    "@vitejs/plugin-legacy": "^6.1.1",
+    "@vitejs/plugin-vue": "^5.2.4",
     "@vue/eslint-config-typescript": "^12.0.0",
     "@vue/test-utils": "^2.3.0",
     "cypress": "^13.5.0",
@@ -67,8 +69,8 @@
     "jsdom": "^22.1.0",
     "terser": "^5.4.0",
     "typescript": "~5.6.2",
-    "vite": "~5.2.0",
-    "vitest": "^0.34.6",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.1",
     "vue-tsc": "^2.1.10",
     "zod": "^3.24.2"
   },

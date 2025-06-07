@@ -142,6 +142,9 @@ async function testNetworkConnectivity() {
 }
 
 async function tryDirectConnection() {
+  // Log current connection state
+  logger.debug(`Current connection state: ${JSON.stringify(directConnectionAdapter.connectionState)}`);
+  
   // If already connected, return true
   if (directConnectionAdapter.connectionState.status === 'connected') {
     logger.debug('Using existing direct connection');
@@ -149,42 +152,87 @@ async function tryDirectConnection() {
   }
   
   // If connecting, wait for the connection to complete
-  if (directConnectionAdapter.ws && directConnectionAdapter.ws.readyState === WebSocket.CONNECTING) {
-    logger.debug('Connection in progress, waiting for it to complete...');
-    try {
-      await new Promise((resolve, reject) => {
-        const onConnect = () => {
-          directConnectionAdapter.removeListener('connect', onConnect);
-          directConnectionAdapter.removeListener('error', onError);
-          resolve();
-        };
+  if (directConnectionAdapter.ws) {
+    const state = directConnectionAdapter.ws.readyState;
+    logger.debug(`WebSocket readyState: ${state} (${getReadyStateName(state)})`);
+    
+    if (state === WebSocket.CONNECTING) {
+      logger.debug('Connection in progress, waiting for it to complete...');
+      try {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            cleanup();
+            reject(new Error('Connection attempt timed out'));
+          }, 10000); // 10 second timeout
+          
+          const onConnect = () => {
+            cleanup();
+            resolve();
+          };
+          
+          const onError = (error) => {
+            cleanup();
+            reject(error);
+          };
+          
+          const cleanup = () => {
+            clearTimeout(timeout);
+            directConnectionAdapter.removeListener('connect', onConnect);
+            directConnectionAdapter.removeListener('error', onError);
+          };
+          
+          directConnectionAdapter.once('connect', onConnect);
+          directConnectionAdapter.once('error', onError);
+        });
         
-        const onError = (error) => {
-          directConnectionAdapter.removeListener('connect', onConnect);
-          directConnectionAdapter.removeListener('error', onError);
-          reject(error);
-        };
-        
-        directConnectionAdapter.once('connect', onConnect);
-        directConnectionAdapter.once('error', onError);
-      });
-      logger.debug('Connection completed successfully');
-      return true;
-    } catch (error) {
-      logger.error('Connection attempt failed:', error);
-      return false;
+        logger.debug('Connection completed successfully');
+        return true;
+      } catch (error) {
+        logger.error('Connection attempt failed:', error);
+        return false;
+      }
     }
   }
   
   // If not connected and not connecting, start a new connection
-  logger.info('Connecting via directConnectionAdapter...');
+  logger.info('Initiating new WebSocket connection...');
   try {
+    // Log the WebSocket URL that will be used
+    const wsUrl = directConnectionAdapter._wsUrl || 'unknown';
+    logger.info(`Connecting to WebSocket at: ${wsUrl}`);
+    
+    // Add error listener to capture any connection errors
+    const errorListener = (error) => {
+      logger.error('WebSocket connection error:', error);
+    };
+    directConnectionAdapter.once('error', errorListener);
+    
+    // Start the connection
     await directConnectionAdapter.connect();
-    logger.info('Direct connection established');
+    
+    // Remove the error listener if connection was successful
+    directConnectionAdapter.removeListener('error', errorListener);
+    
+    logger.info('Direct WebSocket connection established successfully');
     return true;
   } catch (error) {
-    logger.error('Direct connection failed:', error);
+    logger.error('Direct WebSocket connection failed:', {
+      message: error.message,
+      stack: error.stack,
+      url: directConnectionAdapter._wsUrl || 'unknown'
+    });
     return false;
+  }
+}
+
+// Helper function to get WebSocket ready state name
+function getReadyStateName(state) {
+  switch (state) {
+    case WebSocket.CONNECTING: return 'CONNECTING';
+    case WebSocket.OPEN: return 'OPEN';
+    case WebSocket.CLOSING: return 'CLOSING';
+    case WebSocket.CLOSED: return 'CLOSED';
+    default: return `UNKNOWN (${state})`;
   }
 }
 

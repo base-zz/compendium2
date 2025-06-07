@@ -3,17 +3,12 @@ import { useBoatConnectionStore } from "@client/stores/boatConnection";
 import AnchorView from "@client/views/AnchorView.vue";
 import SplashScreen from "@client/views/SplashScreen.vue";
 import Settings from "@client/views/SettingsView.vue";
-import RegisterAccount from "@client/views/RegisterAccountView.vue";
 import InstrumentView from "@client/components/InstrumentComponent.vue";
-import StateManagementView from "@client/views/StateManagementView.vue";
-import MappingManager from "@client/views/MappingManager.vue";
 import SailView from "@client/views/SailView.vue";
-import ConnectionStatusExample from "@client/examples/ConnectionStatusExample.vue";
 import TideChart from "@client/components/charts/TideChart.vue";
 import DashboardView from "@client/views/DashboardView.vue";
 import HomePage from "@client/views/HomePage.vue";
 import BoatPairing from "@client/components/onboarding/BoatPairing.vue";
-import WeatherComponent from "@client/components/WeatherComponent.vue";
 import WeatherView from "@client/views/WeatherView.vue";
 import TidalView from "@client/views/TidalView.vue";
 const routes = [
@@ -30,10 +25,19 @@ const routes = [
     meta: { requiresAuth: false, title: "Connect to Boat" },
   },
   {
-    path: "/",
+    path: "/splash",
     name: "Splash",
     component: SplashScreen,
     meta: { requiresAuth: false, title: "Welcome" },
+  },
+  {
+    path: "/",
+    name: "Root",
+    redirect: () => {
+      const isAuthenticated = localStorage.getItem("isAuthenticated") === 'true';
+      return isAuthenticated ? '/home' : '/splash';
+    },
+    meta: { requiresAuth: false },
   },
   {
     path: "/home",
@@ -258,7 +262,7 @@ router.beforeEach(async (to, from, next) => {
   const boatStore = useBoatConnectionStore();
   
   // If we're already connected, proceed
-  if (boatStore.isConnected) {
+  if (boatStore.connectionStatus === 'connected') {
     return next();
   }
   

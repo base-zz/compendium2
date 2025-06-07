@@ -100,7 +100,7 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
    */
   async function checkVpsHealth() {
     if (!import.meta.env.VITE_VPS_API_URL) {
-      logger.debug('VPS API URL not configured, skipping health check');
+      console.log('VPS API URL not configured, skipping health check');
       return false;
     }
     
@@ -115,10 +115,10 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       });
       
       const isHealthy = response.ok;
-      logger.debug(`VPS health check ${isHealthy ? 'succeeded' : 'failed'} with status ${response.status}`);
+      console.log(`VPS health check ${isHealthy ? 'succeeded' : 'failed'} with status ${response.status}`);
       return isHealthy;
     } catch (/** @type {any} */ error) {
-      logger.debug('VPS health check failed:', error?.message || 'Unknown error');
+      console.log('VPS health check failed:', error?.message || 'Unknown error');
       return false;
     }
   }
@@ -129,7 +129,7 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
   async function updateVpsConnectionStatus() {
     const isHealthy = await checkVpsHealth();
     vpsConnected.value = isHealthy;
-    logger.debug(`VPS connection status updated: ${isHealthy ? 'connected' : 'disconnected'}`);
+    console.log(`VPS connection status updated: ${isHealthy ? 'connected' : 'disconnected'}`);
   }
   
   /**
@@ -138,7 +138,7 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
    */
   function updateDirectConnectionStatus(connected) {
     directConnected.value = connected;
-    logger.debug(`Direct connection status updated: ${connected ? 'connected' : 'disconnected'}`);
+    console.log(`Direct connection status updated: ${connected ? 'connected' : 'disconnected'}`);
   }
 
   async function initializeConnection() {
@@ -165,14 +165,14 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       const localBoatInfo = await tryLocalConnection();
       
       if (localBoatInfo) {
-        logger.debug('Local boat found:', localBoatInfo);
+        console.log('Local boat found:', localBoatInfo);
         connectionMode.value = 'local';
         boatId.value = localBoatInfo.boatId;
         localStorage.setItem('activeBoatId', boatId.value);
         await registerWithVPS(boatId.value);
       } else if (boatId.value) {
         // Fall back to remote connection if we have a boat ID
-        logger.debug('Using existing boat ID for remote connection:', boatId.value);
+        console.log('Using existing boat ID for remote connection:', boatId.value);
         connectionMode.value = 'remote';
         await connectToVPS(boatId.value);
       } else {
@@ -196,13 +196,24 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
    */
   async function tryLocalConnection() {
     try {
-      const response = await fetch('http://compendium.local:3001/api/boat-info', {
-        signal: AbortSignal.timeout(2000)
+      const host = import.meta.env.VITE_DIRECT_BOAT_HOST;
+      const port = import.meta.env.VITE_DIRECT_BOAT_PORT;
+      const path = import.meta.env.VITE_DIRECT_BOAT_PATH;
+      const timeout = import.meta.env.VITE_DIRECT_BOAT_TIMEOUT;
+      
+      if (!host || !port || !path || !timeout) {
+        throw new Error('Missing required environment variables for direct boat connection');
+      }
+  
+      console.log(`Attempting direct boat connection to: http://${host}:${port}${path}`);
+      const response = await fetch(`http://${host}:${port}${path}`, {
+        signal: AbortSignal.timeout(Number(timeout))
       });
+      
       if (!response.ok) return null;
       return await response.json();
     } catch (err) {
-      logger.debug('Local connection attempt failed:', err.message);
+      console.log('Direct boat connection attempt failed:', err.message);
       return null;
     }
   }
@@ -215,13 +226,13 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
   async function registerWithVPS(boatId) {
     // Skip VPS registration if we're in development or the VPS URL is not set
     if (import.meta.env.DEV || !import.meta.env.VITE_VPS_API_URL) {
-      logger.debug('Skipping VPS registration in development or missing VPS URL');
+      console.log('Skipping VPS registration in development or missing VPS URL');
       return;
     }
     
     try {
       const vpsUrl = `${import.meta.env.VITE_VPS_API_URL}/api/boats/register`;
-      logger.debug('Registering with VPS at:', vpsUrl);
+      console.log('Registering with VPS at:', vpsUrl);
       
       const response = await fetch(vpsUrl, {
         method: 'POST',
@@ -233,10 +244,10 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
         throw new Error(`VPS registration failed with status: ${response.status}`);
       }
       
-      logger.debug('Successfully registered with VPS');
+      console.log('Successfully registered with VPS');
     } catch (err) {
       // Only log as debug to avoid cluttering the console in development
-      logger.debug('VPS registration failed (may be offline or not configured):', err.message);
+      console.log('VPS registration failed (may be offline or not configured):', err.message);
       // Continue anyway - this is non-critical
     }
   }
@@ -246,12 +257,87 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
    * @param {string} boatId - The boat ID to connect with
    * @returns {Promise<void>}
    */
+  // Track connection state to prevent multiple simultaneous connection attempts
+  let isConnecting = false;
+  let connectionPromise = null;
+
   async function connectToVPS(boatId) {
+    // If we're already connecting, return the existing promise
+    if (isConnecting && connectionPromise) {
+      logger.debug('Connection already in progress, returning existing promise');
+      return connectionPromise;
+    }
+
+    // Set connection state
+    isConnecting = true;
+    connectionStatus.value = 'connecting';
+    
     try {
-      await connectionBridge.connect(boatId);
-      logger.debug('Connected to VPS successfully');
-    } catch (err) {
-      logger.error('Failed to connect to VPS:', err);
+      // Create a new connection promise
+      connectionPromise = new Promise((resolve, reject) => {
+        // Cleanup function to remove event listeners and clear timeout
+        let statusHandler = null;
+        let timeout = null;
+        
+        const cleanup = () => {
+          if (statusHandler) {
+            connectionBridge.off('connection-status', statusHandler);
+            statusHandler = null;
+          }
+          if (timeout) {
+            clearTimeout(timeout);
+            timeout = null;
+          }
+        };
+        
+        // Set a timeout for the connection attempt
+        timeout = setTimeout(() => {
+          cleanup();
+          const error = new Error('Connection timeout');
+          connectionStatus.value = 'error';
+          isConnecting = false;
+          connectionPromise = null;
+          reject(error);
+        }, 15000); // 15 second timeout
+        
+        // Handle connection status updates
+        statusHandler = (status) => {
+          if (status.status === 'connected') {
+            cleanup();
+            connectionStatus.value = 'connected';
+            isConnecting = false;
+            logger.debug('VPS connection established');
+            resolve();
+          } else if (status.status === 'error') {
+            cleanup();
+            const error = new Error(status.lastError || 'Connection failed');
+            connectionStatus.value = 'error';
+            isConnecting = false;
+            connectionPromise = null;
+            reject(error);
+          }
+        };
+        
+        // Listen for connection status changes
+        connectionBridge.on('connection-status', statusHandler);
+        
+        // Start the connection process
+        connectionBridge.connect(boatId)
+          .catch((error) => {
+            cleanup();
+            connectionStatus.value = 'error';
+            isConnecting = false;
+            connectionPromise = null;
+            reject(error);
+          });
+      });
+      
+      return await connectionPromise;
+    } catch (error) {
+      connectionStatus.value = 'error';
+      isConnecting = false;
+      connectionPromise = null;
+      logger.error('Failed to connect to VPS:', error);
       throw new Error('Could not connect to boat. Please check your internet connection.');
     }
   }

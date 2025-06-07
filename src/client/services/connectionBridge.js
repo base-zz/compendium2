@@ -16,12 +16,12 @@ class ConnectionBridge {
   }
 
   async connect() {
-    logger('Connecting to relay...');
+    logger.debug('Connecting to relay...');
     try {
       this.connectionState.status = 'connecting';
       await this.adapter.connect();
       this.connectionState.status = 'connected';
-      logger('Successfully connected to relay');
+      logger.debug('Successfully connected to relay');
       return true;
     } catch (error) {
       const errorMessage = error?.message || 'Unknown error';

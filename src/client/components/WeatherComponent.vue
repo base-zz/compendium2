@@ -1,7 +1,10 @@
 <template>
   <div class="weather-component">
     <div class="weather-header">
-      <div class="location">{{ location || 'Current Location' }}</div>
+      <div class="location">
+  {{ locationName || 'Current Location' }}
+  <div v-if="locationName && locationDetails" class="location-details">{{ locationDetails }}</div>
+</div>
       <div class="last-updated">Updated: {{ lastUpdated }}</div>
     </div>
     
@@ -42,7 +45,7 @@
         <div class="day-name">{{ day.day }}</div>
         <div class="weather-icon"><i :class="day.icon"></i></div>
         <div class="precip">
-          <i class="fas fa-tint"></i> {{ day.precip }}%
+          <i class="fas fa-tint"></i> {{ day.precipChance }}%
         </div>
         <div class="temp-range">
           <span class="high">{{ day.high }}°</span>
@@ -77,8 +80,8 @@
         <div class="value">{{ pressure }} hPa</div>
       </div>
       <div class="detail">
-        <div class="label">VISIBILITY</div>
-        <div class="value">{{ visibility }} {{ distanceUnit }}</div>
+        <div class="label">PRECIP CHANCE</div>
+        <div class="value">{{ precipChance }}%</div>
       </div>
       <div class="detail">
         <div class="label">UV INDEX</div>
@@ -144,77 +147,74 @@ const hourlyForecast = computed(() => {
     const forecast = currentForecast.value;
     if (!forecast?.hourly?.time?.length) return [];
     
-    return forecast.hourly.time.map((time, index) => ({
-      time: new Date(time).toLocaleTimeString('en-US', { 
-        hour: 'numeric', 
-        hour12: true 
-      }),
-      temp: Math.round(forecast.hourly.temperature_2m?.[index] || 0),
-      icon: getWeatherIcon(forecast.hourly.weather_code?.[index] || 0),
-      humidity: forecast.hourly.relative_humidity_2m?.[index] || 0,
-      feelsLike: Math.round(forecast.hourly.apparent_temperature?.[index] || 0),
-      precip: forecast.hourly.precipitation_probability?.[index] || 0,
-      windSpeed: Math.round(forecast.hourly.wind_speed_10m?.[index] || 0),
-      windDirection: getWindDirection(forecast.hourly.wind_direction_10m?.[index])
-    }));
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
+    
+    return forecast.hourly.time
+      .map((time, index) => ({
+        time,
+        timeString: new Date(time).toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          hour12: true 
+        }),
+        temp: Math.round(forecast.hourly.temperature_2m?.[index] || 0),
+        icon: getWeatherIcon(forecast.hourly.weather_code?.[index] || 0),
+        humidity: forecast.hourly.relative_humidity_2m?.[index] || 0,
+        feelsLike: Math.round(forecast.hourly.apparent_temperature?.[index] || 0),
+        precip: forecast.hourly.precipitation_probability?.[index] || 0,
+        windSpeed: Math.round(forecast.hourly.wind_speed_10m?.[index] || 0),
+        windDirection: getWindDirection(forecast.hourly.wind_direction_10m?.[index])
+      }))
+      .filter(hour => new Date(hour.time) > oneHourAgo) // Only keep future hours
+      .map(hour => ({
+        ...hour,
+        time: hour.timeString // Use the formatted time string for display
+      }));
   } catch (error) {
     console.error('Error processing hourly forecast:', error);
     return [];
   }
 });
 
-// Get daily forecast (simplified from hourly for now)
+// Process daily forecast data
+const processDailyForecast = (dailyData) => {
+  if (!dailyData?.time?.length) return [];
+  
+  return dailyData.time.map((dateStr, index) => {
+    const date = new Date(dateStr);
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+    
+    return {
+      date: dateStr,
+      day: dayName,
+      dateObj: date,
+      high: Math.round(dailyData.temperature_2m_max?.[index] || 0),
+      low: Math.round(dailyData.temperature_2m_min?.[index] || 0),
+      weatherCode: dailyData.weather_code?.[index] || 0,
+      precipChance: dailyData.precipitation_probability_max?.[index] || 0,
+      totalPrecip: (dailyData.precipitation_sum?.[index] || 0).toFixed(2),
+      avgHumidity: dailyData.relative_humidity_2m_mean?.[index] || 0,
+      maxWindSpeed: Math.round(dailyData.wind_speed_10m_max?.[index] || 0),
+      avgWindSpeed: Math.round(dailyData.wind_speed_10m_mean?.[index] || 0),
+      maxWindGust: Math.round(dailyData.wind_gusts_10m_max?.[index] || 0),
+      avgWindDirection: dailyData.wind_direction_10m_dominant?.[index] || 0,
+      avgCloudCover: Math.round(dailyData.cloud_cover_mean?.[index] || 0),
+      sunrise: dailyData.sunrise?.[index] || '',
+      sunset: dailyData.sunset?.[index] || '',
+      uvIndexMax: Math.round(dailyData.uv_index_max?.[index] || 0),
+      icon: getWeatherIcon(dailyData.weather_code?.[index] || 0),
+      condition: getWeatherCondition(dailyData.weather_code?.[index] || 0)
+    };
+  });
+};
+
+// Get daily forecast
 const dailyForecast = computed(() => {
   try {
-    // Group by day and find min/max temps
-    const days = {};
     const forecast = currentForecast.value;
+    if (!forecast?.daily) return [];
     
-    if (!forecast?.hourly?.time?.length) return [];
-    
-    forecast.hourly.time.forEach((time, index) => {
-      const date = new Date(time);
-      const dayKey = date.toDateString();
-      
-      if (!days[dayKey]) {
-        days[dayKey] = {
-          day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-          date: date,
-          temps: [],
-          weatherCodes: [],
-          precip: []
-        };
-      }
-      
-      if (forecast.hourly.temperature_2m?.[index] !== undefined) {
-        days[dayKey].temps.push(forecast.hourly.temperature_2m[index]);
-      }
-      
-      if (forecast.hourly.weather_code?.[index] !== undefined) {
-        days[dayKey].weatherCodes.push(forecast.hourly.weather_code[index]);
-      }
-      
-      if (forecast.hourly.precipitation_probability?.[index] !== undefined) {
-        days[dayKey].precip.push(forecast.hourly.precipitation_probability[index]);
-      }
-    });
-    
-    // Convert to array and calculate min/max
-    return Object.values(days).map(day => {
-      const temps = day.temps.filter(t => t !== undefined);
-      const precip = day.precip.filter(p => p !== undefined);
-      const weatherCode = day.weatherCodes.length > 0 ? 
-        day.weatherCodes[Math.floor(day.weatherCodes.length / 2)] : 0;
-        
-      return {
-        day: day.day,
-        high: Math.round(Math.max(...temps, -100)),
-        low: Math.round(Math.min(...temps, 200)),
-        icon: getWeatherIcon(weatherCode),
-        precip: precip.length > 0 ? Math.round(precip.reduce((a, b) => a + b, 0) / precip.length) : 0,
-        date: day.date
-      };
-    });
+    return processDailyForecast(forecast.daily);
   } catch (error) {
     console.error('Error processing daily forecast:', error);
     return [];
@@ -222,7 +222,35 @@ const dailyForecast = computed(() => {
 });
 
 // Weather data
-const location = ref('Current Location');
+const locationName = ref('');
+const locationDetails = ref('');
+
+// Function to get location name from coordinates
+async function updateLocationName(lat, lon) {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1`
+    );
+    const data = await response.json();
+    
+    if (data.address) {
+      const { city, town, village, state, country } = data.address;
+      locationName.value = city || town || village || data.display_name?.split(',')[0] || 'Current Location';
+      
+      // Create a more detailed location string (city, state, country)
+      const details = [];
+      if (city || town || village) details.push(city || town || village);
+      if (state) details.push(state);
+      if (country) details.push(country);
+      
+      locationDetails.value = details.filter(Boolean).join(', ');
+    }
+  } catch (error) {
+    console.error('Error getting location name:', error);
+    locationName.value = 'Current Location';
+    locationDetails.value = '';
+  }
+}
 const lastUpdated = ref('Just now');
 const currentTemp = ref(0);
 const highTemp = ref(0);
@@ -233,11 +261,14 @@ const humidity = ref(0);
 const windSpeed = ref(0);
 const windDirection = ref('N/A');
 const pressure = ref(0);
-const visibility = ref(0);
+const precipChance = ref(0);
 const uvIndex = ref(0);
-const sunrise = ref('6:00 AM');
-const sunset = ref('6:00 PM');
+const sunrise = ref('--:--');
+const sunset = ref('--:--');
 const isCelsius = ref(true);
+
+// Unit handling
+const pressureUnit = ref('hPa');  // Default unit, will be updated from forecast
 
 // Helper function to map weather code to condition
 const getWeatherCondition = (code) => {
@@ -298,11 +329,16 @@ const weatherIcon = computed(() => {
   return 'fas fa-cloud-sun';
 });
 
-const windUnit = computed(() => (isCelsius.value ? 'km/h' : 'mph'));
-const distanceUnit = computed(() => (isCelsius.value ? 'km' : 'mi'));
+// Unit computations
+const windUnit = computed(() => {
+  if (currentForecast.value.current_units?.wind_speed_10m) {
+    return currentForecast.value.current_units.wind_speed_10m;
+  }
+  return isCelsius.value ? 'km/h' : 'mph';
+});
 
 // Methods
-function updateWeatherData() {
+async function updateWeatherData() {
   log('Updating weather data');
   
   try {
@@ -325,10 +361,15 @@ function updateWeatherData() {
     feelsLikeTemp.value = Math.round(weather.apparent_temperature ?? 0);
     humidity.value = weather.relative_humidity_2m ?? 0;
     pressure.value = weather.pressure_msl ? Math.round(weather.pressure_msl) : 0;
+    precipChance.value = weather.precipitation_probability || 0;
     
     // Wind
     windSpeed.value = Math.round(weather.wind_speed_10m ?? 0);
     windDirection.value = getWindDirection(weather.wind_direction_10m);
+    // Update pressure unit if available in the forecast
+    if (currentForecast.value.current_units?.pressure_msl) {
+      pressureUnit.value = currentForecast.value.current_units.pressure_msl;
+    }
     
     // Update time
     lastUpdated.value = new Date().toLocaleTimeString('en-US', { 
@@ -336,24 +377,57 @@ function updateWeatherData() {
       minute: '2-digit' 
     });
     
-    // Update location (if available in your state)
-    try {
-      location.value = state.value?.location?.name || 'Current Location';
-    } catch (error) {
-      console.error('Error processing location data:', error);
-      location.value = 'Current Location';
+    // Debug log the weather data
+    console.log('Weather data received:', {
+      metadata: currentForecast.value.metadata,
+      currentWeather: weather
+    });
+
+    // Update location name from metadata coordinates if available
+    if (currentForecast.value.metadata?.latitude && currentForecast.value.metadata?.longitude) {
+      console.log('Updating location with coordinates from metadata:', 
+        currentForecast.value.metadata.latitude, 
+        currentForecast.value.metadata.longitude
+      );
+      await updateLocationName(
+        currentForecast.value.metadata.latitude, 
+        currentForecast.value.metadata.longitude
+      );
+    } else {
+      console.log('No coordinates available in metadata');
+      locationName.value = 'Current Location';
+      locationDetails.value = '';
     }
     
-    // Update high/low from daily forecast
+    // Update high/low and UV index from daily forecast
     if (dailyForecast.value.length > 0) {
       const today = dailyForecast.value[0];
+      console.log("TODAY FORECAST", today);
       highTemp.value = today.high;
       lowTemp.value = today.low;
+      uvIndex.value = today.uvIndexMax ?? 0;
     }
     
-    // Set default sunrise/sunset since they're not in the new data
-    sunrise.value = '6:00 AM';
-    sunset.value = '8:00 PM';
+    // Update sunrise/sunset from daily forecast
+    if (dailyForecast.value.length > 0) {
+      const today = dailyForecast.value[0];
+      if (today.sunrise) {
+        const sunriseDate = new Date(today.sunrise);
+        sunrise.value = sunriseDate.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
+      if (today.sunset) {
+        const sunsetDate = new Date(today.sunset);
+        sunset.value = sunsetDate.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
+    }
     
     log('Updated weather data:', {
       temp: currentTemp.value,

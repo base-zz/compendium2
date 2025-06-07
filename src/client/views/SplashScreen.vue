@@ -24,11 +24,14 @@
 import { IonPage, IonContent } from '@ionic/vue';
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useBoatConnectionStore } from '../stores/boatConnection';
 
 const router = useRouter();
+const boatStore = useBoatConnectionStore();
 const isAnimating = ref(false);
+const isLoading = ref(true);
 
-const startExitAnimation = () => {
+const startExitAnimation = (route = '/home') => {
   // Add exit animation class
   const container = document.querySelector('.splash-container');
   if (container) {
@@ -37,19 +40,44 @@ const startExitAnimation = () => {
   
   // Navigate after exit animation completes
   setTimeout(() => {
-    router.replace('/home');
+    router.replace(route);
   }, 500); // Time for exit animation to complete
 };
 
-onMounted(() => {
+const checkBoatConnection = async () => {
+  try {
+    // If we're already connected, go to home
+    if (boatStore.connectionStatus === 'connected') {
+      return startExitAnimation('/home');
+    }
+    
+    // If we have a boat ID, try to connect
+    if (boatStore.boatId) {
+      await boatStore.initializeConnection();
+      if (boatStore.connectionStatus === 'connected') {
+        return startExitAnimation('/home');
+      }
+    }
+    
+    // If we get here, we need to pair
+    return startExitAnimation('/pair');
+  } catch (error) {
+    console.error('Error checking boat connection:', error);
+    return startExitAnimation('/pair');
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+onMounted(async () => {
   // Start animations after a small delay
   setTimeout(() => {
     isAnimating.value = true;
     
-    // Start exit sequence after 4 seconds
+    // Start exit sequence after 2 seconds
     setTimeout(() => {
-      startExitAnimation();
-    }, 4000);
+      checkBoatConnection();
+    }, 2000);
   }, 100);
 });
 </script>

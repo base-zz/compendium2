@@ -175,7 +175,16 @@ class DirectConnectionAdapter extends EventEmitter {
    * @returns {Promise<void>} Resolves when connected, rejects on error
    */
   connect() {
-    logger.info("Connecting to WebSocket server...");
+    logger.info("Starting WebSocket connection process...");
+    
+    // Store the promise resolve/reject functions if this is a new connection attempt
+    if (this._connectResolve) {
+      logger.warn("Connect already in progress, returning existing promise");
+      return new Promise((resolve, reject) => {
+        this._connectResolve = resolve;
+        this._connectReject = reject;
+      });
+    }
 
     // Return immediately if already connected
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -185,9 +194,7 @@ class DirectConnectionAdapter extends EventEmitter {
 
     // If connecting, return a promise that resolves when connection is complete
     if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
-      logger.info(
-        "WebSocket connection in progress, waiting for it to complete..."
-      );
+      logger.info("WebSocket connection in progress, waiting for it to complete...");
       return new Promise((resolve, reject) => {
         const onOpen = () => {
           cleanup();
@@ -197,23 +204,35 @@ class DirectConnectionAdapter extends EventEmitter {
 
         const onError = (error) => {
           cleanup();
-          logger.error("Error in existing WebSocket connection:", error);
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          logger.error(`Error in existing WebSocket connection: ${errorMsg}`, error);
+          reject(error);
+        };
+
+        const onClose = (event) => {
+          cleanup();
+          const error = new Error(`Connection closed before open: ${event.code} - ${event.reason || 'No reason provided'}`);
+          logger.error(error.message);
           reject(error);
         };
 
         const cleanup = () => {
+          clearTimeout(timeoutId);
           this.ws.removeEventListener("open", onOpen);
           this.ws.removeEventListener("error", onError);
-          clearTimeout(timeoutId);
+          this.ws.removeEventListener("close", onClose);
         };
 
         const timeoutId = setTimeout(() => {
           cleanup();
-          reject(new Error("Connection attempt timed out"));
-        }, 5000);
+          const error = new Error("Connection attempt timed out after 10 seconds");
+          logger.error(error.message);
+          reject(error);
+        }, 10000);
 
         this.ws.addEventListener("open", onOpen);
         this.ws.addEventListener("error", onError);
+        this.ws.addEventListener("close", onClose);
       });
     }
 

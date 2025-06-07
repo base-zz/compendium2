@@ -1,122 +1,154 @@
 <template>
-  <div class="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-    <div class="w-full max-w-md bg-white rounded-lg shadow-md p-8 space-y-6">
-      <!-- App Logo/Header -->
-      <div class="text-center">
-        <h1 class="text-2xl font-bold text-gray-900">
-          {{ isAlreadyPaired ? 'Already Paired' : 'Connect to Your Boat' }}
-        </h1>
-        <p v-if="isAlreadyPaired" class="mt-2 text-sm text-gray-600">
-          You're already paired with boat ID: 
-          <span class="font-mono font-bold">{{ boatStore.boatId }}</span>
-        </p>
-        <p v-else class="mt-2 text-sm text-gray-600">
-          Get started by connecting to your boat's network
-        </p>
+  <ion-page>
+    <ion-content class="ion-padding" :fullscreen="true">
+      <div class="ion-text-center ion-padding">
+        <div class="logo-container ion-margin-vertical" style="width: 76.5%; max-width: 270px; margin-left: auto; margin-right: auto;">
+          <ion-img 
+            src="/img/compendium_logo.png" 
+            alt="Compendium Navigation"
+            class="logo-image"
+            style="width: 100%; height: auto;"
+          />
+        </div>
+        
+        <ion-card>
+          <ion-card-header>
+            <ion-card-title>
+              {{ isAlreadyPaired ? 'Already Paired' : 'Connect to Your Boat' }}
+            </ion-card-title>
+            <ion-card-subtitle v-if="isAlreadyPaired">
+              Boat ID: <strong>{{ boatStore.boatId }}</strong>
+            </ion-card-subtitle>
+            <ion-card-subtitle v-else>
+              Get started by connecting to your boat's network
+            </ion-card-subtitle>
+          </ion-card-header>
+
+          <!-- Already Paired State -->
+          <ion-card-content v-if="isAlreadyPaired">
+            <div class="ion-text-center ion-padding-vertical">
+              <ion-icon 
+                :icon="checkmarkCircle" 
+                color="success" 
+                style="font-size: 64px"
+              />
+              <p class="ion-padding-vertical">
+                You're all set! You can now control your boat.
+              </p>
+            </div>
+
+            <ion-button 
+              expand="block" 
+              @click="handleAlreadyPaired"
+              class="ion-margin-vertical"
+              size="default"
+              :disabled="isLoading"
+              style="--padding-top: 16px; --padding-bottom: 16px;"
+            >
+              <ion-spinner v-if="isLoading" name="crescent" class="ion-margin-end"></ion-spinner>
+              {{ isLoading ? 'Connecting...' : 'Go to Home' }}
+            </ion-button>
+
+            <ion-button 
+              expand="block" 
+              @click="resetPairing"
+              fill="outline"
+              color="medium"
+              size="default"
+              :disabled="isLoading"
+              style="--padding-top: 16px; --padding-bottom: 16px;"
+            >
+              Pair with a different boat
+            </ion-button>
+          </ion-card-content>
+
+          <!-- Loading State -->
+          <ion-card-content v-else-if="isLoading">
+            <div class="ion-text-center ion-padding-vertical">
+              <ion-spinner name="crescent" style="width: 48px; height: 48px"></ion-spinner>
+              <p class="ion-padding-top">Searching for local boat...</p>
+            </div>
+          </ion-card-content>
+
+          <!-- Error State -->
+          <ion-card-content v-else-if="error">
+            <ion-item color="light">
+              <ion-icon :icon="warning" slot="start" color="danger"></ion-icon>
+              <ion-label class="ion-text-wrap">
+                {{ error }}
+              </ion-label>
+            </ion-item>
+            
+            <ion-button 
+              expand="block" 
+              @click="retryConnection"
+              color="danger"
+              fill="clear"
+              class="ion-margin-top"
+            >
+              Try Again
+            </ion-button>
+          </ion-card-content>
+
+          <!-- Manual Pairing Form -->
+          <ion-card-content v-else>
+            <ion-list>
+              <ion-item-divider>
+                <ion-label>Or connect manually</ion-label>
+              </ion-item-divider>
+              
+              <ion-item>
+                <ion-label position="floating">Boat ID</ion-label>
+                <ion-input
+                  v-model="manualBoatId"
+                  type="text"
+                  placeholder="Enter your boat's ID"
+                  :disabled="isPairing"
+                  @keyup.enter="handleManualPair"
+                ></ion-input>
+              </ion-item>
+
+              <ion-button 
+                expand="block" 
+                @click="handleManualPair"
+                :disabled="!manualBoatId.trim() || isPairing"
+                class="ion-margin-vertical"
+                size="default"
+                style="--padding-top: 16px; --padding-bottom: 16px;"
+              >
+                <ion-spinner v-if="isPairing" name="crescent" class="ion-margin-end"></ion-spinner>
+                {{ isPairing ? 'Connecting...' : 'Connect' }}
+              </ion-button>
+
+              <ion-text color="medium" class="ion-text-center">
+                <p>Don't know your Boat ID? Connect to your boat's WiFi and try again.</p>
+              </ion-text>
+            </ion-list>
+          </ion-card-content>
+        </ion-card>
       </div>
-
-      <!-- Already Paired State -->
-      <div v-if="isAlreadyPaired" class="text-center py-8">
-        <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-50 mb-4">
-          <IonIcon :icon="checkmarkCircle" class="h-10 w-10 text-green-500" />
-        </div>
-        <p class="text-gray-700 mb-6">
-          You're all set! You can now control your boat.
-        </p>
-
-        <button
-          @click="resetPairing"
-          class="mt-4 w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-        >
-          Pair with a different boat
-        </button>
-      </div>
-
-      <!-- Loading State -->
-      <div v-else-if="isLoading" class="text-center py-8">
-        <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-        <p class="text-gray-700">Searching for local boat...</p>
-      </div>
-
-      <!-- Error State -->
-      <div v-else-if="error" class="bg-red-50 border-l-4 border-red-500 p-4 rounded">
-        <div class="flex">
-          <div class="flex-shrink-0">
-            <svg class="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-            </svg>
-          </div>
-          <div class="ml-3">
-            <p class="text-sm text-red-700">{{ error }}</p>
-          </div>
-        </div>
-        <div class="mt-4">
-          <button
-            @click="retryConnection"
-            class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-
-      <!-- Manual Pairing Form -->
-      <div v-else class="space-y-4">
-        <div class="relative">
-          <div class="absolute inset-0 flex items-center" aria-hidden="true">
-            <div class="w-full border-t border-gray-300"></div>
-          </div>
-          <div class="relative flex justify-center text-sm">
-            <span class="px-2 bg-white text-gray-500">
-              Or connect manually
-            </span>
-          </div>
-        </div>
-
-        <div class="mt-6">
-          <label for="boatId" class="block text-sm font-medium text-gray-700">Boat ID</label>
-          <div class="mt-1 flex rounded-md shadow-sm">
-            <input
-              v-model="manualBoatId"
-              type="text"
-              id="boatId"
-              class="focus:ring-blue-500 focus:border-blue-500 block w-full rounded-md border-gray-300"
-              placeholder="Enter your boat's ID"
-              :disabled="isPairing"
-            />
-          </div>
-        </div>
-
-        <div>
-          <button
-            @click="handleManualPair"
-            :disabled="!manualBoatId.trim() || isPairing"
-            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <span v-if="isPairing">
-              <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Connecting...
-            </span>
-            <span v-else>Connect</span>
-          </button>
-        </div>
-
-        <div class="mt-4 text-center text-sm text-gray-500">
-          <p>Don't know your Boat ID? Connect to your boat's WiFi and try again.</p>
-        </div>
-      </div>
-    </div>
-  </div>
+    </ion-content>
+  </ion-page>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { checkmarkCircle } from 'ionicons/icons';
-import { IonIcon } from '@ionic/vue';
+import { checkmarkCircle, warning } from 'ionicons/icons';
+import { 
+  IonPage, 
+  IonContent, 
+  IonCard, 
+  IonCardHeader, 
+  IonCardTitle, 
+  IonCardSubtitle, 
+  IonCardContent, 
+  IonInput, 
+  IonButton, 
+  IonSpinner, 
+  IonIcon,
+  toastController
+} from '@ionic/vue';
 import { useBoatConnectionStore } from '../../stores/boatConnection';
 
 // Type definition for the boat store
@@ -125,57 +157,213 @@ interface BoatConnectionStore {
   initializeConnection: () => Promise<void>;
   resetConnection: () => void;
   pairWithBoat: (id: string) => Promise<void>;
+  connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
+  error: string | null;
 }
 
 const router = useRouter();
 const boatStore = useBoatConnectionStore() as unknown as BoatConnectionStore;
 
+// Component state
 const manualBoatId = ref('');
 const isPairing = ref(false);
 const error = ref<string | null>(null);
 const isLoading = ref(true);
+const isConnecting = ref(false);
+const connectionTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
+const statusCheckInterval = ref<ReturnType<typeof setInterval> | null>(null);
 
+// Computed
 const isAlreadyPaired = computed(() => !!boatStore.boatId);
 
-onMounted(async () => {
-  try {
-    await boatStore.initializeConnection();
-  } catch (err) {
-    error.value = 'Could not connect to boat. Make sure you are on the boat network or enter your Boat ID manually.';
-  } finally {
-    isLoading.value = false;
+// Cleanup on component unmount
+onBeforeUnmount(() => {
+  if (connectionTimeout.value) {
+    clearTimeout(connectionTimeout.value);
+    connectionTimeout.value = null;
+  }
+  if (statusCheckInterval.value) {
+    clearInterval(statusCheckInterval.value);
+    statusCheckInterval.value = null;
   }
 });
 
+/**
+ * Handle successful connection
+ */
+const handleConnectionSuccess = async () => {
+  // Clear any pending timeouts
+  if (connectionTimeout.value) {
+    clearTimeout(connectionTimeout.value);
+    connectionTimeout.value = null;
+  }
+  
+  isLoading.value = false;
+  isConnecting.value = false;
+  
+  // Show success message
+  await showToast('Connected to boat!', 'success');
+  
+  // Small delay to ensure the toast is visible
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Navigate to home
+  router.push('/home');
+};
+
+/**
+ * Handle connection errors
+ */
+const handleConnectionError = (errorMessage: string) => {
+  if (connectionTimeout.value) {
+    clearTimeout(connectionTimeout.value);
+    connectionTimeout.value = null;
+  }
+  
+  isLoading.value = false;
+  isConnecting.value = false;
+  error.value = errorMessage || 'Connection failed. Please try again.';
+  showToast(error.value);
+};
+
+// Watch for connection status changes
+watch(() => boatStore.connectionStatus, async (newStatus) => {
+  if (newStatus === 'connected') {
+    await handleConnectionSuccess();
+  } else if (newStatus === 'error') {
+    handleConnectionError(boatStore.error || 'Connection failed');
+  }
+});
+
+/**
+ * Initialize the component
+ */
+onMounted(async () => {
+  if (isAlreadyPaired.value) {
+    await handleAlreadyPaired();
+  } else {
+    try {
+      isLoading.value = true;
+      await boatStore.initializeConnection();
+      if (boatStore.connectionStatus === 'connected') {
+        await handleConnectionSuccess();
+      }
+    } catch (err) {
+      handleConnectionError('Could not connect to boat. Make sure you are on the boat network or enter your Boat ID manually.');
+      console.error('Initial connection error:', err);
+    } finally {
+      if (boatStore.connectionStatus !== 'connected') {
+        isLoading.value = false;
+      }
+    }
+  }
+});
+
+/**
+ * Retry the connection
+ */
 async function retryConnection() {
   error.value = null;
+  isLoading.value = true;
+  
   try {
     await boatStore.initializeConnection();
-    router.push('/dashboard');
   } catch (err) {
-    error.value = 'Still unable to connect. Please check your connection or enter your Boat ID manually.';
+    handleConnectionError('Still unable to connect. Please check your connection or enter your Boat ID manually.');
     console.error('Connection error:', err);
   }
 }
 
-function resetPairing() {
-  boatStore.resetConnection();
-  // Clear the manual boat ID if it was just entered
-  manualBoatId.value = '';
+/**
+ * Reset the current pairing
+ */
+async function resetPairing() {
+  try {
+    isLoading.value = true;
+    boatStore.resetConnection();
+    manualBoatId.value = '';
+    await showToast('Pairing reset. Please connect to a boat.');
+  } catch (err) {
+    console.error('Error resetting pairing:', err);
+    showToast('Failed to reset pairing');
+  } finally {
+    isLoading.value = false;
+  }
 }
 
-async function handleManualPair() {
-  if (!manualBoatId.value.trim()) return;
+/**
+ * Handle already paired case
+ */
+async function handleAlreadyPaired() {
+  // Don't proceed if already connecting or connected
+  if (isConnecting.value) {
+    console.debug('Connection attempt already in progress');
+    return;
+  }
   
-  isPairing.value = true;
+  // Reset state
+  isConnecting.value = true;
+  isLoading.value = true;
   error.value = null;
   
+  // Clear any existing timeout
+  if (connectionTimeout.value) {
+    clearTimeout(connectionTimeout.value);
+    connectionTimeout.value = null;
+  }
+  
+  // Set connection timeout
+  connectionTimeout.value = setTimeout(() => {
+    if (boatStore.connectionStatus !== 'connected') {
+      handleConnectionError('Connection timed out. Please check your internet connection.');
+    }
+  }, 15000); // 15 seconds timeout
+  
   try {
-    await boatStore.pairWithBoat(manualBoatId.value);
-    router.push('/dashboard');
+    await boatStore.initializeConnection();
+  } catch (err) {
+    handleConnectionError('Failed to initialize connection. Please try again.');
+    console.error('Connection error:', err);
+  }
+}
+
+/**
+ * Show a toast message
+ */
+async function showToast(message: string, color: 'success' | 'danger' = 'danger') {
+  const toast = await toastController.create({
+    message,
+    duration: 3000,
+    color,
+    position: 'bottom',
+    buttons: [{ icon: 'close', role: 'cancel' }]
+  });
+  await toast.present();
+}
+
+/**
+ * Handle manual boat pairing
+ */
+async function handleManualPair() {
+  const boatId = manualBoatId.value.trim();
+  if (!boatId) {
+    showToast('Please enter a valid Boat ID');
+    return;
+  }
+  
+  if (isPairing.value) {
+    return; // Prevent multiple clicks
+  }
+
+  isPairing.value = true;
+  error.value = null;
+
+  try {
+    await boatStore.pairWithBoat(boatId);
+    // The status watcher will handle navigation on success
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Failed to connect with provided Boat ID';
-    error.value = errorMessage;
+    handleConnectionError(errorMessage);
     console.error('Pairing error:', err);
   } finally {
     isPairing.value = false;
