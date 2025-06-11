@@ -256,28 +256,36 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   // Skip for auth pages and pairing page
   if (!to.meta.requiresAuth || to.name === 'BoatPairing') {
+    console.log('Router: Skipping auth check for route:', to.name);
     return next();
   }
 
   const boatStore = useBoatConnectionStore();
+  console.log('Router: Checking boat connection status:', {
+    route: to.name,
+    boatId: boatStore.boatId,
+    connectionStatus: boatStore.connectionStatus,
+    vpsConnected: boatStore.vpsConnected,
+    directConnected: boatStore.directConnected
+  });
   
-  // If we're already connected, proceed
-  if (boatStore.connectionStatus === 'connected') {
+  // If we have a boat ID, allow navigation and try to connect in the background
+  if (boatStore.boatId) {
+    console.log('Router: Boat ID found, allowing navigation');
+    
+    // Try to connect in the background if not connected
+    if (boatStore.connectionStatus !== 'connected') {
+      console.log('Router: Attempting to connect in background');
+      boatStore.initializeConnection().catch(error => {
+        console.error('Background connection attempt failed:', error);
+      });
+    }
+    
     return next();
   }
   
-  // If we have a boat ID but not connected, try to connect
-  if (boatStore.boatId) {
-    try {
-      await boatStore.initializeConnection();
-      return next();
-    } catch (error) {
-      console.error('Boat connection failed:', error);
-      return next({ name: 'BoatPairing' });
-    }
-  }
-  
-  // No boat ID and not connected, go to pairing
+  // No boat ID found, go to pairing
+  console.log('Router: No boat ID found, redirecting to pairing');
   return next({ name: 'BoatPairing' });
 });
 

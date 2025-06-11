@@ -1,22 +1,24 @@
 <template>
   <ion-app>
     <router-view />
+    <!-- Notification toast will be shown here -->
   </ion-app>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { IonApp } from '@ionic/vue';
-import { computed, onMounted, watch } from 'vue';
+import { onMounted } from 'vue';
 import { useStateDataStore } from './client/stores/stateDataStore';
 import { useRelayPiniaSync } from './client/services/useRelayPiniaSync';
 import { useDirectPiniaSync } from './client/services/useDirectPiniaSync';
 import { createLogger } from './client/services/logger';
+import { notificationService } from './client/services/NotificationService';
 
 const logger = createLogger('App');
 logger.info('Initializing application...');
 
-const stateDataStore = useStateDataStore();
-const isConnected = computed(() => stateDataStore.isConnected);
+// Initialize state data store
+useStateDataStore();
 
 // Start relay-to-pinia data sync
 logger.info('Initializing relay-to-pinia sync...');
@@ -28,54 +30,16 @@ useDirectPiniaSync();
 
 onMounted(() => {
   logger.info('App component mounted');
-  // Removed: stateDataStore.init();
-  // Removed: stateDataStore.initRelayMode();
+  
+  // Initialize push notifications
+  notificationService.initialize().catch(error => {
+    logger.error('Failed to initialize push notifications', { 
+      error: error instanceof Error ? error.message : String(error) 
+    });
+  });
+  
   // The smartConnectionManager will handle initialization and switching.
 });
-
-// Log connection status changes
-watch(isConnected, (newValue) => {
-  logger(`Connection status changed: ${newValue ? 'Connected' : 'Disconnected'}`);
-});
-
-async function initializeRelayMode() {
-  logger('Initializing relay mode...');
-  try {
-    // Removed: await stateDataStore.initRelayMode();
-    // The smartConnectionManager will handle relay mode if needed.
-    logger('Relay mode initialization completed');
-  } catch (error) {
-    logger.error('Failed to initialize relay mode', {
-      error: error.message,
-      stack: error.stack
-    });
-  }
-}
-
-async function disconnectRelay() {
-  logger('Initiating relay disconnection...');
-  try {
-    // Disconnect from the relay server
-    if (stateDataStore.relayConnectionAdapter) {
-      logger('Disconnecting from relay server...');
-      await stateDataStore.relayConnectionAdapter.disconnect();
-      logger('Successfully disconnected from relay server');
-    } else {
-      logger.warn('No relay connection adapter found to disconnect');
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : new Error().stack;
-    
-    logger.error('Error disconnecting from relay', {
-      error: errorMessage,
-      stack: errorStack
-    });
-    
-    // Re-throw to allow caller to handle the error
-    throw error;
-  }
-}
 </script>
 
 <style>

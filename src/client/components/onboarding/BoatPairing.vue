@@ -147,7 +147,13 @@ import {
   IonButton, 
   IonSpinner, 
   IonIcon,
-  toastController
+  toastController,
+  IonImg,
+  IonLabel,
+  IonItem,
+  IonItemDivider,
+  IonText,
+  IonList,
 } from '@ionic/vue';
 import { useBoatConnectionStore } from '../../stores/boatConnection';
 

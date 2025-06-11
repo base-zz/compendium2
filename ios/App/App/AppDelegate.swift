@@ -1,49 +1,159 @@
 import UIKit
 import Capacitor
+import UserNotifications
 
 @UIApplicationMain
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Set the notification center delegate
+        UNUserNotificationCenter.current().delegate = self
+        
+        // Request notification permissions
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if granted {
+                print("Notification permission granted")
+                DispatchQueue.main.async {
+                    application.registerForRemoteNotifications()
+                }
+            } else {
+                print("Notification permission denied: \(String(describing: error?.localizedDescription))")
+            }
+        }
+        
         return true
     }
 
-    func applicationWillResignActive(_ application: UIApplication) {
-        // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
-        // Use this method to pause ongoing tasks, disable timers, and invalidate graphics rendering callbacks. Games should use this method to pause the game.
+    // MARK: - Push Notifications
+    
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        // Convert token to string
+        let tokenParts = deviceToken.map { data in String(format: "%02.2hhx", data) }
+        let token = tokenParts.joined()
+        print("Device Token: \(token)")
+        
+        // Forward token to Capacitor
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CAPNotifications.didRegisterForRemoteNotifications"),
+            object: deviceToken
+        )
     }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
-        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
+    
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // Forward error to Capacitor
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CAPNotifications.didFailToRegisterForRemoteNotifications"),
+            object: error
+        )
     }
-
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
+    
+    // Handle notification when app is in foreground
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                              willPresent notification: UNNotification,
+                              withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        
+        let userInfo = notification.request.content.userInfo
+        
+        // Print full notification payload
+        print("Received notification: \(userInfo)")
+        
+        // Forward to Capacitor
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CAPNotifications.pushNotificationReceived"),
+            object: userInfo,
+            userInfo: userInfo
+        )
+        
+        // Show the notification even when app is in foreground
+        completionHandler([.banner, .sound, .badge])
     }
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+    
+    // Handle notification tap
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                              didReceive response: UNNotificationResponse,
+                              withCompletionHandler completionHandler: @escaping () -> Void) {
+        
+        let userInfo = response.notification.request.content.userInfo
+        
+        // Print full notification payload
+        print("Tapped notification: \(userInfo)")
+        
+        // Forward to Capacitor
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CAPNotifications.pushNotificationActionPerformed"),
+            object: userInfo,
+            userInfo: userInfo
+        )
+        
+        // Handle the notification tap
+        handleNotificationTap(userInfo: userInfo)
+        
+        completionHandler()
     }
-
-    func applicationWillTerminate(_ application: UIApplication) {
-        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+    
+    // Handle silent notifications (background updates)
+    func application(_ application: UIApplication,
+                    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        
+        // Print full notification payload
+        print("Received silent notification: \(userInfo)")
+        
+        // Forward to Capacitor
+        NotificationCenter.default.post(
+            name: NSNotification.Name("CAPNotifications.pushNotificationReceived"),
+            object: userInfo,
+            userInfo: userInfo
+        )
+        
+        // Call the completion handler with the appropriate result
+        completionHandler(.newData)
     }
-
+    
+    // MARK: - URL Handling
+    
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // Called when the app was launched with a url. Feel free to add additional processing here,
-        // but if you want the App API to support tracking app url opens, make sure to keep this call
+        // Forward URL to Capacitor
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
-
-    func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        // Called when the app was launched with an activity, including Universal Links.
-        // Feel free to add additional processing here, but if you want the App API to support
-        // tracking app url opens, make sure to keep this call
-        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+    
+    // MARK: - Helper Methods
+    
+    private func handleNotificationTap(userInfo: [AnyHashable: Any]) {
+        // Handle notification tap here
+        print("Handling notification tap with data: \(userInfo)")
+        
+        // Example: Extract data and post a notification that your TypeScript code can listen for
+        if let alertData = userInfo as? [String: Any] {
+            NotificationCenter.default.post(
+                name: NSNotification.Name("NotificationTapped"),
+                object: nil,
+                userInfo: alertData
+            )
+        }
     }
-
+    
+    // MARK: - Lifecycle
+    
+    func applicationWillResignActive(_ application: UIApplication) {
+        // Sent when the application is about to move from active to inactive state.
+    }
+    
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Use this method to release shared resources, save user data, invalidate timers, etc.
+    }
+    
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        // Called as part of the transition from the background to the active state.
+    }
+    
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        // Restart any tasks that were paused (or not yet started) while the application was inactive.
+    }
+    
+    func applicationWillTerminate(_ application: UIApplication) {
+        // Called when the application is about to terminate.
+    }
 }

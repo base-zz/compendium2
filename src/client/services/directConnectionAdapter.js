@@ -5,22 +5,32 @@ import { createLogger } from "./logger.js";
 
 const logger = createLogger("direct-connection");
 
-// Get the appropriate WebSocket URL based on environment
+// Get the WebSocket URL from environment variables
 const getWebSocketUrl = () => {
-  // In development or if explicitly set in .env.local
-  if (import.meta.env.VITE_DIRECT_WS_URL) {
-    return import.meta.env.VITE_DIRECT_WS_URL;
+  if (!import.meta.env.VITE_DIRECT_WS_URL) {
+    throw new Error('VITE_DIRECT_WS_URL environment variable is required');
   }
-
-  // For production (mobile app), use the current hostname with the standard port
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const host = window.location.hostname;
-  const port = 3009; // Standard port for direct WebSocket server
-
-  return `${protocol}//${host}:${port}`;
+  const url = import.meta.env.VITE_DIRECT_WS_URL;
+  console.log(`Using WebSocket URL: ${url}`);
+  return url;
 };
 
 class DirectConnectionAdapter extends EventEmitter {
+  /**
+   * Gets the human-readable name for a WebSocket ready state
+   * @param {number} state - The WebSocket readyState
+   * @returns {string} The state name
+   */
+  getReadyStateName(state) {
+    const states = {
+      0: 'CONNECTING',
+      1: 'OPEN',
+      2: 'CLOSING',
+      3: 'CLOSED'
+    };
+    return states[state] || `UNKNOWN (${state})`;
+  }
+
   constructor() {
     logger.info("DirectConnectionAdapter constructor called");
     super();
@@ -31,7 +41,7 @@ class DirectConnectionAdapter extends EventEmitter {
     };
     this.ws = null;
     this._reconnectAttempts = 0;
-    this._maxReconnects = 5;
+    this._maxReconnects = 10; // Increased max reconnects
     this._reconnectDelay = 2000;
     this._manualClose = false;
     this._wsUrl = getWebSocketUrl();
@@ -40,6 +50,9 @@ class DirectConnectionAdapter extends EventEmitter {
     this._lastPongTime = null;
     this._heartbeatTimer = null;
     this._connectionTimeout = null;
+    this._connectResolve = null;
+    this._connectReject = null;
+    this._reconnectTimeout = null;
     logger.info(`Using WebSocket URL: ${this._wsUrl}`);
   }
 
@@ -174,8 +187,9 @@ class DirectConnectionAdapter extends EventEmitter {
    * Establishes a WebSocket connection to the server
    * @returns {Promise<void>} Resolves when connected, rejects on error
    */
-  connect() {
+  async connect() {
     logger.info("Starting WebSocket connection process...");
+    logger.info(`Attempting to connect to: ${this._wsUrl}`);
     
     // Store the promise resolve/reject functions if this is a new connection attempt
     if (this._connectResolve) {
@@ -259,30 +273,32 @@ class DirectConnectionAdapter extends EventEmitter {
          */
         this.onOpen = () => {
           try {
-            logger.info("✅ WebSocket connection established");
-
-            // Update connection state
-            this.connectionState = {
-              status: "connected",
-              lastError: null,
-            };
-            this._reconnectAttempts = 0;
-
-            // Set up heartbeat
-            logger.debug("Setting up heartbeat...");
+            logger.info(" WebSocket connection established");
+            logger.info(`Connected to: ${this._wsUrl}`);
+            logger.info(`WebSocket readyState: ${this.ws.readyState} (${this.getReadyStateName(this.ws.readyState)})`);
+            
+            this.connectionState.status = 'connected';
+            this.connectionState.lastError = null;
+            this._reconnectAttempts = 0; // Reset reconnect attempts on successful connection
             this._setupHeartbeat();
-
-            // Notify listeners
-            this.emit("connected");
-
-            // Resolve the connect promise
+            this.emit('connect');
+            
+            // Log WebSocket protocol and extensions if available
+            if (this.ws.protocol) {
+              logger.info(`WebSocket protocol: ${this.ws.protocol}`);
+            }
+            if (this.ws.extensions) {
+              logger.info(`WebSocket extensions: ${this.ws.extensions}`);
+            }
+            
+            // Resolve any pending connect promises
             if (this._connectResolve) {
               this._connectResolve();
               this._connectResolve = null;
               this._connectReject = null;
             }
           } catch (error) {
-            logger.error("❌ Error in WebSocket onOpen handler:", error);
+            logger.error(" Error in WebSocket onOpen handler:", error);
 
             // Reject the connect promise if it exists
             if (this._connectReject) {
@@ -319,6 +335,17 @@ class DirectConnectionAdapter extends EventEmitter {
             // Handle ping/pong messages
             if (msg.type === "ping" || msg.type === "pong") {
               this._handlePingPong(msg);
+              return;
+            }
+            
+            // Handle boat-status message
+            if (msg.type === "boat-status") {
+              logger.info(`Received boat-status: ${msg.status} for boat ${msg.boatId}`);
+              this.emit('boat-status', {
+                boatId: msg.boatId,
+                status: msg.status,
+                timestamp: msg.timestamp
+              });
               return;
             }
 
@@ -367,32 +394,34 @@ class DirectConnectionAdapter extends EventEmitter {
          * @private
          */
         this.onError = (error) => {
-          const errorMessage = error.message || "Unknown WebSocket error";
-          logger.error(`WebSocket error: ${errorMessage}`, error);
-
-          // Update connection state
-          this.connectionState = {
-            status: "error",
-            lastError: errorMessage,
+          const errorDetails = {
+            message: error.message,
+            error: error.toString(),
+            readyState: this.ws ? this.ws.readyState : 'no_websocket',
+            url: this._wsUrl,
+            timestamp: new Date().toISOString()
           };
-
-          // Reject the connect promise if it exists
+          
+          logger.error(' WebSocket error:', errorDetails);
+          console.error('WebSocket Error Details:', errorDetails);
+          
+          this.connectionState.status = 'error';
+          this.connectionState.lastError = error.message || 'Unknown WebSocket error';
+          this.emit('error', error);
+          
+          // Reject any pending connect promises
           if (this._connectReject) {
             this._connectReject(error);
             this._connectResolve = null;
             this._connectReject = null;
-          } else {
-            // Otherwise emit the error
-            this.emit("error", error);
           }
-
-          // Clean up if needed
-          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            try {
-              this.ws.close(1011, "WebSocket error occurred");
-            } catch (closeError) {
-              logger.warn("Error closing WebSocket after error:", closeError);
-            }
+          
+          // Attempt to reconnect if this wasn't a manual close
+          if (!this._manualClose) {
+            logger.info('Scheduling reconnection attempt...');
+            this._scheduleReconnect();
+          } else {
+            logger.info('Manual close detected, not reconnecting');
           }
         };
 
@@ -429,27 +458,10 @@ class DirectConnectionAdapter extends EventEmitter {
 
           // Handle reconnection if this wasn't a manual close
           if (!this._manualClose) {
-            if (this._reconnectAttempts < this._maxReconnects) {
-              const delay =
-                this._reconnectDelay * Math.pow(1.5, this._reconnectAttempts);
-              logger.info(
-                `Attempting to reconnect in ${delay}ms (attempt ${
-                  this._reconnectAttempts + 1
-                }/${this._maxReconnects})...`
-              );
-
-              setTimeout(() => {
-                this._reconnectAttempts++;
-                this.connect().catch((error) => {
-                  logger.error("Reconnection attempt failed:", error);
-                });
-              }, delay);
-            } else {
-              logger.error(
-                `Max reconnection attempts (${this._maxReconnects}) reached. Giving up.`
-              );
-              this.emit("reconnection_failed");
-            }
+            logger.info('Scheduling reconnection attempt...');
+            this._scheduleReconnect();
+          } else {
+            logger.info('Manual close detected, not reconnecting');
           }
 
           // Clean up the WebSocket reference
@@ -495,6 +507,98 @@ class DirectConnectionAdapter extends EventEmitter {
   }
 
   /**
+   * Schedules a reconnection attempt with exponential backoff
+   * @private
+   */
+  _scheduleReconnect() {
+    if (this._reconnectAttempts >= this._maxReconnects) {
+      const error = new Error(`Max reconnection attempts (${this._maxReconnects}) reached`);
+      logger.error(error.message);
+      this.emit('connection:failed', error);
+      
+      // Reset reconnect attempts after a while to allow recovery
+      setTimeout(() => {
+        logger.info('Resetting reconnection attempts counter');
+        this._reconnectAttempts = 0;
+      }, 60000); // Reset after 1 minute
+      
+      return;
+    }
+    
+    this._reconnectAttempts++;
+    
+    // Exponential backoff with jitter
+    const baseDelay = Math.min(
+      this._reconnectDelay * Math.pow(1.5, this._reconnectAttempts - 1),
+      30000 // Max 30 seconds between retries
+    );
+    const jitter = Math.random() * 1000; // Add up to 1s jitter
+    const delay = Math.floor(baseDelay + jitter);
+    
+    logger.info(`Scheduling reconnection attempt ${this._reconnectAttempts}/${this._maxReconnects} in ${delay}ms`);
+    
+    // Clean up any existing WebSocket instance
+    this._cleanupWebSocket();
+    
+    // Clear any existing timeout to prevent multiple reconnection loops
+    if (this._reconnectTimeout) {
+      clearTimeout(this._reconnectTimeout);
+      this._reconnectTimeout = null;
+    }
+    
+    this._reconnectTimeout = setTimeout(() => {
+      logger.info(`Starting reconnection attempt ${this._reconnectAttempts}...`);
+      
+      // Verify we're not already connecting/connected
+      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+        logger.warn(`Skipping reconnection attempt ${this._reconnectAttempts} - WebSocket is already ${this.getReadyStateName(this.ws.readyState)}`);
+        return;
+      }
+      
+      this.connect()
+        .then(() => {
+          logger.info(`Successfully reconnected on attempt ${this._reconnectAttempts}`);
+          this._reconnectAttempts = 0; // Reset on successful connection
+        })
+        .catch(error => {
+          logger.error(`Reconnection attempt ${this._reconnectAttempts} failed:`, error.message);
+          // Schedule next attempt if we haven't reached max attempts
+          if (this._reconnectAttempts < this._maxReconnects) {
+            this._scheduleReconnect();
+          }
+        });
+    }, delay);
+  }
+  
+  /**
+   * Cleans up the WebSocket instance and related resources
+   * @private
+   */
+  _cleanupWebSocket() {
+    if (!this.ws) return;
+    
+    try {
+      logger.debug(`Cleaning up WebSocket in state: ${this.getReadyStateName(this.ws.readyState)}`);
+      
+      // Remove all event listeners
+      this.ws.onopen = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      
+      // Close the connection if it's open or connecting
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        logger.info('Closing existing WebSocket connection...');
+        this.ws.close(1000, 'Cleanup before reconnection');
+      }
+    } catch (e) {
+      logger.error('Error during WebSocket cleanup:', e);
+    } finally {
+      this.ws = null;
+    }
+  }
+
+  /**
    * Cleans up resources and closes the WebSocket connection
    */
   cleanup() {
@@ -504,43 +608,24 @@ class DirectConnectionAdapter extends EventEmitter {
     // Clear any pending heartbeats or timeouts
     this._clearHeartbeat();
 
-    if (this.ws) {
-      try {
-        // Remove all event listeners first
-        this.ws.onopen = null;
-        this.ws.onmessage = null;
-        this.ws.onerror = null;
-        this.ws.onclose = null;
-
-        // Only try to close if the connection is open or connecting
-        if (
-          this.ws.readyState === WebSocket.OPEN ||
-          this.ws.readyState === WebSocket.CONNECTING
-        ) {
-          logger.info("Closing WebSocket connection...");
-          try {
-            this.ws.close(1000, "Client closed connection");
-          } catch (closeError) {
-            logger.warn("Error while closing WebSocket:", closeError);
-          }
-        }
-
-        this.ws = null;
-      } catch (error) {
-        logger.error("Error during WebSocket cleanup:", error);
-      } finally {
-        // Ensure we always clean up our state
-        this.connectionState = {
-          status: "disconnected",
-          lastError: null,
-        };
-        this._reconnectAttempts = 0;
-        this._lastPingTime = null;
-        this._lastPongTime = null;
-      }
+    this._cleanupWebSocket();
+    
+    // Clear any pending reconnection timeout
+    if (this._reconnectTimeout) {
+      clearTimeout(this._reconnectTimeout);
+      this._reconnectTimeout = null;
     }
-
-    logger.info("WebSocket cleanup completed");
+    
+    // Reset connection state
+    this.connectionState = {
+      status: "disconnected",
+      lastError: null,
+    };
+    this._reconnectAttempts = 0;
+    this._lastPingTime = null;
+    this._lastPongTime = null;
+    this._connectResolve = null;
+    this._connectReject = null;
   }
 
   /**

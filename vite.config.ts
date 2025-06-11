@@ -26,7 +26,19 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      host: '0.0.0.0', // Listen on all network interfaces
       port: parseInt(env.CLIENT_PORT || '5173'), // Use configured port
+      strictPort: true,
+      hmr: {
+        host: 'compendium.local',
+        protocol: 'ws',
+        port: 24678
+      },
+      allowedHosts: [
+        'compendium.local',
+        'localhost',
+        '127.0.0.1'
+      ],
       proxy: {
         '/api': {
           target: `http://localhost:${env.SERVER_PORT || 3001}`,

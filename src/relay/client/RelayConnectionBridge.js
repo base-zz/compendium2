@@ -807,8 +807,22 @@ export class RelayConnectionBridge {
       `Received message of type: ${message.type}`
     );
     const { type } = message;
+    
+    // Handle boat-status messages
+    if (type === 'boat-status') {
+      remoteLogger.log(
+        "RELAY-CLIENT",
+        `Boat status update: ${message.status} for boat ${message.boatId}`
+      );
+      this.emit('boat-status', {
+        status: message.status,
+        boatId: message.boatId,
+        timestamp: message.timestamp || new Date().toISOString()
+      });
+      return;
+    }
 
-    // Handle state update messages in the same way as DirectConnectionAdapter
+    // Handle state update messages
     if (type === "state:full-update" || type === "state:patch") {
       // Make sure the data structure is correct
       if (!message.data) {

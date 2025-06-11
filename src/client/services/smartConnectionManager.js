@@ -84,61 +84,69 @@ async function testDnsResolution(hostname) {
 
 // Test network connectivity to the server
 async function testNetworkConnectivity() {
-  logger.info('Testing network connectivity to server...');
-  logger.debug('Direct WS URL:', DIRECT_WS_URL);
-  
-  // First test DNS resolution
-  const urlObj = new URL(DIRECT_WS_URL.replace('ws://', 'http://').replace('wss://', 'https://'));
-  const hostname = urlObj.hostname;
-  
-  // Test DNS resolution first
-  const dnsResult = await testDnsResolution(hostname);
-  logger.info(`DNS resolution test result for ${hostname}:`, dnsResult);
-  
-  // If DNS resolution failed, no need to continue
-  if (!dnsResult) {
-    logger.warn('DNS resolution failed, cannot test network connectivity');
+  try {
+    logger.info('Testing network connectivity to server...');
+    
+    // Get required environment variables
+    const host = import.meta.env.VITE_DIRECT_BOAT_HOST;
+    const port = import.meta.env.VITE_DIRECT_BOAT_PORT;
+    const path = import.meta.env.VITE_DIRECT_BOAT_PATH;
+
+    if (!host || !port || !path) {
+      const error = 'Required environment variables are missing: VITE_DIRECT_BOAT_HOST, VITE_DIRECT_BOAT_PORT, VITE_DIRECT_BOAT_PATH';
+      logger.error(error);
+      throw new Error(error);
+    }
+
+    const httpUrl = `http://${host}:${port}${path}`;
+    logger.info(`Testing HTTP connectivity to: ${httpUrl}`);
+    
+    // First test DNS resolution
+    const dnsResult = await testDnsResolution(host);
+    logger.info(`DNS resolution test result for ${host}:`, dnsResult);
+    
+    if (!dnsResult) {
+      logger.warn('DNS resolution failed, cannot test network connectivity');
+      return false;
+    }
+    
+    // Try HTTP request with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    try {
+      const response = await fetch(httpUrl, {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'no-cache',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        logger.debug('HTTP connectivity test successful');
+        return true;
+      }
+      
+      logger.warn(`HTTP request failed with status ${response.status}`);
+      return false;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        logger.warn('HTTP request timed out');
+      } else {
+        logger.warn('HTTP request failed:', error.message);
+      }
+      return false;
+    }
+  } catch (error) {
+    logger.error('Error in testNetworkConnectivity:', error);
     return false;
   }
-  
-  // Try to establish a WebSocket connection to test connectivity
-  return new Promise((resolve) => {
-    logger.debug('Attempting to create test WebSocket connection');
-    const testWs = new WebSocket(DIRECT_WS_URL);
-    let connectionTimedOut = false;
-    
-    const timeoutId = setTimeout(() => {
-      logger.debug('WebSocket connection test timed out');
-      connectionTimedOut = true;
-      testWs.close();
-      resolve(false);
-    }, 3000);
-    
-    testWs.onopen = () => {
-      logger.debug('Test WebSocket connection opened successfully');
-      clearTimeout(timeoutId);
-      testWs.close();
-      resolve(true);
-    };
-    
-    testWs.onerror = (error) => {
-      if (!connectionTimedOut) {
-        clearTimeout(timeoutId);
-        logger.warn('Test WebSocket connection failed', {
-          url: DIRECT_WS_URL,
-          error: error?.message || 'Unknown error'
-        });
-        resolve(false);
-      }
-    };
-    
-    testWs.onclose = () => {
-      if (!connectionTimedOut) {
-        clearTimeout(timeoutId);
-        logger.debug('Test WebSocket connection closed');
-      }
-    };
-  });
 }
 
 async function tryDirectConnection() {

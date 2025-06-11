@@ -1,4 +1,4 @@
-import noble from 'noble';
+import noble from '@abandonware/noble';
 
 noble.on('stateChange', (state) => {
   if (state === 'poweredOn') {

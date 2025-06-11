@@ -50,9 +50,51 @@ const logger = createLogger('boat-connection');
  * @returns {Object} The boat connection store
  */
 export const useBoatConnectionStore = defineStore('boatConnection', () => {
+  // Helper function to get the active boat ID
+  function getActiveBoatId() {
+    // First check for activeBoatId
+    let activeId = localStorage.getItem('activeBoatId');
+    
+    // If no activeBoatId, check boatIds array
+    if (!activeId) {
+      try {
+        const boatIds = JSON.parse(localStorage.getItem('boatIds') || '[]');
+        if (boatIds.length > 0) {
+          activeId = boatIds[0];
+          // Set the first boat as active
+          localStorage.setItem('activeBoatId', activeId);
+        }
+      } catch (e) {
+        console.error('Error parsing boatIds from localStorage:', e);
+      }
+    }
+    
+    return activeId || null;
+  }
+  
   // State
   /** @type {import('vue').Ref<string | null>} */
-  const boatId = ref(localStorage.getItem('activeBoatId') || null);
+  const boatId = ref(getActiveBoatId());
+  
+  /**
+   * Sets the active boat ID
+   * @param {string} id - The boat ID to set as active
+   */
+  function setActiveBoatId(id) {
+    boatId.value = id;
+    localStorage.setItem('activeBoatId', id);
+    
+    // Also ensure this ID is in the boatIds array
+    try {
+      const boatIds = new Set(JSON.parse(localStorage.getItem('boatIds') || '[]'));
+      if (!boatIds.has(id)) {
+        boatIds.add(id);
+        localStorage.setItem('boatIds', JSON.stringify([...boatIds]));
+      }
+    } catch (e) {
+      console.error('Error updating boatIds:', e);
+    }
+  }
   
   /** @type {import('vue').Ref<ConnectionStatus>} */
   const connectionStatus = ref('disconnected');
@@ -124,40 +166,76 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
   }
   
   /**
-   * Updates the VPS connection status based on health check
+   * Updates the VPS connection status
+   * @param {boolean} [connected] - The connection status. If not provided, will check health
    */
-  async function updateVpsConnectionStatus() {
-    const isHealthy = await checkVpsHealth();
-    vpsConnected.value = isHealthy;
-    console.log(`VPS connection status updated: ${isHealthy ? 'connected' : 'disconnected'}`);
+  async function updateVpsConnectionStatus(connected) {
+    // If no status provided, check health
+    if (connected === undefined) {
+      connected = await checkVpsHealth();
+    }
+    
+    vpsConnected.value = connected;
+    logger.info(`VPS connection status updated: ${connected ? 'connected' : 'disconnected'}`);
+    
+    // Update the overall connection status based on both VPS and direct connection status
+    updateConnectionStatus();
   }
   
   /**
    * Updates the direct connection status
    * @param {boolean} connected - Whether the direct connection is active
    */
-  function updateDirectConnectionStatus(connected) {
+  const updateDirectConnectionStatus = (connected) => {
     directConnected.value = connected;
-    console.log(`Direct connection status updated: ${connected ? 'connected' : 'disconnected'}`);
-  }
+    logger.info(`Direct connection status updated: ${connected ? 'connected' : 'disconnected'}`);
+    updateConnectionStatus();
+  };
+  
+  /**
+   * Updates the overall connection status based on VPS and direct connection status
+   */
+  const updateConnectionStatus = () => {
+    if (vpsConnected.value && directConnected.value) {
+      connectionStatus.value = 'connected';
+    } else if (!vpsConnected.value && !directConnected.value) {
+      connectionStatus.value = 'disconnected';
+    } else {
+      connectionStatus.value = 'connecting';
+    }
+  };
 
   async function initializeConnection() {
     if (isInitialized.value) return;
+    isInitialized.value = true;
+    
+    logger.info('Initializing boat connection...');
+    
+    // Listen for boat-status events from the direct connection
+    const handleBoatStatus = (status) => {
+      logger.info(`Received boat-status event:`, status);
+      updateVpsConnectionStatus(status.status === 'online');
+    };
     
     // Set up direct connection status listener
-    connectionBridge.on('connected', () => updateDirectConnectionStatus(true));
-    connectionBridge.on('disconnected', () => updateDirectConnectionStatus(false));
+    const handleConnected = () => updateDirectConnectionStatus(true);
+    const handleDisconnected = () => updateDirectConnectionStatus(false);
     
-    // Set up VPS health check
-    if (import.meta.env.VITE_VPS_API_URL) {
-      // Initial check
-      await updateVpsConnectionStatus();
-      
-      // Set up periodic checks (every 30 seconds)
-      healthCheckInterval = setInterval(updateVpsConnectionStatus, 30000);
-    }
+    // Register event listeners
+    connectionBridge.on('boat-status', handleBoatStatus);
+    connectionBridge.on('connected', handleConnected);
+    connectionBridge.on('disconnected', handleDisconnected);
     
-    connectionStatus.value = 'connecting';
+    // Initial status check
+    updateDirectConnectionStatus(connectionBridge.isConnected);
+    
+    // Check VPS connection status periodically
+    const checkVpsInterval = setInterval(updateVpsConnectionStatus, 30000);
+    
+    // Initial VPS status check
+    await updateVpsConnectionStatus();
+    
+    // Reset error state
     error.value = null;
     
     try {
@@ -165,29 +243,34 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       const localBoatInfo = await tryLocalConnection();
       
       if (localBoatInfo) {
-        console.log('Local boat found:', localBoatInfo);
+        logger.info('Local boat found:', localBoatInfo);
         connectionMode.value = 'local';
         boatId.value = localBoatInfo.boatId;
         localStorage.setItem('activeBoatId', boatId.value);
         await registerWithVPS(boatId.value);
       } else if (boatId.value) {
         // Fall back to remote connection if we have a boat ID
-        console.log('Using existing boat ID for remote connection:', boatId.value);
+        logger.info('Using existing boat ID for remote connection:', boatId.value);
         connectionMode.value = 'remote';
         await connectToVPS(boatId.value);
       } else {
-        throw new Error('No boat paired and no local boat found');
+        // No local boat and no saved boat ID
+        logger.info('No local boat found and no saved boat ID');
+        connectionStatus.value = 'disconnected';
       }
-      
-      connectionStatus.value = 'connected';
-      isInitialized.value = true;
-      logger.info(`Connected to boat ${boatId.value} in ${connectionMode.value} mode`);
     } catch (err) {
+      logger.error('Error initializing boat connection:', err);
+      error.value = err.message || 'Failed to initialize connection';
       connectionStatus.value = 'error';
-      error.value = err.message;
-      logger.error('Connection failed:', err);
-      throw err;
     }
+    
+    // Return cleanup function
+    return () => {
+      clearInterval(checkVpsInterval);
+      connectionBridge.off('boat-status', handleBoatStatus);
+      connectionBridge.off('connected', handleConnected);
+      connectionBridge.off('disconnected', handleDisconnected);
+    };
   }
 
   /**
@@ -206,12 +289,27 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       }
   
       console.log(`Attempting direct boat connection to: http://${host}:${port}${path}`);
-      const response = await fetch(`http://${host}:${port}${path}`, {
-        signal: AbortSignal.timeout(Number(timeout))
-      });
       
-      if (!response.ok) return null;
-      return await response.json();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), Number(timeout));
+      
+      try {
+        const response = await fetch(`http://${host}:${port}${path}`, {
+          method: 'GET',
+          mode: 'cors',
+          credentials: 'omit',
+          signal: controller.signal,
+          headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache'
+          }
+        });
+        
+        if (!response.ok) return null;
+        return await response.json();
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (err) {
       console.log('Direct boat connection attempt failed:', err.message);
       return null;
@@ -395,6 +493,9 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
     // State
     boatId,
     connectionStatus,
+    
+    // Methods
+    setActiveBoatId,
     vpsConnected,
     directConnected,
     connectionMode,

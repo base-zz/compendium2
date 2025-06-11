@@ -42,6 +42,12 @@ class RelayConnectionAdapter extends EventEmitter {
       logger.debug('Received nav-position event', { data: data ? 'present' : 'empty' });
       this.emit('nav-position', data);
     });
+    
+    // Handle boat-status events
+    relayConnectionBridge.on('boat-status', (status) => {
+      logger.debug('Received boat-status event', { status });
+      this.emit('boat-status', status);
+    });
 
     // --- Harmonized state/patch update handling ---
     relayConnectionBridge.on('state-update', ({ type, data, boatId, timestamp }) => {
