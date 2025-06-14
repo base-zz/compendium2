@@ -98,7 +98,7 @@ async function testNetworkConnectivity() {
       throw new Error(error);
     }
 
-    const httpUrl = `http://${host}:${port}${path}`;
+    const httpUrl = `http://${host}:${port}${path}`; // Always use HTTP for local connections
     logger.info(`Testing HTTP connectivity to: ${httpUrl}`);
     
     // First test DNS resolution

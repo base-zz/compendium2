@@ -18,16 +18,32 @@ import { remoteLogger } from "../../client/utils/remoteLogger.js";
  * directly to SignalK or PocketBase. This reduces the load on the VPS
  * by leveraging the throttling done by the relay server.
  */
-function getActiveBoatId() {
+export function getActiveBoatId() {
+  console.log('[RELAY-CLIENT] Getting active boat ID...');
+  
   // Try to get from localStorage
   const id = localStorage.getItem("activeBoatId");
-  if (id) return id;
+  console.log('[RELAY-CLIENT] activeBoatId from localStorage:', id);
+  
+  if (id) {
+    console.log('[RELAY-CLIENT] Using activeBoatId:', id);
+    return id;
+  }
+  
   // Fallback: use first boat in boatIds array
-  const boats = JSON.parse(localStorage.getItem("boatIds") || "[]");
+  const boatIds = localStorage.getItem("boatIds");
+  console.log('[RELAY-CLIENT] Raw boatIds from localStorage:', boatIds);
+  
+  const boats = JSON.parse(boatIds || "[]");
+  console.log('[RELAY-CLIENT] Parsed boatIds:', boats);
+  
   if (boats.length > 0) {
+    console.log('[RELAY-CLIENT] Using first boat from boatIds:', boats[0]);
     localStorage.setItem("activeBoatId", boats[0]);
     return boats[0];
   }
+  
+  console.warn('[RELAY-CLIENT] No boat ID found in localStorage');
   return null;
 }
 
@@ -35,7 +51,7 @@ function getActiveBoatId() {
  * Get or create a unique client ID
  * @returns {string} The client ID
  */
-function getOrCreateClientId() {
+export function getOrCreateClientId() {
   let clientId = localStorage.getItem("clientId");
   if (!clientId) {
     // Generate a random client ID
@@ -1559,8 +1575,11 @@ export class RelayConnectionBridge {
    * @private
    */
   async _registerClientKey() {
+    console.log('[RELAY-CLIENT] _registerClientKey called');
+    
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      console.log("[RELAY-CLIENT] Cannot register key, not connected");
+      const status = this.socket ? `WebSocket state: ${this.socket.readyState}` : 'No WebSocket connection';
+      console.log(`[RELAY-CLIENT] Cannot register key, not connected (${status})`);
       return;
     }
 
@@ -1573,6 +1592,10 @@ export class RelayConnectionBridge {
     }
 
     console.log(`[RELAY-CLIENT] Registering public key via WebSocket`);
+    console.log(`[RELAY-CLIENT] Current relayServerUrl: ${this.config.relayServerUrl}`);
+    console.log(`[RELAY-CLIENT] Client ID: ${this.clientId}`);
+    console.log(`[RELAY-CLIENT] Boat ID: ${boatId}`);
+    console.log(`[RELAY-CLIENT] Public Key: ${publicKey ? `${publicKey.substring(0, 30)}...` : 'none'}`);
 
     const message = {
       type: "register-key",
@@ -1582,15 +1605,32 @@ export class RelayConnectionBridge {
       timestamp: Date.now(),
     };
 
+    // Log the WebSocket message being sent
+    console.log('[RELAY-CLIENT] Sending WebSocket message:', {
+      type: message.type,
+      clientId: message.clientId,
+      boatId: message.boatId,
+      publicKey: message.publicKey ? `${message.publicKey.substring(0, 30)}...` : 'none',
+      timestamp: new Date(message.timestamp).toISOString()
+    });
+
     // Send the registration message
     this.socket.send(JSON.stringify(message));
 
     // Also try to register via HTTP API as a fallback
     try {
       const vpsUrl = this.config.relayServerUrl;
+      console.log(`[RELAY-CLIENT] Attempting HTTP registration with VPS URL: ${vpsUrl}`);
       await registerClientKeyWithVPS(vpsUrl, this.clientId, boatId);
     } catch (error) {
       console.error("[RELAY-CLIENT] Error registering key via HTTP:", error);
+      if (error.response) {
+        console.error("[RELAY-CLIENT] HTTP Error Response:", {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data
+        });
+      }
     }
   }
 

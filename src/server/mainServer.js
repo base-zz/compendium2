@@ -2,7 +2,10 @@ import dotenv from "dotenv";
 import { stateService } from "./state/StateService.js";
 import { startRelayServer } from "../relay/server/index.js";
 import { startDirectServer } from "../relay/server/index.js";
-import http from "http";
+import https from 'https';
+import http from 'http';
+import fs from 'fs';
+import path from 'path';
 
 console.log("Loading .env.server");
 dotenv.config({ path: ".env.server" });
@@ -94,12 +97,15 @@ async function startServer() {
     // 3. Start relay server
     await startRelayServer(relayConfig);
 
-    // 4. Start HTTP server (if you have an httpServer setup)
-    // If you don't have an httpServer, you can remove/comment this block
+    // 4. Start HTTPS server
     const PORT = process.env.PORT || 8080;
-    const httpServer = http.createServer();
-    httpServer.listen(PORT, () => {
-      console.log(`[SERVER] Listening on port ${PORT}`);
+    const httpsServer = https.createServer({
+      key: fs.readFileSync(path.resolve(__dirname, '../../ssl/compendium.local.key')),
+      cert: fs.readFileSync(path.resolve(__dirname, '../../ssl/compendium.local.cert'))
+    });
+    
+    httpsServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`[SERVER] HTTPS server listening on port ${PORT}`);
     });
 
     // 5. Relay state updates to VPS (optional, placeholder for future logic)

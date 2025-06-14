@@ -17,18 +17,47 @@ $RECYCLE.BIN/
 log.txt
 npm-debug.log*
 
+# Android
+android/google-services.json
+**/android/**/*.keystore
+**/android/**/*.jks
+**/android/**/local.properties
+**/android/**/gradle-wrapper.jar
+**/android/**/gradle.properties
+**/android/**/proguard-*.txt
+**/android/**/lint/
+**/android/**/build/
+**/android/**/captures/
+**/android/**/local/
+
+# iOS
+**/ios/**/xcuserdata
+**/ios/**/Pods/
+**/ios/Podfile.lock
+**/ios/Podfile
+**/ios/*.xcworkspace/
+**/ios/*.xcodeproj/xcuserdata/
+**/ios/*.xcodeproj/project.xcworkspace/
+
+# IDE
 /.idea
+/.vscode/*
+!/.vscode/extensions.json
+
+# Build
 /.ionic
 /.sass-cache
 /.sourcemaps
 /.versions
-/.vscode/*
-!/.vscode/extensions.json
 /coverage
 /dist
+
+# Dependencies
 /node_modules
 /platforms
 /plugins
+
+# App specific
 /www
 /signalk_dev.db
 /src/server/signalk_dev.db

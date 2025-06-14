@@ -1,16 +1,23 @@
 //VPS Relay Proxy
-import { createServer } from "node:http";
+import { createServer } from "node:https";
+import { readFileSync } from 'fs';
+import { join, resolve } from 'path';
 import { WebSocketServer } from "ws";
 import express from "express";
 import bodyParser from "body-parser";
 import { config } from "dotenv";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import { join } from "path";
 import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import cors from "cors";
 import nodemailer from "nodemailer";
+
+// Load SSL certificates
+const sslOptions = {
+  key: readFileSync(resolve(process.cwd(), 'ssl/compendium.local.key')),
+  cert: readFileSync(resolve(process.cwd(), 'ssl/compendium.local.cert'))
+};
 
 config();
 const TOKEN_SECRET = process.env.TOKEN_SECRET;
@@ -212,20 +219,23 @@ app.get("/health", (req, res) => {
   });
 });
 
-// --- START AUTH API ---
-app.listen(AUTH_PORT, () => {
-  console.log(`Auth API running on port ${AUTH_PORT}`);
+// --- Create Auth HTTPS server ---
+const authHttpsServer = createServer(sslOptions, app);
+
+// Start Auth Server with HTTPS
+authHttpsServer.listen(AUTH_PORT, '0.0.0.0', () => {
+  console.log(`[AUTH] HTTPS server running on port ${AUTH_PORT}`);
 });
- 
-// --- RELAY SERVER (WS + HTTP) ---
-const httpServer = createServer();
+
+// --- RELAY SERVER (WSS + HTTPS) ---
+const wssHttpsServer = createServer(sslOptions);
 const wss = new WebSocketServer({ noServer: true });
 
 // Connection tracking using two separate maps
 const clientConnections = new Map(); // boatId -> Set of client connections
 const serverConnections = new Map(); // boatId -> Set of server connections
 
-httpServer.on("upgrade", (req, socket, head) => {
+wssHttpsServer.on("upgrade", (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     const ip = req.socket.remoteAddress;
     console.log(`[WS] New connection from ${ip}`);
@@ -426,8 +436,9 @@ function updateConnectionStatus(boatId) {
   );
 }
 
-httpServer.listen(PORT, () => {
-  console.log(`[WS] VPS relay proxy listening on port ${PORT}`);
+// Start the WSS server
+wssHttpsServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`[WSS] VPS relay proxy listening on port ${PORT}`);
 });
 
 

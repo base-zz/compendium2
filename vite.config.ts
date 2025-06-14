@@ -2,13 +2,10 @@
 import legacy from '@vitejs/plugin-legacy';
 import vue from '@vitejs/plugin-vue';
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
-  // Load env vars (including ports)
-  const env = loadEnv(mode, process.cwd(), ['CLIENT_', 'SERVER_']);
-
+export default defineConfig(() => {
   return {
     plugins: [
       vue(),
@@ -26,12 +23,14 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      host: '0.0.0.0', // Listen on all network interfaces
-      port: parseInt(env.CLIENT_PORT || '5173'), // Use configured port
+      host: 'compendium.local',
+      port: 5173,
       strictPort: true,
+      // Disable HTTPS for local development
+      https: undefined,
       hmr: {
         host: 'compendium.local',
-        protocol: 'ws',
+        protocol: 'ws', // Use WS instead of WSS
         port: 24678
       },
       allowedHosts: [
@@ -41,8 +40,9 @@ export default defineConfig(({ mode }) => {
       ],
       proxy: {
         '/api': {
-          target: `http://localhost:${env.SERVER_PORT || 3001}`,
-          changeOrigin: true
+          target: `http://compendium.local:3001`,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api/, '')
         }
       }
     },

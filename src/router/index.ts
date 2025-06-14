@@ -1,4 +1,14 @@
 import { createRouter, createWebHistory } from "@ionic/vue-router";
+
+// Type declaration for relayConnectionBridge on window
+declare global {
+  interface Window {
+    relayConnectionBridge?: {
+      _registerClientKey: () => Promise<void>;
+    };
+  }
+}
+
 import { useBoatConnectionStore } from "@client/stores/boatConnection";
 import AnchorView from "@client/views/AnchorView.vue";
 import SplashScreen from "@client/views/SplashScreen.vue";
@@ -22,7 +32,7 @@ const routes = [
     path: "/pair",
     name: "BoatPairing",
     component: BoatPairing,
-    meta: { requiresAuth: false, title: "Connect to Boat" },
+    meta: { requiresAuth: true, title: "Connect to Boat" },
   },
   {
     path: "/splash",
@@ -319,16 +329,49 @@ router.beforeEach((to, from, next) => {
   });
 });
 
-// Navigation guard to enforce authentication
+// Navigation guard to enforce authentication and boat pairing
 router.beforeEach((to, from, next) => {
   const isAuthenticated = localStorage.getItem("isAuthenticated") === 'true';
+  
+  // Redirect to login if route requires auth and user is not authenticated
   if (to.meta.requiresAuth && !isAuthenticated) {
-    next({ path: "/login" });
-  } else if ((to.path === "/login" || to.name === "Login") && isAuthenticated) {
-    next({ path: "/home" });
-  } else {
-    next();
+    return next({ path: "/login" });
   }
+  
+  // Redirect to home if user is already authenticated and trying to access login
+  if ((to.path === "/login" || to.name === "Login") && isAuthenticated) {
+    return next({ path: "/home" });
+  }
+  
+  // For authenticated routes, ensure we have a boat ID
+  if (isAuthenticated && to.meta.requiresAuth) {
+    const boatId = localStorage.getItem('activeBoatId');
+    const boatIds = JSON.parse(localStorage.getItem('boatIds') || '[]');
+    
+    // If no boat ID is set but we have boats, set the first one as active
+    if (!boatId && boatIds.length > 0) {
+      const firstBoatId = boatIds[0];
+      localStorage.setItem('activeBoatId', firstBoatId);
+      console.log('[ROUTER] Set active boat ID:', firstBoatId);
+      
+      // Trigger client key registration if we have a connection bridge
+      if (window.relayConnectionBridge) {
+        console.log('[ROUTER] Triggering client key registration after navigation');
+        window.relayConnectionBridge._registerClientKey().catch(console.error);
+      }
+      
+      return next();
+    }
+    
+    // If we still don't have a boat ID, redirect to boat pairing
+    if (!boatId) {
+      console.warn('[ROUTER] No boat ID found, redirecting to boat pairing');
+      return next({ name: 'BoatPairing' });
+    }
+  }
+  
+  // Continue with the navigation
+  next();
 });
 
 export default router;

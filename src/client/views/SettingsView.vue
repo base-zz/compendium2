@@ -39,10 +39,10 @@
         <logging-preferences />
         
         <!-- Connection Status -->
-        <ion-item>
+        <!-- <ion-item>
           <ion-icon :icon="wifi" slot="start"></ion-icon>
           <ion-label>Connection Status</ion-label>
-        </ion-item>
+        </ion-item> -->
         <connectivity-component />
       </ion-list>
     </ion-content>

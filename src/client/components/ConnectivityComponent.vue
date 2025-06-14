@@ -33,7 +33,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useBoatConnectionStore } from '../stores/boatConnection';
 import { 
   IonList, 
@@ -103,8 +103,33 @@ const internetStatus = computed(() => {
   };
 });
 
+// Debug connection state
+const debugConnectionState = computed(() => ({
+  directConnected: boatStore.directConnected,
+  connectionStatus: boatStore.connectionStatus,
+  vpsConnected: boatStore.vpsConnected,
+  connectionMode: boatStore.connectionMode
+}));
+
+// Log connection state changes
+watch(debugConnectionState, (newState) => {
+  console.log('Connection state changed:', JSON.stringify(newState, null, 2));
+}, { deep: true });
+
 const directConnectionStatus = computed(() => {
-  if (boatStore.connectionStatus === 'connected' && boatStore.connectionMode === 'local') {
+  // In local mode, use the connection status directly
+  if (boatStore.connectionMode === 'local') {
+    if (boatStore.connectionStatus === 'connected') {
+      return { text: 'Connected', color: 'success' };
+    }
+    if (boatStore.connectionStatus === 'connecting') {
+      return { text: 'Connecting...', color: 'warning' };
+    }
+    return { text: 'Disconnected', color: 'danger' };
+  }
+  
+  // For non-local mode, use directConnected
+  if (boatStore.directConnected) {
     return { text: 'Connected', color: 'success' };
   }
   if (boatStore.connectionStatus === 'connecting') {

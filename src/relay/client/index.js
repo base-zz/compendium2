@@ -4,12 +4,18 @@ import { relayConnectionBridge } from './RelayConnectionBridge';
  * Main entry point for the relay client
  */
 async function initializeRelayClient() {
+  console.log('[RELAY-CLIENT] Initializing relay client...');
+  
   try {
-    console.log('[RELAY-CLIENT] Initializing relay client...');
+    // Log the relay server URL being used
+    const relayUrl = relayConnectionBridge.config?.relayServerUrl || 'not set';
+    console.log(`[RELAY-CLIENT] Using relay server URL: ${relayUrl}`);
     
+    console.log('[RELAY-CLIENT] Attempting to connect to relay server...');
     // Connect to the relay server
     await relayConnectionBridge.connect();
     
+    console.log('[RELAY-CLIENT] Connection established, setting up event listeners...');
     // Set up event listeners
     setupEventListeners();
     
@@ -18,6 +24,16 @@ async function initializeRelayClient() {
     return relayConnectionBridge;
   } catch (error) {
     console.error('[RELAY-CLIENT] Failed to initialize relay client:', error);
+    if (error.response) {
+      console.error('[RELAY-CLIENT] Error response data:', error.response.data);
+      console.error('[RELAY-CLIENT] Error status:', error.response.status);
+      console.error('[RELAY-CLIENT] Error headers:', error.response.headers);
+    } else if (error.request) {
+      console.error('[RELAY-CLIENT] No response received:', error.request);
+    } else {
+      console.error('[RELAY-CLIENT] Error message:', error.message);
+    }
+    console.error('[RELAY-CLIENT] Error stack:', error.stack);
     throw error;
   }
 }
@@ -61,7 +77,8 @@ function setupEventListeners() {
 }
 
 // If this file is run directly (not imported)
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+if (isNode && import.meta.url === `file://${process.argv[1]}`) {
   initializeRelayClient();
 }
 

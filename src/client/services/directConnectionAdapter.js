@@ -2,6 +2,10 @@
 import { EventEmitter } from "events";
 import { stateUpdateProvider } from "./stateUpdateProvider.js";
 import { createLogger } from "./logger.js";
+import { 
+  getActiveBoatId, 
+  getOrCreateClientId as getClientId 
+} from "../../relay/client/RelayConnectionBridge.js";
 
 const logger = createLogger("direct-connection");
 
@@ -60,6 +64,45 @@ class DirectConnectionAdapter extends EventEmitter {
    * Sets up the WebSocket heartbeat mechanism
    * @private
    */
+  /**
+   * Sends an identity message to the server
+   * @private
+   */
+  async _sendIdentity() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      logger.warn('Cannot send identity, not connected');
+      return;
+    }
+
+    try {
+      const clientId = await getClientId();
+      const boatId = getActiveBoatId();
+      const timestamp = Date.now();
+
+      const identityMessage = {
+        type: "identity",
+        clientId: clientId,
+        boatId: boatId,
+        role: "client",
+        timestamp: timestamp,
+        time: new Date().toISOString()
+      };
+
+      logger.info('📡 [DIRECT] Sending identity message:', {
+        type: identityMessage.type,
+        clientId: identityMessage.clientId.substring(0, 8) + '...', // Show first 8 chars of clientId
+        boatId: identityMessage.boatId,
+        role: identityMessage.role,
+        timestamp: new Date(identityMessage.timestamp).toISOString()
+      });
+      
+      this.ws.send(JSON.stringify(identityMessage));
+      logger.debug('[DIRECT] Identity message sent successfully');
+    } catch (error) {
+      logger.error('Error sending identity message:', error);
+    }
+  }
+
   _setupHeartbeat() {
     console.log("🔄 [DIRECT] _setupHeartbeat called");
     logger.info("🔄 Setting up WebSocket heartbeat...");
@@ -282,6 +325,11 @@ class DirectConnectionAdapter extends EventEmitter {
             this._reconnectAttempts = 0; // Reset reconnect attempts on successful connection
             this._setupHeartbeat();
             this.emit('connect');
+            
+            // Send identity message
+            this._sendIdentity().catch(error => {
+              logger.error('Failed to send identity:', error);
+            });
             
             // Log WebSocket protocol and extensions if available
             if (this.ws.protocol) {

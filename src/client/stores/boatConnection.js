@@ -196,13 +196,23 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
    * Updates the overall connection status based on VPS and direct connection status
    */
   const updateConnectionStatus = () => {
+    logger.debug('Updating connection status:', {
+      vpsConnected: vpsConnected.value,
+      directConnected: directConnected.value,
+      currentStatus: connectionStatus.value
+    });
+    
     if (vpsConnected.value && directConnected.value) {
       connectionStatus.value = 'connected';
-    } else if (!vpsConnected.value && !directConnected.value) {
-      connectionStatus.value = 'disconnected';
+    } else if (vpsConnected.value || directConnected.value) {
+      // If either connection is active, we're connected
+      connectionStatus.value = 'connected';
     } else {
-      connectionStatus.value = 'connecting';
+      // Only mark as disconnected if both connections are down
+      connectionStatus.value = 'disconnected';
     }
+    
+    logger.debug('New connection status:', connectionStatus.value);
   };
 
   async function initializeConnection() {
@@ -217,17 +227,22 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       updateVpsConnectionStatus(status.status === 'online');
     };
     
-    // Set up direct connection status listener
+    // Set up connection status listeners
     const handleConnected = () => updateDirectConnectionStatus(true);
     const handleDisconnected = () => updateDirectConnectionStatus(false);
+    const handleConnectionStatus = (status) => {
+      logger.debug('Received connection status:', status);
+      updateDirectConnectionStatus(status.status === 'connected');
+    };
     
     // Register event listeners
     connectionBridge.on('boat-status', handleBoatStatus);
     connectionBridge.on('connected', handleConnected);
     connectionBridge.on('disconnected', handleDisconnected);
+    connectionBridge.on('connection-status', handleConnectionStatus);
     
-    // Initial status check
-    updateDirectConnectionStatus(connectionBridge.isConnected);
+    // Initial status check - use the relay connection state
+    updateDirectConnectionStatus(connectionBridge.connectionState?.status === 'connected');
     
     // Check VPS connection status periodically
     const checkVpsInterval = setInterval(updateVpsConnectionStatus, 30000);
@@ -281,37 +296,57 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
     try {
       const host = import.meta.env.VITE_DIRECT_BOAT_HOST;
       const port = import.meta.env.VITE_DIRECT_BOAT_PORT;
-      const path = import.meta.env.VITE_DIRECT_BOAT_PATH;
+      const path = import.meta.env.VITE_DIRECT_BOAT_PATH || '/api/boat-info';
       const timeout = import.meta.env.VITE_DIRECT_BOAT_TIMEOUT;
       
       if (!host || !port || !path || !timeout) {
+        console.error('Missing required environment variables for direct boat connection', {
+          host,
+          port,
+          path,
+          timeout
+        });
         throw new Error('Missing required environment variables for direct boat connection');
       }
-  
-      console.log(`Attempting direct boat connection to: http://${host}:${port}${path}`);
+      
+      // Construct the full URL using the environment variables
+      const url = `http://${host}:${port}${path}`;
+      
+      console.log(`Attempting direct boat connection to: ${url}`);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), Number(timeout));
+      const timeoutId = setTimeout(() => {
+        console.error(`Request to ${url} timed out after ${timeout}ms`);
+        controller.abort();
+      }, Number(timeout));
       
       try {
-        const response = await fetch(`http://${host}:${port}${path}`, {
+        const response = await fetch(url, {
           method: 'GET',
           mode: 'cors',
           credentials: 'omit',
           signal: controller.signal,
           headers: {
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache'
+            'Accept': 'application/json'
+            // Removed 'Cache-Control' header as it was causing CORS issues
           }
         });
         
-        if (!response.ok) return null;
-        return await response.json();
+        if (!response.ok) {
+          console.error(`Boat info request failed with status ${response.status}`);
+          return null;
+        }
+        const data = await response.json();
+        console.log('Received boat info:', data);
+        return data;
+      } catch (err) {
+        console.error('Error in boat info request:', err);
+        return null;
       } finally {
         clearTimeout(timeoutId);
       }
     } catch (err) {
-      console.log('Direct boat connection attempt failed:', err.message);
+      console.error('Direct boat connection attempt failed:', err.message);
       return null;
     }
   }

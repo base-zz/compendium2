@@ -698,7 +698,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   margin-top: 1rem;
-  padding: 0.5rem;
+  padding: 0.75rem;
   background: #f8fafc;
   border-radius: 4px;
 }
@@ -724,19 +724,52 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .tide-stats {
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.75rem;
+    margin: 1rem 0.75rem 0.5rem 0.75rem;
+    padding: 1rem;
   }
   
   .tide-stat {
     text-align: left;
     display: flex;
     justify-content: space-between;
-    padding: 0.25rem 0;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 6px;
   }
   
   .tide-stat .label {
     margin-bottom: 0;
     margin-right: 1rem;
+    font-weight: 500;
+  }
+  
+  .tide-stat .value {
+    font-weight: 600;
+  }
+  
+  .tide-chart {
+    padding: 4px 0; /* Remove horizontal padding */
+    width: 100%;
+    margin: 0;
+  }
+  
+  .tide-svg {
+    width: 100%;
+    min-width: 100%;
+  }
+  
+  .tide-chart-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Make sure the SVG scales properly */
+  svg {
+    max-width: 100%;
+    height: auto;
   }
 }
 </style>

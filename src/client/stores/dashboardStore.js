@@ -5,10 +5,11 @@ import { createWidgetModel } from "@/shared/widgetModel";
 import crypto from 'crypto';
 import { createLogger } from '../services/logger';
 
-/** @type {import('@/shared/types').Dashboard[]} */
-let dashboardsList = [];
-
+// Create logger instance
 const logger = createLogger('dashboard-store');
+
+/** @type {import('@/shared/types').Dashboard[]} */
+const dashboardsList = [];
 
 // Storage key constant
 const DASHBOARD_STORAGE_KEY = "navcc_dashboards";
@@ -159,12 +160,12 @@ export const useDashboardStore = defineStore("dashboards", () => {
     // Save to storage
     try {
       const cleanDashboards = getCleanDashboards();
-      logger(`Saving ${cleanDashboards.length} dashboards`);
+      logger.debug(`Saving ${cleanDashboards.length} dashboards`);
       await Preferences.set({
         key: DASHBOARD_STORAGE_KEY,
         value: JSON.stringify(cleanDashboards)
       });
-      logger('Dashboards saved successfully');
+      logger.debug('Dashboards saved successfully');
       dashboards.value = cleanDashboards;
     } catch (error) {
       logger.error('Error saving dashboards', {
