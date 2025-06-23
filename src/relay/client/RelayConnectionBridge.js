@@ -7,6 +7,9 @@ import {
   registerClientKeyWithVPS,
 } from "../../client/utils/clientKeyPair.js";
 import { remoteLogger } from "../../client/utils/remoteLogger.js";
+import { createLogger } from '../../client/services/logger.js';
+
+const logger = createLogger('relay-adapter');
 
 // Debug is controlled by config.relayDebug
 // import { getOrCreateAppUuid } from "../../server/uniqueAppId.js"
@@ -19,31 +22,31 @@ import { remoteLogger } from "../../client/utils/remoteLogger.js";
  * by leveraging the throttling done by the relay server.
  */
 export function getActiveBoatId() {
-  console.log('[RELAY-CLIENT] Getting active boat ID...');
+  logger.info('Getting active boat ID...');
   
   // Try to get from localStorage
   const id = localStorage.getItem("activeBoatId");
-  console.log('[RELAY-CLIENT] activeBoatId from localStorage:', id);
+  logger.info('activeBoatId from localStorage:', id);
   
   if (id) {
-    console.log('[RELAY-CLIENT] Using activeBoatId:', id);
+    logger.info('Using activeBoatId:', id);
     return id;
   }
   
   // Fallback: use first boat in boatIds array
   const boatIds = localStorage.getItem("boatIds");
-  console.log('[RELAY-CLIENT] Raw boatIds from localStorage:', boatIds);
+  logger.info('Raw boatIds from localStorage:', boatIds);
   
   const boats = JSON.parse(boatIds || "[]");
-  console.log('[RELAY-CLIENT] Parsed boatIds:', boats);
+  logger.info('Parsed boatIds:', boats);
   
   if (boats.length > 0) {
-    console.log('[RELAY-CLIENT] Using first boat from boatIds:', boats[0]);
+    logger.info('Using first boat from boatIds:', boats[0]);
     localStorage.setItem("activeBoatId", boats[0]);
     return boats[0];
   }
   
-  console.warn('[RELAY-CLIENT] No boat ID found in localStorage');
+  console.warn('No boat ID found in localStorage');
   return null;
 }
 
@@ -106,7 +109,7 @@ export class RelayConnectionBridge {
         }
         break;
       default:
-        console.log(logMessage, logData);
+        logger.info(logMessage, logData);
     }
   }
 
@@ -162,8 +165,8 @@ export class RelayConnectionBridge {
       ...config,
     };
 
-    console.log(
-      `[RELAY-CLIENT] Initializing with URL: ${this.config.relayServerUrl}`
+    logger.info(
+      `Initializing with URL: ${this.config.relayServerUrl}`
     );
 
     this.socket = null;
@@ -233,8 +236,8 @@ export class RelayConnectionBridge {
   _ensureSecureWebSocketUrl(url) {
     // Always use secure WebSocket (wss://) for relay connections
     if (url.startsWith("ws://")) {
-      console.log(
-        "[RELAY-CLIENT] Converting insecure WebSocket URL to secure for relay connection"
+      logger.info(
+        "Converting insecure WebSocket URL to secure for relay connection"
       );
       return url.replace("ws://", "wss://");
     }
@@ -242,7 +245,7 @@ export class RelayConnectionBridge {
     // If the URL doesn't start with wss://, warn about it
     if (!url.startsWith("wss://")) {
       console.warn(
-        "[RELAY-CLIENT] WebSocket URL should start with wss:// for relay connections"
+        "WebSocket URL should start with wss:// for relay connections"
       );
     }
 
@@ -362,7 +365,7 @@ export class RelayConnectionBridge {
           );
 
           if (this.config.relayDebug) {
-            console.log(
+            logger.info(
               `[RELAY-CLIENT][DEBUG] Creating WebSocket with URL: ${url}`
             );
           }
@@ -406,11 +409,11 @@ export class RelayConnectionBridge {
 
           this.socket.onopen = async () => {
             if (this.config.relayDebug) {
-              console.log(
+              logger.info(
                 `[RELAY-CLIENT][DEBUG] WebSocket onopen triggered at ${new Date().toISOString()}`
               );
             }
-            console.log("[RELAY-CLIENT] Connected to relay server");
+            logger.info("Connected to relay server");
             // Clear the connection timeout
             clearTimeout(connectionTimeout);
 
@@ -428,7 +431,7 @@ export class RelayConnectionBridge {
               });
             } catch (error) {
               console.error(
-                "[RELAY-CLIENT] Error in authentication process:",
+                "Error in authentication process:",
                 error
               );
             }
@@ -448,7 +451,7 @@ export class RelayConnectionBridge {
 
             // Start heartbeat to keep connection alive
             if (this.config.relayDebug) {
-              console.log("[RELAY-CLIENT][DEBUG] Starting heartbeat");
+              logger.info("[RELAY-CLIENT][DEBUG] Starting heartbeat");
             }
             this._startHeartbeat();
 
@@ -457,7 +460,7 @@ export class RelayConnectionBridge {
 
           this.socket.onmessage = async (event) => {
             if (this.config.relayDebug) {
-              console.log(
+              logger.info(
                 `[RELAY-CLIENT][DEBUG] WebSocket onmessage triggered at ${new Date().toISOString()}`
               );
             }
@@ -538,22 +541,22 @@ export class RelayConnectionBridge {
                 this._handleMessage(message);
               } catch (parseError) {
                 console.error(
-                  "[RELAY-CLIENT] Error parsing JSON message:",
+                  "Error parsing JSON message:",
                   parseError
                 );
                 console.error(
-                  "[RELAY-CLIENT] Message text that caused error (first 100 chars):",
+                  "Message text that caused error (first 100 chars):",
                   messageText.substring(0, 100)
                 );
                 throw parseError; // Re-throw to be caught by outer try/catch
               }
             } catch (error) {
               console.error(
-                "[RELAY-CLIENT] Error processing WebSocket message:",
+                "Error processing WebSocket message:",
                 error
               );
               console.error(
-                "[RELAY-CLIENT] Raw message that caused error:",
+                "Raw message that caused error:",
                 event.data
               );
             }
@@ -561,7 +564,7 @@ export class RelayConnectionBridge {
 
           this.socket.onclose = (event) => {
             if (this.config.relayDebug) {
-              console.log(
+              logger.info(
                 `[RELAY-CLIENT][DEBUG] WebSocket onclose triggered at ${new Date().toISOString()}`
               );
             }
@@ -569,35 +572,35 @@ export class RelayConnectionBridge {
             clearTimeout(connectionTimeout);
 
             // Enhanced close event logging
-            console.log(
-              `[RELAY-CLIENT] ====== WEBSOCKET CLOSED at ${new Date().toISOString()} ======`
+            logger.info(
+              `====== WEBSOCKET CLOSED at ${new Date().toISOString()} ======`
             );
-            console.log(`[RELAY-CLIENT] Connection to ${url} closed`);
-            console.log(
-              `[RELAY-CLIENT] Close code: ${
+            logger.info(`Connection to ${url} closed`);
+            logger.info(
+              `Close code: ${
                 event.code
               } (${this._getWebSocketCloseCodeMeaning(event.code)})`
             );
-            console.log(
-              `[RELAY-CLIENT] Close reason: ${
+            logger.info(
+              `Close reason: ${
                 event.reason || "No reason provided"
               }`
             );
-            console.log(
-              `[RELAY-CLIENT] Clean close: ${event.wasClean ? "Yes" : "No"}`
+            logger.info(
+              `Clean close: ${event.wasClean ? "Yes" : "No"}`
             );
 
             // Provide guidance based on close code
             if (event.code === 1006) {
-              console.log(
-                `[RELAY-CLIENT] Code 1006 indicates abnormal closure - connection may have been refused or timed out`
+              logger.info(
+                `Code 1006 indicates abnormal closure - connection may have been refused or timed out`
               );
-              console.log(
-                `[RELAY-CLIENT] Check if the server is running and accessible at ${url}`
+              logger.info(
+                `Check if the server is running and accessible at ${url}`
               );
             } else if (event.code === 1015) {
-              console.log(
-                `[RELAY-CLIENT] Code 1015 indicates TLS handshake failure - check server SSL/TLS configuration`
+              logger.info(
+                `Code 1015 indicates TLS handshake failure - check server SSL/TLS configuration`
               );
             }
 
@@ -617,27 +620,27 @@ export class RelayConnectionBridge {
 
           this.socket.onerror = (error) => {
             if (this.config.relayDebug) {
-              console.log(
+              logger.info(
                 `[RELAY-CLIENT][DEBUG] WebSocket onerror triggered at ${new Date().toISOString()}`
               );
             }
 
             // Enhanced error logging
             console.error(
-              `[RELAY-CLIENT] ====== WEBSOCKET ERROR at ${new Date().toISOString()} ======`
+              `====== WEBSOCKET ERROR at ${new Date().toISOString()} ======`
             );
-            console.error(`[RELAY-CLIENT] Error connecting to: ${url}`);
-            console.error(`[RELAY-CLIENT] WebSocket error details:`, error);
+            console.error(`Error connecting to: ${url}`);
+            console.error(`WebSocket error details:`, error);
 
             // Try to extract more information from the error
             if (error.message) {
-              console.error(`[RELAY-CLIENT] Error message: ${error.message}`);
+              console.error(`Error message: ${error.message}`);
             }
 
             // Check for common connection issues
             if (url.startsWith("wss://")) {
-              console.log(
-                `[RELAY-CLIENT] Using secure WebSocket (WSS) - check if server supports SSL/TLS`
+              logger.info(
+                `Using secure WebSocket (WSS) - check if server supports SSL/TLS`
               );
             }
 
@@ -660,7 +663,7 @@ export class RelayConnectionBridge {
             }
           };
         } catch (error) {
-          console.error("[RELAY-CLIENT] Error creating WebSocket:", error);
+          console.error("Error creating WebSocket:", error);
           reject(error);
         }
       });
@@ -786,7 +789,7 @@ export class RelayConnectionBridge {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
-      console.log("[RELAY-CLIENT][DEBUG] Stopped heartbeat interval");
+      logger.info("[RELAY-CLIENT][DEBUG] Stopped heartbeat interval");
     }
   }
 
@@ -804,13 +807,13 @@ export class RelayConnectionBridge {
             timestamp: Date.now(),
           });
         } catch (error) {
-          console.error("[RELAY-CLIENT] Error sending heartbeat:", error);
+          console.error("Error sending heartbeat:", error);
         }
       }
     }, this.config.heartbeatInterval || 30000); // Default to 30 seconds if not configured
 
     if (this.config.relayDebug) {
-      console.log("[RELAY-CLIENT][DEBUG] Started heartbeat interval");
+      logger.info("[RELAY-CLIENT][DEBUG] Started heartbeat interval");
     }
   }
 
@@ -842,7 +845,7 @@ export class RelayConnectionBridge {
     if (type === "state:full-update" || type === "state:patch") {
       // Make sure the data structure is correct
       if (!message.data) {
-        console.warn("[RELAY-CLIENT] Missing data in message:", message);
+        console.warn("Missing data in message:", message);
         return;
       }
 
@@ -919,20 +922,20 @@ export class RelayConnectionBridge {
                 "Successfully applied state patch"
               );
             } catch (error) {
-              console.error("[RELAY-CLIENT] Error applying patch:", error);
+              console.error("Error applying patch:", error);
               // Request a full state update if we encounter an error applying the patch
               this._requestFullState();
             }
           } else {
             // We don't have a base state yet, request one
             console.warn(
-              "[RELAY-CLIENT] Received state:patch but no base state exists. Requesting full state..."
+              "Received state:patch but no base state exists. Requesting full state..."
             );
             this._requestFullState();
           }
         } else {
           console.warn(
-            "[RELAY-CLIENT] Received state:patch with invalid format. Expected array, got:",
+            "Received state:patch with invalid format. Expected array, got:",
             typeof message.data
           );
         }
@@ -959,7 +962,7 @@ export class RelayConnectionBridge {
           });
         } else {
           console.warn(
-            "[RELAY-CLIENT] Received state-update but no base state to patch or invalid patch format."
+            "Received state-update but no base state to patch or invalid patch format."
           );
         }
         break;
@@ -967,7 +970,7 @@ export class RelayConnectionBridge {
         // Handle connection status messages
         if (message.clientId) {
           this.clientId = message.clientId;
-          console.log(`[RELAY-CLIENT] Assigned client ID: ${this.clientId}`);
+          logger.info(`Assigned client ID: ${this.clientId}`);
 
           // Send subscription preferences
           this._updateSubscriptions();
@@ -975,18 +978,18 @@ export class RelayConnectionBridge {
         break;
 
       case "tide:update":
-        console.log("[RELAY-CLIENT] Handling tide update:", message.data);
+        logger.info("Handling tide update:", message.data);
         this.emit("tide-update", message.data);
         break;
 
       case "weather:update":
-        console.log("[RELAY-CLIENT] Handling weather update:", message.data);
+        logger.info("Handling weather update:", message.data);
         this.emit("weather-update", message.data);
         break;
 
       case "navigation":
         // Handle navigation data
-        console.log(`[RELAY-CLIENT] Handling navigation message:`, message);
+        logger.info(`Handling navigation message:`, message);
         this.emit("navigation", message);
         // Also emit nav-position for backward compatibility
         if (message.data && message.data.position) {
@@ -999,17 +1002,17 @@ export class RelayConnectionBridge {
         break;
 
       case "vessel":
-        console.log(`[RELAY-CLIENT] Handling vessel message:`, message);
+        logger.info(`Handling vessel message:`, message);
         this.emit("vessel-update", message);
         break;
 
       case "alert":
-        console.log(`[RELAY-CLIENT] Handling alert message:`, message);
+        logger.info(`Handling alert message:`, message);
         this.emit("alert", message);
         break;
 
       case "environment":
-        console.log(`[RELAY-CLIENT] Handling environment message:`, message);
+        logger.info(`Handling environment message:`, message);
         this.emit("environment", message);
         // Also emit specific environment events
         if (message.data && message.data.wind) {
@@ -1029,25 +1032,25 @@ export class RelayConnectionBridge {
       case "error":
         // Handle error messages
         console.error(
-          "[RELAY-CLIENT] Received error from relay server:",
+          "Received error from relay server:",
           message.message
         );
         break;
 
       case "ping":
         // Handle ping responses (for ping-pong heartbeat)
-        // console.log('[RELAY-CLIENT] Received ping from server");
+        // logger.info('Received ping from server");
         break;
 
       case "pong":
         // Handle pong responses (for ping-pong heartbeat)
-        // console.log('[RELAY-CLIENT] Received pong from server");
+        // logger.info('Received pong from server");
         break;
 
       case "subscription":
         // Handle subscription confirmation messages
-        console.log(
-          "[RELAY-CLIENT] Subscription update confirmed:",
+        logger.info(
+          "Subscription update confirmed:",
           message.data,
           message
         );
@@ -1063,7 +1066,7 @@ export class RelayConnectionBridge {
           // Silently ignore these, as they are not meant for clients
           return;
         }
-        console.warn("[RELAY-CLIENT] Unknown message type:", type, message);
+        console.warn("Unknown message type:", type, message);
     }
   }
 
@@ -1124,7 +1127,7 @@ export class RelayConnectionBridge {
       }, 10000); // 10 second timeout
     } else {
       console.warn(
-        "[RELAY-CLIENT] Cannot request full state: WebSocket not connected"
+        "Cannot request full state: WebSocket not connected"
       );
     }
   }
@@ -1135,8 +1138,8 @@ export class RelayConnectionBridge {
    */
   _handleNavigationData(message) {
     // Enhanced logging to debug the data received
-    // console.log('[RELAY-BRIDGE] Received navigation data from relay server");
-    // console.log('[RELAY-BRIDGE] Raw message:", JSON.stringify(message));
+    // logger.info('[RELAY-BRIDGE] Received navigation data from relay server");
+    // logger.info('[RELAY-BRIDGE] Raw message:", JSON.stringify(message));
 
     // The data is deeply nested in the structure:
     // { type: 'navigation', data: { type: 'navigation', data: { position: {...} } } }
@@ -1147,47 +1150,47 @@ export class RelayConnectionBridge {
     // Second level unwrapping
     const innerData = outerData.data || {};
 
-    // console.log('[RELAY-BRIDGE] Outer data:", JSON.stringify(outerData));
-    // console.log('[RELAY-BRIDGE] Inner data:", JSON.stringify(innerData));
+    // logger.info('[RELAY-BRIDGE] Outer data:", JSON.stringify(outerData));
+    // logger.info('[RELAY-BRIDGE] Inner data:", JSON.stringify(innerData));
 
     // Extract position data from the correct location in the structure
     const positionData = innerData.position;
-    // console.log('[RELAY-BRIDGE] Position data:", JSON.stringify(positionData));
+    // logger.info('[RELAY-BRIDGE] Position data:", JSON.stringify(positionData));
 
     // Extract instrument data from the inner data
     // The instrument data might be nested similarly to position data
     // First, log all possible paths where we might find the data
-    // console.log('[RELAY-BRIDGE] Exploring all possible data paths:');
-    console.log("innerData:", JSON.stringify(innerData));
+    // logger.info('[RELAY-BRIDGE] Exploring all possible data paths:');
+    logger.info("innerData:", JSON.stringify(innerData));
 
     // Check for speed over ground in all possible locations
-    // console.log('[RELAY-BRIDGE] Checking for speedOverGround:');
-    console.log("- innerData.speedOverGround:", innerData.speedOverGround);
-    console.log(
+    // logger.info('[RELAY-BRIDGE] Checking for speedOverGround:');
+    logger.info("- innerData.speedOverGround:", innerData.speedOverGround);
+    logger.info(
       "- innerData.speed?.overGround:",
       innerData.speed && innerData.speed.overGround
     );
-    console.log(
+    logger.info(
       "- innerData.course?.speedOverGround:",
       innerData.course && innerData.course.speedOverGround
     );
-    console.log(
+    logger.info(
       "- outerData.speed?.overGround:",
       outerData.speed && outerData.speed.overGround
     );
-    console.log(
+    logger.info(
       "- outerData.course?.speedOverGround:",
       outerData.course && outerData.course.speedOverGround
     );
 
     // Check for heading in all possible locations
-    // console.log('[RELAY-BRIDGE] Checking for heading:');
-    console.log("- innerData.headingMagnetic:", innerData.headingMagnetic);
-    console.log(
+    // logger.info('[RELAY-BRIDGE] Checking for heading:');
+    logger.info("- innerData.headingMagnetic:", innerData.headingMagnetic);
+    logger.info(
       "- innerData.heading?.magnetic:",
       innerData.heading && innerData.heading.magnetic
     );
-    console.log("- innerData.heading:", innerData.heading);
+    logger.info("- innerData.heading:", innerData.heading);
 
     // Create a more comprehensive instrument data object
     const instrumentData = {
@@ -1204,7 +1207,7 @@ export class RelayConnectionBridge {
         innerData.sog, // Try another common abbreviation
     };
 
-    // console.log('[RELAY-BRIDGE] Final instrument data:", JSON.stringify(instrumentData));
+    // logger.info('[RELAY-BRIDGE] Final instrument data:", JSON.stringify(instrumentData));
 
     // Create a clean, de-nested data structure for position that matches the expected format
     // in the stateDataStore
@@ -1220,17 +1223,17 @@ export class RelayConnectionBridge {
       : undefined;
 
     // Check for wind data in the navigation message with enhanced logging
-    // console.log('[RELAY-BRIDGE] Searching for wind data in all possible locations:');
-    console.log("- innerData.wind:", JSON.stringify(innerData.wind));
-    console.log("- outerData.wind:", JSON.stringify(outerData.wind));
-    console.log("- message.data.wind:", JSON.stringify(message.data?.wind));
-    console.log("- message.wind:", JSON.stringify(message.wind));
+    // logger.info('[RELAY-BRIDGE] Searching for wind data in all possible locations:');
+    logger.info("- innerData.wind:", JSON.stringify(innerData.wind));
+    logger.info("- outerData.wind:", JSON.stringify(outerData.wind));
+    logger.info("- message.data.wind:", JSON.stringify(message.data?.wind));
+    logger.info("- message.wind:", JSON.stringify(message.wind));
 
     // Also check for any properties containing "wind" in their name
-    // console.log('[RELAY-BRIDGE] Checking for any wind-related properties in innerData:');
+    // logger.info('[RELAY-BRIDGE] Checking for any wind-related properties in innerData:');
     Object.keys(innerData).forEach((key) => {
       if (key.toLowerCase().includes("wind")) {
-        console.log(`- innerData.${key}:`, JSON.stringify(innerData[key]));
+        logger.info(`- innerData.${key}:`, JSON.stringify(innerData[key]));
       }
     });
 
@@ -1244,10 +1247,10 @@ export class RelayConnectionBridge {
           message.timestamp ||
           new Date().toISOString(),
       };
-      // console.log('[RELAY-BRIDGE] Found wind data in navigation message:", JSON.stringify(cleanWindData));
+      // logger.info('[RELAY-BRIDGE] Found wind data in navigation message:", JSON.stringify(cleanWindData));
       this.emit("env-wind", cleanWindData);
     } else {
-      // console.log('[RELAY-BRIDGE] No wind data found in navigation message");
+      // logger.info('[RELAY-BRIDGE] No wind data found in navigation message");
     }
 
     // Check for depth data in the navigation message
@@ -1261,13 +1264,13 @@ export class RelayConnectionBridge {
           message.timestamp ||
           new Date().toISOString(),
       };
-      // console.log('[RELAY-BRIDGE] Found depth data in navigation message:", JSON.stringify(cleanDepthData));
+      // logger.info('[RELAY-BRIDGE] Found depth data in navigation message:", JSON.stringify(cleanDepthData));
       this.emit("env-depth", cleanDepthData);
     }
 
     // Log what we're about to emit
-    // console.log('[RELAY-BRIDGE] Emitting nav-position with:", JSON.stringify(cleanPositionData));
-    // console.log('[RELAY-BRIDGE] Emitting nav-instruments with:", JSON.stringify(instrumentData));
+    // logger.info('[RELAY-BRIDGE] Emitting nav-position with:", JSON.stringify(cleanPositionData));
+    // logger.info('[RELAY-BRIDGE] Emitting nav-instruments with:", JSON.stringify(instrumentData));
 
     // Process navigation data with the clean, simplified structure
     this.emit("nav-position", cleanPositionData);
@@ -1287,8 +1290,8 @@ export class RelayConnectionBridge {
    * This includes wind, temperature, and other environmental measurements
    */
   _handleEnvironmentData(message) {
-    // console.log('[RELAY-BRIDGE] Received environment data from relay server");
-    console.log(
+    // logger.info('[RELAY-BRIDGE] Received environment data from relay server");
+    logger.info(
       "[RELAY-BRIDGE] Raw environment message:",
       JSON.stringify(message)
     );
@@ -1297,8 +1300,8 @@ export class RelayConnectionBridge {
     const outerData = message.data || {};
     const innerData = outerData.data || {};
 
-    // console.log('[RELAY-BRIDGE] Environment outer data:", JSON.stringify(outerData));
-    // console.log('[RELAY-BRIDGE] Environment inner data:", JSON.stringify(innerData));
+    // logger.info('[RELAY-BRIDGE] Environment outer data:", JSON.stringify(outerData));
+    // logger.info('[RELAY-BRIDGE] Environment inner data:", JSON.stringify(innerData));
 
     // Try to find wind data in all possible locations
     // First check if wind data is directly in the message
@@ -1375,7 +1378,7 @@ export class RelayConnectionBridge {
       }
     }
 
-    // console.log('[RELAY-BRIDGE] Extracted wind data:", JSON.stringify(windData));
+    // logger.info('[RELAY-BRIDGE] Extracted wind data:", JSON.stringify(windData));
 
     if (windData) {
       // Create a clean wind data structure
@@ -1410,7 +1413,7 @@ export class RelayConnectionBridge {
         cleanWindData.wind.angleApparent = cleanWindData.wind.angleTrue * 0.9;
       }
 
-      // console.log('[RELAY-BRIDGE] Emitting env-wind with:", JSON.stringify(cleanWindData));
+      // logger.info('[RELAY-BRIDGE] Emitting env-wind with:", JSON.stringify(cleanWindData));
       this.emit("env-wind", cleanWindData);
     }
 
@@ -1463,7 +1466,7 @@ export class RelayConnectionBridge {
           new Date().toISOString(),
       };
 
-      // console.log('[RELAY-BRIDGE] Emitting env-depth with:", JSON.stringify(cleanDepthData));
+      // logger.info('[RELAY-BRIDGE] Emitting env-depth with:", JSON.stringify(cleanDepthData));
       this.emit("env-depth", cleanDepthData);
     }
 
@@ -1479,7 +1482,7 @@ export class RelayConnectionBridge {
           new Date().toISOString(),
       };
 
-      // console.log('[RELAY-BRIDGE] Emitting env-temperature with:", cleanTempData);
+      // logger.info('[RELAY-BRIDGE] Emitting env-temperature with:", cleanTempData);
       this.emit("env-temperature", cleanTempData);
     }
 
@@ -1504,13 +1507,16 @@ export class RelayConnectionBridge {
    */
   sendCommand(service, action, data = {}) {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this._sendMessage({
-        type: "command",
-        service,
-        action,
-        data,
+      // Create a flat message with the action as the type
+      const message = {
+        type: action,  // Use the action as the message type
+        ...data,      // Spread the data properties
         timestamp: Date.now(),
-      });
+        service,      // Keep service as a separate field if needed
+        _originalAction: action  // Keep original action for debugging
+      };
+      
+      this._sendMessage(message);
       return true;
     }
     return false;
@@ -1530,7 +1536,7 @@ export class RelayConnectionBridge {
    */
   async _sendIdentity() {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      console.log("[RELAY-CLIENT] Cannot send identity, not connected");
+      logger.info("Cannot send identity, not connected");
       return;
     }
 
@@ -1553,20 +1559,20 @@ export class RelayConnectionBridge {
         `${this.clientId}:${boatId}:${timestamp}`
       );
       if (signature) {
-        console.log(`[RELAY-CLIENT] Found private key, generating signature`);
+        logger.info(`Found private key, generating signature`);
         identityMessage.signature = signature;
-        console.log(`[RELAY-CLIENT] Added signature to identity message`);
+        logger.info(`Added signature to identity message`);
       } else {
-        console.log(
-          `[RELAY-CLIENT] No private key available, sending unsigned message`
+        logger.info(
+          `No private key available, sending unsigned message`
         );
       }
     } catch (error) {
-      console.error(`[RELAY-CLIENT] Error signing message:`, error);
+      console.error(`Error signing message:`, error);
     }
 
     // Send the identity message
-    console.log(`[RELAY-CLIENT] Sending identity message:`, identityMessage);
+    logger.info(`Sending identity message:`, identityMessage);
     this.socket.send(JSON.stringify(identityMessage));
   }
 
@@ -1575,11 +1581,11 @@ export class RelayConnectionBridge {
    * @private
    */
   async _registerClientKey() {
-    console.log('[RELAY-CLIENT] _registerClientKey called');
+    logger.info('_registerClientKey called');
     
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       const status = this.socket ? `WebSocket state: ${this.socket.readyState}` : 'No WebSocket connection';
-      console.log(`[RELAY-CLIENT] Cannot register key, not connected (${status})`);
+      logger.info(`Cannot register key, not connected (${status})`);
       return;
     }
 
@@ -1587,15 +1593,15 @@ export class RelayConnectionBridge {
     const publicKey = getClientPublicKey();
 
     if (!publicKey) {
-      console.log("[RELAY-CLIENT] No public key available for registration");
+      logger.info("No public key available for registration");
       return;
     }
 
-    console.log(`[RELAY-CLIENT] Registering public key via WebSocket`);
-    console.log(`[RELAY-CLIENT] Current relayServerUrl: ${this.config.relayServerUrl}`);
-    console.log(`[RELAY-CLIENT] Client ID: ${this.clientId}`);
-    console.log(`[RELAY-CLIENT] Boat ID: ${boatId}`);
-    console.log(`[RELAY-CLIENT] Public Key: ${publicKey ? `${publicKey.substring(0, 30)}...` : 'none'}`);
+    logger.info(`Registering public key via WebSocket`);
+    logger.info(`Current relayServerUrl: ${this.config.relayServerUrl}`);
+    logger.info(`Client ID: ${this.clientId}`);
+    logger.info(`Boat ID: ${boatId}`);
+    logger.info(`Public Key: ${publicKey ? `${publicKey.substring(0, 30)}...` : 'none'}`);
 
     const message = {
       type: "register-key",
@@ -1606,7 +1612,7 @@ export class RelayConnectionBridge {
     };
 
     // Log the WebSocket message being sent
-    console.log('[RELAY-CLIENT] Sending WebSocket message:', {
+    logger.info('Sending WebSocket message:', {
       type: message.type,
       clientId: message.clientId,
       boatId: message.boatId,
@@ -1620,12 +1626,12 @@ export class RelayConnectionBridge {
     // Also try to register via HTTP API as a fallback
     try {
       const vpsUrl = this.config.relayServerUrl;
-      console.log(`[RELAY-CLIENT] Attempting HTTP registration with VPS URL: ${vpsUrl}`);
+      logger.info(`Attempting HTTP registration with VPS URL: ${vpsUrl}`);
       await registerClientKeyWithVPS(vpsUrl, this.clientId, boatId);
     } catch (error) {
-      console.error("[RELAY-CLIENT] Error registering key via HTTP:", error);
+      console.error("Error registering key via HTTP:", error);
       if (error.response) {
-        console.error("[RELAY-CLIENT] HTTP Error Response:", {
+        console.error("HTTP Error Response:", {
           status: error.response.status,
           statusText: error.response.statusText,
           data: error.response.data
@@ -1648,7 +1654,7 @@ export class RelayConnectionBridge {
         this.emit("vps-connection-status", { status: "disconnected" });
       } catch (e) {
         console.warn(
-          "[RELAY-CLIENT] Error closing socket during disconnect:",
+          "Error closing socket during disconnect:",
           e
         );
         // Emit error status if disconnect fails
@@ -1663,7 +1669,7 @@ export class RelayConnectionBridge {
     this.isReconnecting = false;
     this.connectionState.status = "disconnected";
     this.emit("connection-status", this.connectionState);
-    console.log("[RELAY-CLIENT] Disconnected from relay server");
+    logger.info("Disconnected from relay server");
   }
 }
 
@@ -1677,6 +1683,7 @@ RelayConnectionBridge.prototype._sendMessage = function (message) {
   remoteLogger.log("RELAY-CLIENT", `Sending message of type: ${message.type}`);
 
   if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    logger.info('[RELAY] Sending message:', message);
     this.socket.send(JSON.stringify(message));
     remoteLogger.log("RELAY-CLIENT", `Message sent successfully`);
   } else {
@@ -1686,7 +1693,7 @@ RelayConnectionBridge.prototype._sendMessage = function (message) {
       message
     );
     console.warn(
-      `[RELAY-CLIENT] Cannot send message, socket not open:`,
+      `Cannot send message, socket not open:`,
       message
     );
   }

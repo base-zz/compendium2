@@ -2,7 +2,6 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { IonicVue } from '@ionic/vue';
 import { startSmartConnectionManager } from '@client/services/smartConnectionManager.js';
-import { initializeRelayClient } from './relay/client';
 import { createLogger } from './client/services/logger.js';
 import App from './App.vue';
 import router from './router';
@@ -74,16 +73,6 @@ const initApp = async () => {
       startSmartConnectionManager();
       logger.info('Connection management system started successfully');
       
-      // Initialize the relay client
-      try {
-        await initializeRelayClient();
-        logger.info('Relay client initialized successfully');
-      } catch (error) {
-        logger.warn('Failed to initialize relay client, continuing without relay', {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined
-        });
-      }
     } catch (error) {
       logger.error('Failed to start connection management system', {
         error: error instanceof Error ? error.message : 'Unknown error',

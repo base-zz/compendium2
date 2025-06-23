@@ -9,13 +9,10 @@ import { defineStore } from "pinia";
 import { ref, reactive, computed, watch } from "vue";
 import { stateData as canonicalStateData } from "@/client/stateData.js";
 import { stateUpdateProvider } from "../services/stateUpdateProvider";
-import { applyPatch } from "fast-json-patch";
+
 import { BASE_ALERT_DATUM } from "@/shared/alertDatum.js";
-import {
-  createDefaultRule,
-  ALERT_RULE_OPERATORS,
-} from "@/shared/alertRuleModel.js";
-import { Preferences } from "@capacitor/preferences";
+
+
 import {
   getUserUnitPreferences,
   setUnitPreference,
@@ -25,6 +22,7 @@ import {
 import { createStateDataModel } from "@/shared/stateDataModel.js";
 import { UnitConversion } from "@/shared/unitConversion";
 import { createLogger } from "../services/logger";
+
 
 const logger = createLogger("state-data-store");
 
@@ -71,7 +69,7 @@ export function calculateDestinationLatLon(lat1, lon1, distance, bearing) {
   const lat1Rad = toRad(lat1);
   const lon1Rad = toRad(lon1);
   // Use standard navigation bearing directly
-  // 0° = North, 90° = East, 180° = South, 270° = West
+  // 0 degrees  = North, 90 degrees  = East, 180 degrees  = South, 270 degrees  = West
   const bearingRad = toRad(bearing);
 
   const angularDistance = distance / R;
@@ -96,7 +94,7 @@ export function calculateDestinationLatLon(lat1, lon1, distance, bearing) {
   lon2Deg = ((((lon2Deg + 180) % 360) + 360) % 360) - 180;
 
   // Debug logging
-  logger.debug("📡 [calculateDestinationLatLon]", {
+  logger.debug("[calculateDestinationLatLon]", {
     input: { lat1, lon1, distance, bearing },
     output: { lat2: lat2Deg, lon2: lon2Deg },
     normalizedLon: lon2Deg,
@@ -147,7 +145,7 @@ export function getComputedAnchorLocation(
     : horizontalRode / 3.28084;
 
   // Determine if bearing is in radians or degrees
-  // If bearing is likely in radians (between -π and π or 0 and 2π)
+  // If bearing is likely in radians (between -pi and pi or 0 and 2pi)
   let bearingDegrees = bearing;
   if (Math.abs(bearing) <= Math.PI * 2) {
     // Likely in radians, convert to degrees
@@ -194,28 +192,6 @@ export function getComputedAnchorLocation(
     depth: depth ?? null,
   };
 }
-// Import the StateData singleton and StateService
-// Using dynamic import for SSR compatibility
-let stateData;
-
-async function ensureStateDataLoaded() {
-  if (!stateData) {
-    try {
-      const stateModule = await import("@/client/stateData.js");
-      stateData = stateModule.stateData;
-    } catch (error) {
-      logger.error("Failed to load StateData:", error);
-      throw error;
-    }
-  }
-  return { stateData };
-}
-
-// function switchDataSource(mode) {
-//   stateUpdateProvider.switchSource(mode);
-// }
-
-logger.info("State Data Store initialized");
 
 // --- Pinia Store Export ---
 // Utility: Deep clone to avoid reference sharing
@@ -356,129 +332,6 @@ export const useStateDataStore = defineStore("stateData", () => {
     }
   }
 
-  function updateTideData(tideData) {
-    state.tides = tideData;
-    logger.debug("Updated tide data");
-  }
-
-  function updateForecastData(weatherData) {
-    state.forecast = weatherData;
-    logger.debug("Updated weather data");
-  }
-
-  // Helper function to get nested property by path, handling Vue reactive proxies
-  function getValueByPath(obj, path) {
-    if (!path || !obj) return undefined;
-
-    // Handle root path
-    if (path === "/") return obj;
-
-    // Remove leading slash if present and split
-    const cleanPath = path.startsWith("/") ? path.substring(1) : path;
-    const parts = cleanPath.split("/").filter(Boolean);
-
-    let current = obj;
-
-    for (const part of parts) {
-      // Handle array indices (e.g., 'items/0/name')
-      if (Array.isArray(current) && /^\d+$/.test(part)) {
-        const index = parseInt(part, 10);
-        if (index >= 0 && index < current.length) {
-          current = current[index];
-          continue;
-        }
-        return undefined;
-      }
-
-      // Handle regular object properties
-      if (current && typeof current === "object" && part in current) {
-        current = current[part];
-      } else {
-        return undefined;
-      }
-    }
-
-    return current;
-  }
-
-  function ensurePathExists(obj, path) {
-    const parts = path.split("/").filter(Boolean);
-    let current = obj;
-
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      if (!current[part]) {
-        current[part] = {};
-      }
-      current = current[part];
-    }
-    return current;
-  }
-
-  function applyStatePatch(patches) {
-    if (!Array.isArray(patches)) {
-      logger.error(
-        "Invalid patches format - expected array, got:",
-        typeof patches
-      );
-      return false;
-    }
-
-    if (patches.length === 0) {
-      dataLogger("Empty patches array, nothing to apply");
-      return true;
-    }
-
-    dataLogger("Applying patches:", patches);
-
-    try {
-      // Apply each patch manually to respect Vue reactivity
-      for (const patch of patches) {
-        if (patch.op === "replace" || patch.op === "add") {
-          // Get the path parts
-          const pathParts = patch.path.split("/").filter(Boolean);
-
-          // Ensure parent paths exist
-          if (pathParts.length > 1) {
-            ensurePathExists(state, pathParts.slice(0, -1).join("/"));
-          }
-
-          // Set the value at the path
-          const targetObj =
-            pathParts.length > 1
-              ? getValueByPath(state, pathParts.slice(0, -1).join("/"))
-              : state;
-
-          if (targetObj) {
-            const prop = pathParts[pathParts.length - 1];
-            targetObj[prop] = patch.value;
-          }
-        } else if (patch.op === "remove") {
-          // Handle remove operation
-          const pathParts = patch.path.split("/").filter(Boolean);
-          const targetObj =
-            pathParts.length > 1
-              ? getValueByPath(state, pathParts.slice(0, -1).join("/"))
-              : state;
-
-          if (targetObj) {
-            const prop = pathParts[pathParts.length - 1];
-            delete targetObj[prop];
-          }
-        }
-        // Other operations like move, copy, test are not implemented here
-      }
-
-      return true;
-    } catch (error) {
-      logger.error("Error applying patches:", {
-        error: error.message,
-        stack: error.stack,
-      });
-      return false;
-    }
-  }
-
   /**
    * Generic function to send messages to the server
    * @param {string} messageType - Type of message (e.g., 'anchor:update')
@@ -486,17 +339,11 @@ export const useStateDataStore = defineStore("stateData", () => {
    * @param {Object} options - Additional options
    * @returns {boolean} - Success status
    */
-  function sendMessageToServer(messageType, data, options = {}) {
-    dataLogger(`Sending message to server: ${messageType}`, {
-      data,
-      options,
-    });
-    const adapter = stateUpdateProvider.currentAdapter;
-
-    if (adapter && typeof adapter.send === "function") {
+  async function sendMessageToServer(messageType, data, options = {}) {
+    dataLogger(`Sending message to server: ${messageType}`, { data, options });
+    try {
       // Get boatId from localStorage if available
       let boatId;
-
       try {
         // Try to get active boat ID from localStorage
         const storedBoatId = localStorage.getItem("activeBoatId");
@@ -516,37 +363,32 @@ export const useStateDataStore = defineStore("stateData", () => {
         }
       } catch (e) {
         logger.warn("Could not access localStorage for boatId:", e);
+        return false;
       }
 
       // If we still don't have a boat ID, we can't route the message
       if (!boatId) {
-        logger.warn(
-          `Cannot send ${messageType}: No boat ID available for routing`
-        );
+        logger.warn(`Cannot send ${messageType}: No boat ID available for routing`);
         return false;
       }
 
+      // Prepare the message with metadata
       const message = {
-        type: messageType,
-        data: structuredClone(data),
+        ...data,
         boatId,
         timestamp: Date.now(),
-        ...options,
+        ...options
       };
 
-      const success = adapter.send(message);
-      if (success) {
-        dataLogger(`Sent ${messageType} to server for boat ${boatId}`);
-      } else {
-        logger.error(
-          `Failed to send ${messageType} to server for boat ${boatId}`
-        );
-      }
-      return success;
+      // Send using stateUpdateProvider, which routes to the correct adapter
+      console.log('[stateDataStore->stateUpdateProvider] Sending command:', { service: 'state', action: messageType, data: '...' });
+      await stateUpdateProvider.sendCommand('state', messageType, message);
+      dataLogger(`Sent ${messageType} to server for boat ${boatId}`);
+      return true;
+    } catch (error) {
+      logger.error(`Error sending ${messageType} to server:`, error);
+      return false;
     }
-
-    logger.error(`Cannot send ${messageType}: No valid adapter`);
-    return false;
   }
 
   // --- Anchor Actions ---
@@ -1168,6 +1010,7 @@ export const useStateDataStore = defineStore("stateData", () => {
       }
     });
   }
+
   // Watch for navigation data changes to evaluate alert rules
   watch(
     () => state.navigation,
@@ -1343,6 +1186,106 @@ export const useStateDataStore = defineStore("stateData", () => {
   // --- Relay/Connection Logic ---
   function switchDataSource(mode) {
     stateUpdateProvider.switchSource(mode);
+  }
+
+  /**
+   * Apply a JSON Patch to the state
+   * @param {Array} patches - Array of JSON Patch operations
+   * @returns {boolean} - True if successful, false otherwise
+   */
+  function applyStatePatch(patches) {
+    if (!Array.isArray(patches)) {
+      logger.error('Invalid patches format - expected array, got:', typeof patches);
+      return false;
+    }
+
+    if (patches.length === 0) {
+      dataLogger('Empty patches array, nothing to apply');
+      return true;
+    }
+
+    dataLogger(`Applying ${patches.length} patch operations`);
+
+    try {
+      // Apply each patch operation
+      for (const patch of patches) {
+        if (patch.op === 'replace' || patch.op === 'add') {
+          // Handle replace and add operations
+          const path = patch.path.split('/').filter(Boolean);
+          let target = state;
+          
+          // Navigate to the parent of the target
+          for (let i = 0; i < path.length - 1; i++) {
+            const part = path[i];
+            if (!target[part]) {
+              target[part] = {};
+            }
+            target = target[part];
+          }
+          
+          // Set the value
+          target[path[path.length - 1]] = patch.value;
+        }
+        // Add support for other patch operations if needed
+      }
+      return true;
+    } catch (error) {
+      logger.error('Error applying patches:', {
+        error: error.message,
+        stack: error.stack,
+        patches
+      });
+      return false;
+    }
+  }
+
+  // Helper function to get nested property by path, handling Vue reactive proxies
+  function getValueByPath(obj, path) {
+    if (!path || !obj) return undefined;
+
+    // Handle root path
+    if (path === "/") return obj;
+
+    // Remove leading slash if present and split
+    const cleanPath = path.startsWith("/") ? path.substring(1) : path;
+    const parts = cleanPath.split("/").filter(Boolean);
+
+    let current = obj;
+
+    for (const part of parts) {
+      // Handle array indices (e.g., 'items/0/name')
+      if (Array.isArray(current) && /^\d+$/.test(part)) {
+        const index = parseInt(part, 10);
+        if (index >= 0 && index < current.length) {
+          current = current[index];
+          continue;
+        }
+        return undefined;
+      }
+
+      // Handle regular object properties
+      if (current && typeof current === "object" && part in current) {
+        current = current[part];
+      } else {
+        return undefined;
+      }
+    }
+
+    return current;
+  }
+
+  function ensurePathExists(obj, path) {
+    const parts = path.split("/").filter(Boolean);
+    let current = obj;
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      if (!current[part]) {
+        current[part] = {};
+      }
+      current = current[part];
+    }
+    return current;
   }
 
   // --- Subscriptions and Watchers ---
@@ -1877,12 +1820,14 @@ export const useStateDataStore = defineStore("stateData", () => {
     switchDataSource,
     breadcrumbs,
     calculateDistance,
+    sendMessageToServer,
 
     // Alert functions
     newAlert,
     addAlert,
     addAlertWithSignature,
     addAlertWithPrevention,
+    resolveAlertsByTrigger,
     AlertPreventionStrategy,
     acknowledgeAlert,
     muteAlert,

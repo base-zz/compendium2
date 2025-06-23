@@ -34,6 +34,22 @@
           <div class="metric-div">{{ stateStore.state.environment?.current?.speed?.value || '--' }}</div>
         </div>
       </div>
+      
+      <!-- Recommended Scope Section -->
+      <div v-if="recommendedScope && anchorState?.anchorDeployed" class="scope-suggestion">
+        <div class="suggestion-title">Recommended Scope</div>
+        <div class="suggestion-detail">
+          <span class="label">Current (5:1):</span>
+          <span class="value">{{ Math.round(recommendedScope.currentDepth * 5) }} {{ isMetric ? 'm' : 'ft' }}</span>
+        </div>
+        <div class="suggestion-detail">
+          <span class="label">With tide (5:1):</span>
+          <span class="value highlight">{{ Math.round(recommendedScope.recommendedChain) }} {{ isMetric ? 'm' : 'ft' }}</span>
+        </div>
+        <div class="suggestion-note">
+          Accounts for {{ recommendedScope.depthIncrease.toFixed(1) }}{{ isMetric ? 'm' : 'ft' }} tide rise
+        </div>
+      </div>
     </div>
     <!-- anchor-btn-row removed: no extra action buttons needed when anchor is deployed -->
     <ion-modal :is-open="showEditRadiusModal" @didDismiss="showEditRadiusModal = false">
@@ -66,6 +82,9 @@ import { ref, watch, computed, defineEmits, onUnmounted } from 'vue';
 import { IonModal, IonButton, IonRange } from '@ionic/vue';
 import { useStateDataStore } from '@/client/stores/stateDataStore.js';
 import { storeToRefs } from 'pinia';
+import { createLogger } from '@/client/services/logger';
+
+const logger = createLogger('AnchorInfoGrid');
 
 const emit = defineEmits(['anchor-dropped']);
 
@@ -92,8 +111,6 @@ const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 const anchorState = computed(() => state.value.anchor);
   
-console.log("AnchorInfoGrid.vue anchorState:", anchorState.value);
-
 // Alert cycling state
 const currentAlertIndex = ref(0);
 const alertCycleInterval = ref(null);
@@ -127,6 +144,45 @@ watch(
 onUnmounted(() => {
   if (alertCycleInterval.value) {
     clearInterval(alertCycleInterval.value);
+  }
+});
+
+// Calculate recommended scope based on tide data
+const recommendedScope = computed(() => {
+  try {
+    const currentDepth = state.value.navigation?.depth?.belowTransducer?.value;
+    const tideData = state.value.tides?.waterLevels;
+    
+    if (!currentDepth || !tideData?.length) return null;
+    
+    const now = new Date();
+    const futureCutoff = new Date(now.getTime() + 72 * 60 * 60 * 1000); // 72 hours from now
+    
+    // Find maximum water level in the next 72 hours
+    const maxFutureLevel = tideData
+      .filter(entry => {
+        const entryTime = new Date(entry.time);
+        return entryTime >= now && entryTime <= futureCutoff;
+      })
+      .reduce((max, entry) => Math.max(max, entry.value), 0);
+    
+    if (maxFutureLevel <= 0) return null;
+    
+    const depthIncrease = Math.max(0, maxFutureLevel - currentDepth);
+    const targetDepth = currentDepth + depthIncrease;
+    
+    // Convert to feet if using imperial units
+    const unitMultiplier = isMetric.value ? 1 : 3.28084;
+    
+    return {
+      currentDepth: currentDepth * unitMultiplier,
+      maxFutureDepth: targetDepth * unitMultiplier,
+      recommendedChain: Math.ceil(targetDepth * 5 * unitMultiplier), // 5:1 scope
+      depthIncrease: depthIncrease * unitMultiplier
+    };
+  } catch (error) {
+    logger.error('Error calculating recommended scope:', error);
+    return null;
   }
 });
 

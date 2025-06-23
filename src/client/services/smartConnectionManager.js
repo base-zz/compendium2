@@ -32,6 +32,9 @@ const DIRECT_WS_URL = getWebSocketUrl();
 let currentMode = null;
 let notificationElement = null;
 let notificationTimeout = null;
+// Track if we're currently switching modes
+let isSwitching = false;
+let switchTimeout = null;
 
 // Helper function to get platform information for debugging
 function getPlatformInfo() {
@@ -49,8 +52,7 @@ function getPlatformInfo() {
   return platform;
 }
 
-
-// Test DNS resolution for a hostname// Test DNS resolution for a hostname
+// Test DNS resolution for a hostname
 async function testDnsResolution(hostname) {
   logger.debug(`Testing DNS resolution for ${hostname}`);
   
@@ -92,6 +94,8 @@ async function testNetworkConnectivity() {
     const port = import.meta.env.VITE_DIRECT_BOAT_PORT;
     const path = import.meta.env.VITE_DIRECT_BOAT_PATH;
 
+    logger.debug('Using connection settings:', { host, port, path });
+
     if (!host || !port || !path) {
       const error = 'Required environment variables are missing: VITE_DIRECT_BOAT_HOST, VITE_DIRECT_BOAT_PORT, VITE_DIRECT_BOAT_PATH';
       logger.error(error);
@@ -115,31 +119,61 @@ async function testNetworkConnectivity() {
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
     
     try {
+      logger.debug('Attempting HTTP request to:', httpUrl);
+      const startTime = Date.now();
       const response = await fetch(httpUrl, {
         method: 'GET',
         mode: 'cors',
         cache: 'no-cache',
         signal: controller.signal,
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         }
+        // Removed credentials: 'include' since we don't need it for connectivity check
       });
       
+      const endTime = Date.now();
       clearTimeout(timeoutId);
       
+      logger.debug(`HTTP request completed in ${endTime - startTime}ms`);
+      logger.debug('Response status:', response.status, response.statusText);
+      
+      // Log response headers for debugging CORS
+      const headers = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      logger.debug('Response headers:', headers);
+      
       if (response.ok) {
-        logger.debug('HTTP connectivity test successful');
+        try {
+          const data = await response.json();
+          logger.debug('Response data:', data);
+        } catch (e) {
+          logger.debug('No JSON response body');
+        }
+        logger.info('HTTP connectivity test successful');
         return true;
       }
       
-      logger.warn(`HTTP request failed with status ${response.status}`);
+      logger.warn(`HTTP request failed with status ${response.status} ${response.statusText}`);
       return false;
     } catch (error) {
       clearTimeout(timeoutId);
       if (error.name === 'AbortError') {
-        logger.warn('HTTP request timed out');
+        logger.warn('HTTP request timed out after 5 seconds');
+      } else if (error.name === 'TypeError') {
+        if (error.message.includes('Failed to fetch')) {
+          logger.warn('Failed to connect to server. Possible causes:', {
+            message: error.message,
+            suggestion: 'Check if the server is running and accessible from this network.'
+          });
+        } else {
+          logger.warn('Network error:', error.message);
+        }
       } else {
-        logger.warn('HTTP request failed:', error.message);
+        logger.warn('HTTP request failed:', error);
       }
       return false;
     }
@@ -377,6 +411,14 @@ async function shouldRunConnectionCheck() {
 }
 
 async function autoSwitchConnection() {
+  // Prevent concurrent switches
+  if (isSwitching) {
+    logger.debug('Auto-switch already in progress, skipping');
+    return;
+  }
+
+  isSwitching = true;
+  
   try {
     // Skip the check if we don't need to run it
     if (!await shouldRunConnectionCheck()) {
@@ -391,51 +433,46 @@ async function autoSwitchConnection() {
     const platformName = platformInfo.isIOS ? 'iOS' : platformInfo.isAndroid ? 'Android' : 'Web';
     logger.debug(`Running on platform: ${platformName} (Capacitor: ${platformInfo.isCapacitor ? 'yes' : 'no'})`);
     
-    // Test basic network connectivity first
-    const isServerReachable = await testNetworkConnectivity();
-    logger.debug(`Server reachable via HTTP: ${isServerReachable ? 'yes' : 'no'}`);
-    
-    // If server is not reachable, fall back to relay immediately
-    if (!isServerReachable) {
-      logger.warn('Server not reachable, falling back to relay mode');
-      if (currentMode !== 'relay') {
-        await stateUpdateProvider.switchSource('relay');
-        currentMode = 'relay';
-        showConnectionNotification('relay');
-      }
-      return;
-    }
-    
-    // Check if we can establish a direct connection
+    // Test direct WebSocket connection
     logger.debug('Testing direct WebSocket connection...');
     const canDirect = await tryDirectConnection();
-    logger.info(`Direct connection test ${canDirect ? 'succeeded' : 'failed'}`);
+    logger.info(`Direct WebSocket connection test ${canDirect ? 'succeeded' : 'failed'}`);
     
     // Only switch if the mode is actually changing
-    if (canDirect) {
-      if (currentMode !== 'direct') {
-        logger.info('Switching to direct connection mode');
-        await stateUpdateProvider.switchSource('direct');
-        currentMode = 'direct';
-        showConnectionNotification('direct');
-      } else {
-        logger.debug('Already in direct mode with good connection');
-      }
+    if (canDirect && currentMode !== 'direct') {
+      logger.info('Switching to direct connection mode');
+      await stateUpdateProvider.switchSource('direct');
+      currentMode = 'direct';
+      showConnectionNotification('direct');
+    } else if (!canDirect && currentMode !== 'relay') {
+      logger.warn('Direct connection failed, falling back to relay mode');
+      await stateUpdateProvider.switchSource('relay');
+      currentMode = 'relay';
+      showConnectionNotification('relay');
     } else {
-      if (currentMode !== 'relay') {
-        logger.warn('Falling back to relay connection mode');
-        await stateUpdateProvider.switchSource('relay');
-        currentMode = 'relay';
-        showConnectionNotification('relay');
-      } else {
-        logger.debug('Staying in relay mode');
-      }
+      logger.debug(`Staying in ${currentMode || 'current'} mode`);
     }
   } catch (error) {
     logger.error('Error in autoSwitchConnection:', error);
+    // Fall back to relay on error
+    if (currentMode !== 'relay') {
+      logger.warn('Error in connection check, falling back to relay');
+      await stateUpdateProvider.switchSource('relay');
+      currentMode = 'relay';
+      showConnectionNotification('relay');
+    }
   } finally {
-    // Schedule the next check
-    setTimeout(autoSwitchConnection, CHECK_INTERVAL_MS);
+    isSwitching = false;
+    
+    // Clear any pending timeout to prevent multiple timeouts stacking up
+    if (switchTimeout) {
+      clearTimeout(switchTimeout);
+    }
+    
+    // Schedule the next check with debounce
+    switchTimeout = setTimeout(() => {
+      autoSwitchConnection();
+    }, CHECK_INTERVAL_MS);
   }
 }
 

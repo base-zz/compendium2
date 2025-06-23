@@ -1,10 +1,5 @@
 <template>
-  <div
-
-    :style="{ opacity: componentOpacity }"
-    class="fade-transition sail360-container no-tap-highlight"
-    @touchstart.prevent
-  >
+  <div class="sail360-container no-tap-highlight" @touchstart.prevent>
     <svg
       ref="instrument"
       class="instrument display-component sail360 no-tap-highlight"
@@ -142,7 +137,7 @@ const radius = 350,
   y = 500,
   windOffset = 47;
 
-const componentOpacity = ref(0);
+// Opacity is now controlled by the parent component
 
 function polarToCartesian(centerX, centerY, radius, angleInDegrees) {
   const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
@@ -448,10 +443,7 @@ onMounted(() => {
     resizeDisplayComponent();
   }, 500);
 
-  setTimeout(() => {
-    componentOpacity.value = 1;
-  }, 1000);
-
+  // Emit mounted event after a short delay
   setTimeout(() => {
     emit("mounted");
   }, 100);
@@ -570,9 +562,7 @@ text {
   fill: none;
 }
 
-.fade-transition {
-  transition: opacity 0.5s ease;
-}
+/* Fade transition is now handled by the parent component */
 
 .sail360-container {
   pointer-events: auto;

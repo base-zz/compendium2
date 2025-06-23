@@ -12,7 +12,6 @@ import { remoteLogger } from '../utils/remoteLogger';
 
 const logger = createLogger('relay-adapter');
 
-console.log("LOGGER", logger);
 
 class RelayConnectionAdapter extends EventEmitter {
   constructor() {
@@ -256,7 +255,7 @@ class RelayConnectionAdapter extends EventEmitter {
    * @param {Object} alertData.data - Additional alert data
    */
   sendAlert(alertData) {
-    console.log('[RELAY-ADAPTER] Sending alert to server:', alertData);
+    logger.info('[RELAY-ADAPTER] Sending alert to server:', alertData);
     
     // Send the alert data to the server
     relayConnectionBridge.sendCommand('alert', 'update', {
@@ -269,11 +268,32 @@ class RelayConnectionAdapter extends EventEmitter {
   }
   
   cleanup() {
-    // Disconnect from the relay server
-    relayConnectionBridge.disconnect();
+    logger.info('Cleaning up relay connection...');
     
-    this.eventListeners.clear();
-    this.connectionState.status = 'disconnected';
+    try {
+      // Clear all event listeners first
+      this.eventListeners.forEach((listener, event) => {
+        this.removeAllListeners(event);
+      });
+      this.eventListeners.clear();
+      
+      // Disconnect from the relay server
+      if (relayConnectionBridge && typeof relayConnectionBridge.disconnect === 'function') {
+        logger.info('Disconnecting relay connection bridge...');
+        relayConnectionBridge.disconnect();
+      }
+      
+      // Reset connection state
+      this.connectionState = {
+        status: 'disconnected',
+        lastError: null
+      };
+      
+      logger.info('Relay connection cleanup completed');
+    } catch (error) {
+      logger.error('Error during relay connection cleanup:', error);
+      throw error;
+    }
   }
 }
 

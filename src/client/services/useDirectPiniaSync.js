@@ -49,11 +49,11 @@ export function useDirectPiniaSync() {
   directConnectionAdapter.on('state-update', ({ type, data }) => {
     // console.log('[PINIA-SYNC] state-update event received', { type, data });
     if (type === 'state:full-update' && data) {
-      console.log('[PINIA-SYNC] Applying full state update from state-update event', data);
+      logger.info('Applying full state update from state-update event', data);
 
       store.replaceState(data);
     } else if (type === 'state:patch' && data) {
-      // console.log('[PINIA-SYNC] Applying patch from state-update event with', data.length, 'operations');
+      logger.info('Applying patch from state-update event with', data.length, 'operations');
       store.applyStatePatch(data);
     } else {
       logger.warn('Unknown or invalid state-update event', { type, data });
@@ -61,7 +61,7 @@ export function useDirectPiniaSync() {
   });
 
   directConnectionAdapter.on('tide-update', (data) => {
-    console.log("--------============ tidal data");
+    logger.data("--------============ tidal data");
     const store = useStateDataStore();
     store.updateTideData(data);
   });
@@ -73,12 +73,12 @@ export function useDirectPiniaSync() {
   
   // Also listen to the stateUpdateProvider directly as a fallback
   stateUpdateProvider.subscribe((evt) => {
-    // console.log('[PINIA-SYNC] stateUpdateProvider event received:', evt.type);
+    logger.debug('[PINIA-SYNC] stateUpdateProvider event received:', evt.type);
     if (evt.type === 'state:full-update' && evt.data) {
-      // console.log('[PINIA-SYNC] Applying full state update from stateUpdateProvider');
+      logger.debug('[PINIA-SYNC] Applying full state update from stateUpdateProvider');
       store.replaceState(evt.data);
     } else if (evt.type === 'state:patch' && evt.data) {
-      // console.log('[PINIA-SYNC] Applying patch from stateUpdateProvider with', evt.data.length, 'operations');
+      logger.debug('[PINIA-SYNC] Applying patch from stateUpdateProvider with', evt.data.length, 'operations');
       store.applyStatePatch(evt.data);
     }
   });

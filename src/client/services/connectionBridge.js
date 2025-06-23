@@ -63,10 +63,15 @@ class ConnectionBridge {
   }
 
   async sendCommand(serviceName, action, data) {
+    logger.info('[ConnectionBridge] Forwarding command to adapter:', { serviceName, action, data: '...' });
     if (typeof this.adapter.sendCommand === 'function') {
-      return this.adapter.sendCommand(serviceName, action, data);
+      const result = await this.adapter.sendCommand(serviceName, action, data);
+      console.log('[ConnectionBridge] Adapter sent command successfully');
+      return result;
     }
-    throw new Error('Relay adapter does not support sendCommand');
+    const error = new Error('Relay adapter does not support sendCommand');
+    console.error('[ConnectionBridge] Error sending command:', error);
+    throw error;
   }
 }
 

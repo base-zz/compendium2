@@ -2,7 +2,7 @@
   <ion-page>
     <generic-header title="Sail" />
     <ion-content class="content-with-header">
-      <div id="container" class="container">
+      <div id="container" class="container" :class="{ 'fade-in': isMounted }">
         <div class="top-left quad" ref="topLeft">
           <InstrumentView :data="depthData" :maintainSquareRatio="false" label="Depth"/>
         </div>
@@ -32,7 +32,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, onUnmounted, computed } from "vue";
+import { onMounted, ref, onUnmounted, computed, nextTick } from "vue";
 import InstrumentView from "../components/InstrumentComponent.vue";
 import SailComponent from "../components/Sail360Component.vue";
 import { useStateDataStore } from "../stores/stateDataStore.js";
@@ -40,6 +40,7 @@ import { storeToRefs } from "pinia";
 import { IonPage, IonContent } from "@ionic/vue";
 import GenericHeader from "../components/GenericHeader.vue";
 
+const isMounted = ref(false);
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 
@@ -126,34 +127,37 @@ const mutationObserver = new MutationObserver((mutations) => {
   }
 });
 
-onMounted(() => {
-  // Wait for components to mount and render
-  setTimeout(() => {
-    // Observe all quad elements for DOM changes
-    [
-      topLeft.value,
-      topRight.value,
-      bottomLeft.value,
-      bottomRight.value,
-      sail360.value,
-    ].forEach((quad) => {
-      if (quad) {
-        // Observe for DOM changes inside each quad
-        mutationObserver.observe(quad, {
-          childList: true,
-          subtree: true,
-        });
-      }
-    });
+onMounted(async () => {
+  // Wait for the next tick to ensure all child components are mounted
+  await nextTick();
+  
+  // Observe all quad elements for DOM changes
+  [
+    topLeft.value,
+    topRight.value,
+    bottomLeft.value,
+    bottomRight.value,
+    sail360.value,
+  ].forEach((quad) => {
+    if (quad) {
+      // Observe for DOM changes inside each quad
+      mutationObserver.observe(quad, {
+        childList: true,
+        subtree: true,
+      });
+    }
+  });
 
-    // Initial update
-    updateAllQuads();
+  // Initial update
+  updateAllQuads();
 
-    // Schedule additional updates to catch late-rendered components
-    [100, 500, 1000, 2000].forEach((delay) => {
-      setTimeout(updateAllQuads, delay);
-    });
-  }, 100);
+  // Mark as mounted to trigger fade-in
+  isMounted.value = true;
+
+  // Schedule additional updates to catch late-rendered components
+  [100, 500, 1000, 2000].forEach((delay) => {
+    setTimeout(updateAllQuads, delay);
+  });
 });
 
 // Clean up observer when component is unmounted
@@ -163,6 +167,21 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* Container starts invisible and fades in when mounted */
+#container {
+  opacity: 0;
+  transition: opacity 0.5s ease-in-out;
+}
+
+#container.fade-in {
+  opacity: 1;
+}
+
+/* Ensure all children inherit the opacity transition */
+#container > * {
+  opacity: inherit;
+}
+
 ion-content {
   height: 100%;
   width: 100%;

@@ -76,10 +76,5 @@ function setupEventListeners() {
   });
 }
 
-// If this file is run directly (not imported)
-const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
-if (isNode && import.meta.url === `file://${process.argv[1]}`) {
-  initializeRelayClient();
-}
 
 export { initializeRelayClient };
