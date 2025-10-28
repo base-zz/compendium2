@@ -6,6 +6,11 @@ import https from 'https';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 console.log("Loading .env.server");
 dotenv.config({ path: ".env.server" });
@@ -59,13 +64,22 @@ async function bridgeStateToRelay() {
 
 async function startServer() {
   try {
-    // 0. Start StateService (SignalK, data ingestion)
+    // 0. Ensure unit preferences are available before starting data ingestion
+    if (stateService.preferencesPromise) {
+      try {
+        await stateService.preferencesPromise;
+      } catch (prefErr) {
+        console.error('[SERVER] Failed to load unit preferences before initialization:', prefErr);
+      }
+    }
+
+    // 1. Start StateService (SignalK, data ingestion)
     await stateService.initialize();
 
-    // 1. Bridge canonical state into relay state manager
+    // 2. Bridge canonical state into relay state manager
     await bridgeStateToRelay();
 
-    // 2. Build relay config
+    // 3. Build relay config
     const relayConfig = {
       port: parseInt(
         process.env.RELAY_PORT ||
@@ -94,10 +108,10 @@ async function startServer() {
     if (!relayConfig.vpsUrl)
       throw new Error("RelayServer: vpsUrl must be set via env");
 
-    // 3. Start relay server
+    // 4. Start relay server
     await startRelayServer(relayConfig);
 
-    // 4. Start HTTPS server
+    // 5. Start HTTPS server
     const PORT = process.env.PORT || 8080;
     const httpsServer = https.createServer({
       key: fs.readFileSync(path.resolve(__dirname, '../../ssl/compendium.local.key')),
@@ -108,12 +122,12 @@ async function startServer() {
       console.log(`[SERVER] HTTPS server listening on port ${PORT}`);
     });
 
-    // 5. Relay state updates to VPS (optional, placeholder for future logic)
+    // 6. Relay state updates to VPS (optional, placeholder for future logic)
     stateService.on("state-updated", (data) => {
       // VPS relay logic can be added here if needed in the future
     });
 
-    // 6. Start Direct WebSocket server (optional)
+    // 7. Start Direct WebSocket server (optional)
     if (process.env.DIRECT_WS_PORT) {
       const directServer = await startDirectServer({
         port: parseInt(process.env.DIRECT_WS_PORT, 10),

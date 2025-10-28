@@ -53,7 +53,7 @@ export function useDirectPiniaSync() {
 
       store.replaceState(data);
     } else if (type === 'state:patch' && data) {
-      logger.info('Applying patch from state-update event with', data.length, 'operations');
+      logger.debug('Applying patch from state-update event with', data.length, 'operations');
       store.applyStatePatch(data);
     } else {
       logger.warn('Unknown or invalid state-update event', { type, data });

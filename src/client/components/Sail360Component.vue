@@ -212,17 +212,6 @@ const headingUpdated = computed(
 );
 
 onMounted(() => {
-  // Direct watch on the specific wind angle property for debugging
-  watch(
-    () => navData.value?.wind?.apparent?.angle?.value,
-    (newVal) => {
-      if (typeof newVal === 'number') {
-        rotateRef(trueWindAngleRef, newVal);
-        rotateRef(apparentWindAngleRef, newVal);
-      }
-    }
-  );
-  
   //compass
   setRefAttributes(compRingRef, {
     cx: x,
@@ -360,16 +349,22 @@ onMounted(() => {
 
   watch(
     () => windTrueAngleUpdated.value,
-    (first) => {
-      rotateRef(trueWindAngleRef, first);
-    }
+    (angle) => {
+      if (typeof angle === "number") {
+        rotateRef(trueWindAngleRef, angle);
+      }
+    },
+    { immediate: true }
   );
 
   watch(
     () => windApparentAngleUpdated.value,
-    (first) => {
-      rotateRef(apparentWindAngleRef, first);
-    }
+    (angle) => {
+      if (typeof angle === "number") {
+        rotateRef(apparentWindAngleRef, angle);
+      }
+    },
+    { immediate: true }
   );
 
   watch(

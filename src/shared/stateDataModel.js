@@ -13,7 +13,12 @@ import { UNIT_PRESETS } from "./unitPreferences.js";
  * @returns {Object} The state data structure
  */
 export function createStateDataModel(unitPreferences = UNIT_PRESETS.IMPERIAL) {
-  return {
+  const model = {
+    position: {
+      // Position data from different sources (gps, ais, state, etc.)
+      // Populated dynamically by PositionService
+      // Structure: { [sourceName]: { latitude, longitude, timestamp, source } }
+    },
     navigation: {
       position: {
         latitude: {
@@ -359,6 +364,368 @@ export function createStateDataModel(unitPreferences = UNIT_PRESETS.IMPERIAL) {
             },
           },
           sources: null,
+          inputs: {
+            shore1: {
+              voltage: {
+                value: null,
+                units: "V",
+                label: "Shore 1 V",
+                displayLabel: "Shore Power 1 Voltage",
+                description: "Shore Power 1 AC Voltage",
+              },
+              current: {
+                value: null,
+                units: "A",
+                label: "Shore 1 A",
+                displayLabel: "Shore Power 1 Current",
+                description: "Shore Power 1 AC Current",
+              },
+              power: {
+                value: null,
+                units: "W",
+                label: "Shore 1 W",
+                displayLabel: "Shore Power 1 Power",
+                description: "Shore Power 1 AC Power",
+              },
+              connected: {
+                value: null,
+                units: "bool",
+                label: "Shore 1",
+                displayLabel: "Shore Power 1 Connected",
+                description: "Shore Power 1 Connection Status",
+              },
+            },
+            shore2: {
+              voltage: {
+                value: null,
+                units: "V",
+                label: "Shore 2 V",
+                displayLabel: "Shore Power 2 Voltage",
+                description: "Shore Power 2 AC Voltage",
+              },
+              current: {
+                value: null,
+                units: "A",
+                label: "Shore 2 A",
+                displayLabel: "Shore Power 2 Current",
+                description: "Shore Power 2 AC Current",
+              },
+              power: {
+                value: null,
+                units: "W",
+                label: "Shore 2 W",
+                displayLabel: "Shore Power 2 Power",
+                description: "Shore Power 2 AC Power",
+              },
+              connected: {
+                value: null,
+                units: "bool",
+                label: "Shore 2",
+                displayLabel: "Shore Power 2 Connected",
+                description: "Shore Power 2 Connection Status",
+              },
+            },
+            solar1: {
+              voltage: {
+                value: null,
+                units: "V",
+                label: "Solar 1 V",
+                displayLabel: "Solar Panel 1 Voltage",
+                description: "Solar Panel 1 Voltage",
+              },
+              current: {
+                value: null,
+                units: "A",
+                label: "Solar 1 A",
+                displayLabel: "Solar Panel 1 Current",
+                description: "Solar Panel 1 Current",
+              },
+              power: {
+                value: null,
+                units: "W",
+                label: "Solar 1 W",
+                displayLabel: "Solar Panel 1 Power",
+                description: "Solar Panel 1 Power",
+              },
+              state: {
+                value: null,
+                units: "enum",
+                label: "Solar 1 State",
+                displayLabel: "Solar Panel 1 State",
+                description: "Solar Panel 1 Charge State",
+              },
+              yieldToday: {
+                value: null,
+                units: "kWh",
+                label: "Solar 1 Yield",
+                displayLabel: "Solar Panel 1 Yield Today",
+                description: "Solar Panel 1 Energy Yield Today",
+              },
+            },
+            solar2: {
+              voltage: {
+                value: null,
+                units: "V",
+                label: "Solar 2 V",
+                displayLabel: "Solar Panel 2 Voltage",
+                description: "Solar Panel 2 Voltage",
+              },
+              current: {
+                value: null,
+                units: "A",
+                label: "Solar 2 A",
+                displayLabel: "Solar Panel 2 Current",
+                description: "Solar Panel 2 Current",
+              },
+              power: {
+                value: null,
+                units: "W",
+                label: "Solar 2 W",
+                displayLabel: "Solar Panel 2 Power",
+                description: "Solar Panel 2 Power",
+              },
+              state: {
+                value: null,
+                units: "enum",
+                label: "Solar 2 State",
+                displayLabel: "Solar Panel 2 State",
+                description: "Solar Panel 2 Charge State",
+              },
+              yieldToday: {
+                value: null,
+                units: "kWh",
+                label: "Solar 2 Yield",
+                displayLabel: "Solar Panel 2 Yield Today",
+                description: "Solar Panel 2 Energy Yield Today",
+              },
+            },
+            solar3: {
+              voltage: {
+                value: null,
+                units: "V",
+                label: "Solar 3 V",
+                displayLabel: "Solar Panel 3 Voltage",
+                description: "Solar Panel 3 Voltage",
+              },
+              current: {
+                value: null,
+                units: "A",
+                label: "Solar 3 A",
+                displayLabel: "Solar Panel 3 Current",
+                description: "Solar Panel 3 Current",
+              },
+              power: {
+                value: null,
+                units: "W",
+                label: "Solar 3 W",
+                displayLabel: "Solar Panel 3 Power",
+                description: "Solar Panel 3 Power",
+              },
+              state: {
+                value: null,
+                units: "enum",
+                label: "Solar 3 State",
+                displayLabel: "Solar Panel 3 State",
+                description: "Solar Panel 3 Charge State",
+              },
+              yieldToday: {
+                value: null,
+                units: "kWh",
+                label: "Solar 3 Yield",
+                displayLabel: "Solar Panel 3 Yield Today",
+                description: "Solar Panel 3 Energy Yield Today",
+              },
+            },
+            solar4: {
+              voltage: {
+                value: null,
+                units: "V",
+                label: "Solar 4 V",
+                displayLabel: "Solar Panel 4 Voltage",
+                description: "Solar Panel 4 Voltage",
+              },
+              current: {
+                value: null,
+                units: "A",
+                label: "Solar 4 A",
+                displayLabel: "Solar Panel 4 Current",
+                description: "Solar Panel 4 Current",
+              },
+              power: {
+                value: null,
+                units: "W",
+                label: "Solar 4 W",
+                displayLabel: "Solar Panel 4 Power",
+                description: "Solar Panel 4 Power",
+              },
+              state: {
+                value: null,
+                units: "enum",
+                label: "Solar 4 State",
+                displayLabel: "Solar Panel 4 State",
+                description: "Solar Panel 4 Charge State",
+              },
+              yieldToday: {
+                value: null,
+                units: "kWh",
+                label: "Solar 4 Yield",
+                displayLabel: "Solar Panel 4 Yield Today",
+                description: "Solar Panel 4 Energy Yield Today",
+              },
+            },
+          },
+          chargers: {
+            charger1: {
+              inputVoltage: {
+                value: null,
+                units: "V",
+                label: "Charger 1 In V",
+                displayLabel: "Charger 1 Input Voltage",
+                description: "Charger 1 AC Input Voltage",
+              },
+              outputVoltage: {
+                value: null,
+                units: "V",
+                label: "Charger 1 Out V",
+                displayLabel: "Charger 1 Output Voltage",
+                description: "Charger 1 DC Output Voltage",
+              },
+              outputCurrent: {
+                value: null,
+                units: "A",
+                label: "Charger 1 Out A",
+                displayLabel: "Charger 1 Output Current",
+                description: "Charger 1 DC Output Current",
+              },
+              outputPower: {
+                value: null,
+                units: "W",
+                label: "Charger 1 Out W",
+                displayLabel: "Charger 1 Output Power",
+                description: "Charger 1 DC Output Power",
+              },
+              state: {
+                value: null,
+                units: "enum",
+                label: "Charger 1 State",
+                displayLabel: "Charger 1 State",
+                description: "Charger 1 Operating State",
+              },
+            },
+            charger2: {
+              inputVoltage: {
+                value: null,
+                units: "V",
+                label: "Charger 2 In V",
+                displayLabel: "Charger 2 Input Voltage",
+                description: "Charger 2 AC Input Voltage",
+              },
+              outputVoltage: {
+                value: null,
+                units: "V",
+                label: "Charger 2 Out V",
+                displayLabel: "Charger 2 Output Voltage",
+                description: "Charger 2 DC Output Voltage",
+              },
+              outputCurrent: {
+                value: null,
+                units: "A",
+                label: "Charger 2 Out A",
+                displayLabel: "Charger 2 Output Current",
+                description: "Charger 2 DC Output Current",
+              },
+              outputPower: {
+                value: null,
+                units: "W",
+                label: "Charger 2 Out W",
+                displayLabel: "Charger 2 Output Power",
+                description: "Charger 2 DC Output Power",
+              },
+              state: {
+                value: null,
+                units: "enum",
+                label: "Charger 2 State",
+                displayLabel: "Charger 2 State",
+                description: "Charger 2 Operating State",
+              },
+            },
+          },
+          inverters: {
+            inverter1: {
+              inputVoltage: {
+                value: null,
+                units: "V",
+                label: "Inverter 1 In V",
+                displayLabel: "Inverter 1 Input Voltage",
+                description: "Inverter 1 DC Input Voltage",
+              },
+              outputVoltage: {
+                value: null,
+                units: "V",
+                label: "Inverter 1 Out V",
+                displayLabel: "Inverter 1 Output Voltage",
+                description: "Inverter 1 AC Output Voltage",
+              },
+              outputCurrent: {
+                value: null,
+                units: "A",
+                label: "Inverter 1 Out A",
+                displayLabel: "Inverter 1 Output Current",
+                description: "Inverter 1 AC Output Current",
+              },
+              outputPower: {
+                value: null,
+                units: "W",
+                label: "Inverter 1 Out W",
+                displayLabel: "Inverter 1 Output Power",
+                description: "Inverter 1 AC Output Power",
+              },
+              state: {
+                value: null,
+                units: "enum",
+                label: "Inverter 1 State",
+                displayLabel: "Inverter 1 State",
+                description: "Inverter 1 Operating State",
+              },
+            },
+            inverter2: {
+              inputVoltage: {
+                value: null,
+                units: "V",
+                label: "Inverter 2 In V",
+                displayLabel: "Inverter 2 Input Voltage",
+                description: "Inverter 2 DC Input Voltage",
+              },
+              outputVoltage: {
+                value: null,
+                units: "V",
+                label: "Inverter 2 Out V",
+                displayLabel: "Inverter 2 Output Voltage",
+                description: "Inverter 2 AC Output Voltage",
+              },
+              outputCurrent: {
+                value: null,
+                units: "A",
+                label: "Inverter 2 Out A",
+                displayLabel: "Inverter 2 Output Current",
+                description: "Inverter 2 AC Output Current",
+              },
+              outputPower: {
+                value: null,
+                units: "W",
+                label: "Inverter 2 Out W",
+                displayLabel: "Inverter 2 Output Power",
+                description: "Inverter 2 AC Output Power",
+              },
+              state: {
+                value: null,
+                units: "enum",
+                label: "Inverter 2 State",
+                displayLabel: "Inverter 2 State",
+                description: "Inverter 2 Operating State",
+              },
+            },
+          },
         },
         propulsion: {
           engine1: {
@@ -650,5 +1017,19 @@ export function createStateDataModel(unitPreferences = UNIT_PRESETS.IMPERIAL) {
     },
     tides: {},
     forecast: {},
+    bluetooth: {
+      enabled: true,
+      discovering: false,
+      scanning: false,
+      lastUpdated: null,
+      devices: {},
+      selectedDevices: {},
+      status: {
+        hardwareState: 'disabled', // e.g., 'poweredOn', 'poweredOff', 'unauthorized', 'unsupported'
+        error: null
+      }
+    },
   };
+  
+  return model;
 }

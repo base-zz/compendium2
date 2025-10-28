@@ -256,7 +256,8 @@ class StateService extends EventEmitter {
         fullSignalKData.vessels,
         this.selfMmsi
       );
-      console.log(`[StateService] Extracted ${newAisTargetsArray.length} AIS targets from SignalK`);
+      // Only log if needed: comment out verbose logs
+      // console.log(`[StateService] Extracted ${newAisTargetsArray.length} AIS targets in ${Date.now() - extractStartTime}ms`);
       
       // Convert array to object with MMSI keys
       const newAisTargets = {};
@@ -309,10 +310,6 @@ class StateService extends EventEmitter {
       
       const totalChanges = addedTargets.length + removedTargets.length + updatedTargets.length;
       const totalTargets = Object.keys(newAisTargets).length;
-      
-      if (totalChanges > 0 || totalTargets > 0) {
-        console.log(`[StateService] AIS Update: ${totalTargets} total targets (${addedTargets.length} added, ${removedTargets.length} removed, ${updatedTargets.length} updated)`);
-      }
       
       // Always update the state with the new targets
       stateData.aisTargets = newAisTargets;
@@ -1076,9 +1073,6 @@ class StateService extends EventEmitter {
     const currentState = stateData.state;
   
     this.updateQueue.forEach(({value, source}, path) => {
-      // DEBUG: Log the path being processed
-      console.log('[DEBUG] Processing queued path:', path, 'value:', JSON.stringify(value).substring(0, 100));
-      
       // Skip external paths that aren't mapped to our canonical state
       if (path.startsWith('external.')) {
         console.debug(`[StateService] Skipping unmapped external path: ${path}`);
@@ -1212,22 +1206,6 @@ class StateService extends EventEmitter {
       });
       return false;
     }
-  }
-
-  // Simplified interface methods for easier state access and connection management
-  getState() {
-    return stateData.state;
-  }
-
-  async connect() {
-    this._debug('Connecting state service');
-    await this._connectToSignalK();
-    return true;
-  }
-
-  disconnect() {
-    this._debug('Disconnecting state service');
-    return this.shutdown();
   }
 }
 

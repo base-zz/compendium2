@@ -42,6 +42,8 @@ import Sail360View from "./Sail360Component.vue";
 import InstrumentComponent from "./InstrumentComponent.vue";
 import TankLevelComponent from "./TankLevelComponent.vue";
 import BatteryComponent from "./BatteryComponent.vue";
+import RuuviWidgetComponent from "./RuuviWidgetComponent.vue";
+import VictronBatteryMonitorWidget from "./VictronBatteryMonitorWidget.vue";
 
 const props = defineProps({
   data: { type: Object, required: true },
@@ -217,6 +219,12 @@ const widgetComponent = computed(() => {
     case "battery":
       // console.log("Rendering BatteryComponent");
       return BatteryComponent;
+    case "ruuvi":
+      // console.log("Rendering RuuviWidgetComponent");
+      return RuuviWidgetComponent;
+    case "victron-battery-monitor":
+      // console.log("Rendering VictronBatteryMonitorWidget");
+      return VictronBatteryMonitorWidget;
     default:
       // console.log("Unknown displayType:", props.data.displayType);
       return null;
@@ -229,7 +237,7 @@ watch(
   (displayType) => {
     if (!displayType) {
       errorMessage.value = "Missing display type";
-    } else if (!["sail360", "instrument", "tank", "battery"].includes(displayType)) {
+    } else if (!["sail360", "instrument", "tank", "battery", "ruuvi", "victron-battery-monitor"].includes(displayType)) {
       errorMessage.value = `Unknown widget type: ${displayType}`;
     } else {
       errorMessage.value = "";

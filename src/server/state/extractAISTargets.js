@@ -11,7 +11,7 @@ export function extractAISTargetsFromSignalK(signalKData, selfMmsi) {
     if (!vessel) continue;
     let nm = vessel.name?.value || vessel.name;
     if (nm) {
-      nm = nm.replace(/\u0000/g, '');
+      nm = String(nm).split('\u0000').join('');
     }
     // Build AISTarget object
     aisTargets.push({

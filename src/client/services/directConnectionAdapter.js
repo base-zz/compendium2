@@ -1,5 +1,6 @@
 // directConnectionAdapter.js
-import { EventEmitter } from "events";
+import mitt from 'mitt';
+
 import { stateUpdateProvider } from "./stateUpdateProvider.js";
 import { createLogger } from "./logger.js";
 import {
@@ -19,9 +20,9 @@ const getWebSocketUrl = () => {
   return url;
 };
 
-class DirectConnectionAdapter extends EventEmitter {
+class DirectConnectionAdapter {
   constructor() {
-    super();
+    this.emitter = mitt();
     logger.info("DirectConnectionAdapter constructor called");
     this.mode = "direct";
     this.connectionState = { status: "disconnected", lastError: null };
@@ -93,6 +94,30 @@ class DirectConnectionAdapter extends EventEmitter {
     }
   }
 
+  on(event, handler) {
+    this.emitter.on(event, handler);
+    return this; // For method chaining
+  }
+
+  off(event, handler) {
+    this.emitter.off(event, handler);
+    return this; // For method chaining
+  }
+
+  once(event, handler) {
+    const onceHandler = (...args) => {
+      this.off(event, onceHandler);
+      handler(...args);
+    };
+    this.on(event, onceHandler);
+    return this; // For method chaining
+  }
+
+  emit(event, data) {
+    this.emitter.emit(event, data);
+    return this; // For method chaining
+  }
+
   connect() {
     logger.info("connect() called");
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -112,6 +137,17 @@ class DirectConnectionAdapter extends EventEmitter {
       try {
         logger.info(`Attempting to connect to: ${this._wsUrl}`);
         this.ws = new WebSocket(this._wsUrl);
+        
+        // Intercept ws.send() to debug if it's actually being called
+        const originalSend = this.ws.send.bind(this.ws);
+        this.ws.send = (data) => {
+          console.log('🚀🚀🚀 [WS-SEND-INTERCEPT] ws.send() CALLED! 🚀🚀🚀');
+          console.log('[WS-SEND-INTERCEPT] Data:', typeof data === 'string' ? data.substring(0, 100) : data);
+          console.log('[WS-SEND-INTERCEPT] WebSocket state:', this.ws.readyState);
+          console.log('[WS-SEND-INTERCEPT] WebSocket URL:', this.ws.url);
+          return originalSend(data);
+        };
+        
         this.ws.onopen = () => {
           logger.info(`✅ WebSocket connection established to: ${this._wsUrl}`);
           this.connectionState.status = 'connected';
@@ -148,15 +184,41 @@ class DirectConnectionAdapter extends EventEmitter {
   onmessage(event) {
     try {
       let msg = event.data;
+      const rawData = event.data;
+      
+      // Parse the message
       if (typeof msg === "string") {
         try {
           msg = JSON.parse(msg);
           if (typeof msg === "string") msg = JSON.parse(msg);
         } catch (e) {
+          // If we can't parse it, we'll log it anyway since it might be important
+          console.log(`========== RAW WEBSOCKET MESSAGE (PARSE ERROR) ==========`);
+          console.log(`Raw message type: ${typeof rawData}`);
+          console.log(`Raw message length: ${rawData.length || 'unknown'}`);
+          console.log(`Raw message content (first 200 chars):`, rawData.substring(0, 200));
           logger.warn("[DIRECT-ADAPTER] Error parsing message:", e);
           return;
         }
       }
+      
+      // Only log important message types (not routine patches)
+      // Uncomment for debugging:
+      // if (msg.type !== 'state:patch' && msg.type !== 'state:full-update') {
+      //   console.log(`[DIRECT-ADAPTER] Message: ${msg.type}`);
+      // }
+      
+      // Special logging for weather and tide updates
+      // if (msg.type === "weather:update" || msg.type === "tide:update") {
+      //   console.log(`========== RAW ${msg.type.toUpperCase()} PAYLOAD ==========`);
+      //   console.log("Payload structure:", JSON.stringify(msg, null, 2));
+      //   console.log("Payload keys:", Object.keys(msg));
+      //   if (msg.data) {
+      //     console.log("Data keys:", Object.keys(msg.data));
+      //   }
+      //   console.log(`========== END ${msg.type.toUpperCase()} PAYLOAD ==========`);
+      // }
+      
       if (msg.type === "ping" || msg.type === "pong") {
         this._handlePingPong(msg);
         return;
@@ -165,6 +227,61 @@ class DirectConnectionAdapter extends EventEmitter {
         this.emit('boat-status', { boatId: msg.boatId, status: msg.status, timestamp: msg.timestamp });
         return;
       }
+      if (msg.type === "weather:update") {
+        console.log(`========== EMITTING WEATHER:UPDATE EVENT ==========`);
+        try {
+          // Extract the weather data, handling different possible structures
+          let weatherData;
+          
+          // Check if we have a nested structure where msg.data contains the actual weather data
+          if (msg.data && typeof msg.data === 'object') {
+            weatherData = msg.data;
+            console.log("Using nested data structure for weather update");
+          } else {
+            // Fallback to using the message itself as the data
+            weatherData = msg;
+            console.log("Using message as data for weather update");
+          }
+          
+          // Remove any type property from the data to avoid confusion
+          if (weatherData.type) {
+            console.log("Removing type property from weather data");
+            // Create a clean copy without the type property
+            const cleanData = { ...weatherData };
+            delete cleanData.type;
+            weatherData = cleanData;
+          }
+          
+          // Create a properly structured event for the state update provider
+          const weatherEvent = {
+            type: "weather:update",
+            data: weatherData
+          };
+          
+          // Emit both specific and generic events
+          this.emit("weather-update", weatherData);
+          stateUpdateProvider._notify(weatherEvent);
+        } catch (error) {
+          logger.error("[DIRECT-ADAPTER] Error processing weather update:", error.message || error, "Raw message type:", msg.type);
+        }
+        return;
+      }
+      
+      if (msg.type === "tide:update") {
+        console.log(`========== EMITTING TIDE:UPDATE EVENT ==========`);
+        // Create a properly structured event for the state update provider
+        const tideEvent = {
+          type: "tide:update",
+          data: msg.data || msg
+        };
+        console.log("Tide event being sent to state provider:", tideEvent);
+        
+        // Emit both specific and generic events
+        this.emit("tide-update", msg.data || msg);
+        stateUpdateProvider._notify(tideEvent);
+        return;
+      }
+      
       if (msg.type === "state:full-update" || msg.type === "state:patch") {
         if (!msg.data) {
           console.warn("[DIRECT-ADAPTER] Missing data in message:", msg);
@@ -229,6 +346,10 @@ class DirectConnectionAdapter extends EventEmitter {
 
   async sendCommand(serviceName, action, data) {
     console.log(`[sendCommand] Attempting to send command: ${action}`, { serviceName, data });
+    console.log(`[SEND-DEBUG] WebSocket URL: ${this.ws?.url || 'NO URL'}`);
+    console.log(`[SEND-DEBUG] WebSocket instance exists: ${!!this.ws}`);
+    console.log(`[SEND-DEBUG] WebSocket readyState: ${this.ws ? this.getReadyStateName(this.ws.readyState) : 'NO WS'}`);
+    
     if (this.connectionState.status !== "connected") {
       console.warn(`[sendCommand] Not connected. State: ${this.connectionState.status}. Attempting to connect...`);
       try {
@@ -252,6 +373,8 @@ class DirectConnectionAdapter extends EventEmitter {
         _originalAction: action
       };
       const jsonMessage = JSON.stringify(message);
+      console.log(`[SEND-DEBUG] About to send message on WebSocket: ${this.ws.url}`);
+      console.log(`[SEND-DEBUG] Message content:`, message);
       this.ws.send(jsonMessage);
       console.log('[sendCommand] ✅ Message sent successfully.');
       return true;
@@ -290,4 +413,3 @@ class DirectConnectionAdapter extends EventEmitter {
 
 export const directConnectionAdapter = new DirectConnectionAdapter();
 export default DirectConnectionAdapter;
-

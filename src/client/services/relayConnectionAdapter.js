@@ -5,7 +5,7 @@
  * so the stateDataStore can use it without major changes.
  */
 
-import { EventEmitter } from 'events';
+import mitt from 'mitt';
 import { relayConnectionBridge } from '../../relay/client/RelayConnectionBridge.js';
 import { createLogger } from './logger';
 import { remoteLogger } from '../utils/remoteLogger';
@@ -13,9 +13,9 @@ import { remoteLogger } from '../utils/remoteLogger';
 const logger = createLogger('relay-adapter');
 
 
-class RelayConnectionAdapter extends EventEmitter {
+class RelayConnectionAdapter {
   constructor() {
-    super();
+    this.emitter = mitt();
     this.mode = 'relay';
     this.services = new Map();
     this.eventListeners = new Map();
@@ -32,6 +32,31 @@ class RelayConnectionAdapter extends EventEmitter {
     // Set up event mapping from relay to our expected events
     this._setupRelayEventMapping();
   }
+
+    // Replace EventEmitter methods with mitt equivalents
+    on(event, handler) {
+      this.emitter.on(event, handler);
+      return this; // For method chaining
+    }
+  
+    off(event, handler) {
+      this.emitter.off(event, handler);
+      return this; // For method chaining
+    }
+
+    once(event, handler) {
+      const onceHandler = (...args) => {
+        this.off(event, onceHandler);
+        handler(...args);
+      };
+      this.on(event, onceHandler);
+      return this; // For method chaining
+    }    
+  
+    emit(event, data) {
+      this.emitter.emit(event, data);
+      return this; // For method chaining
+    }
   
   _setupRelayEventMapping() {
     logger.info('Setting up relay event mapping');

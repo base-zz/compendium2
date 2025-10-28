@@ -15,7 +15,7 @@ const logger = createLogger('preferences-store');
 // Default preferences
 const defaultPreferences = {
   units: {
-    useImperial: false, // Default to metric
+    useImperial: true, // Default to metric
     depthDecimals: 1,
     speedDecimals: 1,
     temperatureDecimals: 1,

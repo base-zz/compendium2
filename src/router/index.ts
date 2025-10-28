@@ -203,6 +203,15 @@ const routes = [
       title: "User Info",
     },
   },
+  {
+    path: "/bluetooth",
+    name: "BluetoothManagement",
+    component: () => import("@client/views/BluetoothManagementView.vue"),
+    meta: { 
+      requiresAuth: true, 
+      title: "Bluetooth Management" 
+    },
+  },
   // SetTheme route commented out due to import issues
   // {
   //   path: '/settheme',

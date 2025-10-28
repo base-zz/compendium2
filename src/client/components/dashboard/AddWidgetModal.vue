@@ -39,11 +39,15 @@
               <ion-select-option value="instrument">Digital Instrument</ion-select-option>
               <ion-select-option value="tank">Tank</ion-select-option>
               <ion-select-option value="battery">Battery</ion-select-option>
+              <ion-select-option value="ruuvi">Ruuvi Sensor</ion-select-option>
+              <ion-select-option value="victron-battery-monitor">Victron Battery Monitor</ion-select-option>
+              <ion-select-option value="victron-electrical">Victron Electrical System</ion-select-option>
+              <ion-select-option value="electrical-flow">Electrical Power Flow</ion-select-option>
             </ion-select>
           </div>
 
-          <!-- Data Source Selection -->
-          <div class="form-group" v-if="displayType">
+          <!-- Data Source Selection (not needed for electrical-flow or victron-electrical) -->
+          <div class="form-group" v-if="displayType && displayType !== 'electrical-flow' && displayType !== 'victron-electrical'">
             <div class="form-label">Data Source</div>
             <ion-select
               class="form-control"
@@ -221,6 +225,8 @@ import {
 import { colorPaletteOutline } from 'ionicons/icons';
 import { ref, watch, computed, onMounted } from 'vue';
 import { getDataSourceById, getDataSourcesByType } from '@/shared/widgetDataConfig';
+import { useStateDataStore } from '@/client/stores/stateDataStore';
+import { storeToRefs } from 'pinia';
 
 // Define props
 const props = defineProps({
@@ -229,6 +235,10 @@ const props = defineProps({
   widgetType: { type: String, default: '' },
   area: { type: String, default: '' }
 });
+
+// Get state store for Bluetooth devices
+const stateStore = useStateDataStore();
+const { state } = storeToRefs(stateStore);
 
 // Log the area prop for debugging
 console.log('AddWidgetModal - area prop:', props.area);
@@ -339,6 +349,34 @@ const availableDataSources = computed(() => {
       label: 'Sail 360°',
       description: 'Sail visualization with wind and boat data'
     }];
+  } else if (displayType.value === 'ruuvi') {
+    // Get Bluetooth devices from state and filter for Ruuvi sensors only
+    const devices = state.value.bluetooth?.devices || {};
+    console.log('Ruuvi - All Bluetooth devices:', devices);
+    const ruuviDevices = Object.entries(devices)
+      .filter(([, device]) => device.manufacturerId === 1177 || device.sensorData?.format === 'ruuvi/rawv2')
+      .map(([id, device]) => ({
+        value: id,
+        label: device.name || device.localName || id,
+        description: `Ruuvi sensor: ${device.name || id}`
+      }));
+    console.log('Ruuvi - Filtered Ruuvi devices:', ruuviDevices);
+    return ruuviDevices;
+  } else if (displayType.value === 'victron-battery-monitor') {
+    // Get Bluetooth devices from state and filter for Victron battery monitors only
+    const devices = state.value.bluetooth?.devices || {};
+    const selectedDevices = state.value.bluetooth?.selectedDevices || {};
+    const allDevices = { ...devices, ...selectedDevices };
+    console.log('Victron - All Bluetooth devices:', allDevices);
+    const victronDevices = Object.entries(allDevices)
+      .filter(([, device]) => device.manufacturerId === 737 && device.sensorData?.deviceType === 'battery_monitor')
+      .map(([id, device]) => ({
+        value: id,
+        label: device.metadata?.userLabel || device.name || device.localName || id,
+        description: `Victron Battery Monitor: ${device.metadata?.userLabel || device.name || id}`
+      }));
+    console.log('Victron - Filtered Victron battery monitors:', victronDevices);
+    return victronDevices;
   }
   
   console.log('No data sources available for type:', displayType.value);
@@ -450,6 +488,9 @@ async function saveWidget() {
     return;
   }
 
+  // Skip data source validation for widgets that don't need it
+  const widgetsWithoutDataSource = ['electrical-flow', 'sail360'];
+  
   if (displayType.value === 'instrument' && !dataSource.value) {
     alert('Please select a data source');
     return;
@@ -458,6 +499,15 @@ async function saveWidget() {
   if (displayType.value === 'tank' && !dataSource.value) {
     alert('Please select a tank');
     return;
+  }
+  
+  if (!widgetsWithoutDataSource.includes(displayType.value) && 
+      displayType.value !== 'instrument' && 
+      displayType.value !== 'tank' && 
+      displayType.value !== 'sail360' && 
+      !dataSource.value) {
+    // Most widgets need a data source
+    // (electrical-flow and sail360 are exceptions)
   }
 
   // Get the data source configuration if available
@@ -505,6 +555,19 @@ async function saveWidget() {
   } else if (displayType.value === 'battery') {
     console.log('Setting battery dataSource:', dataSource.value);
     widgetData.dataSource = dataSource.value;
+  } else if (displayType.value === 'ruuvi') {
+    console.log('Setting ruuvi dataSource:', dataSource.value);
+    widgetData.dataSource = dataSource.value;
+  } else if (displayType.value === 'victron-battery-monitor') {
+    console.log('Setting victron-battery-monitor dataSource:', dataSource.value);
+    widgetData.dataSource = dataSource.value;
+    widgetData.deviceId = dataSource.value;
+  } else if (displayType.value === 'victron-electrical') {
+    console.log('Setting victron-electrical widget (no dataSource needed)');
+    widgetData.dataSource = 'victronElectrical'; // Use a config ID
+  } else if (displayType.value === 'electrical-flow') {
+    console.log('Setting electrical-flow widget (no dataSource needed)');
+    widgetData.dataSource = 'electricalFlow'; // Use the config ID
   }
   
   console.log('Widget data before standardization:', widgetData);

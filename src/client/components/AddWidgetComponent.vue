@@ -39,6 +39,7 @@
               <ion-select-option value="instrument">Digital Instrument</ion-select-option>
               <ion-select-option value="tank">Tank</ion-select-option>
               <ion-select-option value="battery">Battery</ion-select-option>
+              <ion-select-option value="ruuvi">Ruuvi Sensor</ion-select-option>
             </ion-select>
           </div>
 
@@ -55,14 +56,27 @@
                 header: 'Select Data Source',
               }"
             >
-              <!-- <ion-select-option value="sail360">Sail 360 &deg;</ion-select-option>
-              <ion-select-option value="instrument">Digital Instrument</ion-select-option>
-              <ion-select-option value="tank">Tank</ion-select-option>
-              <ion-select-option value="battery">Battery</ion-select-option> -->
-
-              <ion-select-option v-for="field in navFields" :key="field" :value="field">{{
-                field
-              }}</ion-select-option>
+              <!-- Show Bluetooth devices for Ruuvi widgets -->
+              <template v-if="displayType === 'ruuvi'">
+                <ion-select-option 
+                  v-for="device in bluetoothDevices" 
+                  :key="device.id" 
+                  :value="device.id"
+                >
+                  {{ device.name || device.id }}
+                </ion-select-option>
+              </template>
+              
+              <!-- Show navigation fields for other widgets -->
+              <template v-else>
+                <ion-select-option 
+                  v-for="field in navFields" 
+                  :key="field" 
+                  :value="field"
+                >
+                  {{ field }}
+                </ion-select-option>
+              </template>
             </ion-select>
           </div>
 
@@ -277,6 +291,15 @@ const indicatorColorRef = useTemplateRef("indicatorColorRef");
 
 const stateStore = useStateDataStore();
 const { navigation, anchor } = storeToRefs(stateStore.state);
+
+// Get Bluetooth devices from state
+const bluetoothDevices = computed(() => {
+  const devices = stateStore.state.bluetooth?.devices || {};
+  return Object.entries(devices).map(([id, device]) => ({
+    id,
+    name: device.name || device.localName || id
+  }));
+});
 
 // Define available instrument fields based on the state structure
 const navFields = [

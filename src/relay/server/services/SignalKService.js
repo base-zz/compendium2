@@ -148,7 +148,7 @@ export class SignalKService extends EventEmitter {
           
           if (process.env.DEBUG === 'true') {
             // console.log('[SIGNALK-DEBUG] Emitting environment update (wind):', 
-                        JSON.stringify(processedData.navigationData.wind));
+            //             JSON.stringify(processedData.navigationData.wind));
           }
         }
         
@@ -161,7 +161,7 @@ export class SignalKService extends EventEmitter {
           
           if (process.env.DEBUG === 'true') {
             // console.log('[SIGNALK-DEBUG] Emitting environment update (depth):', 
-                        JSON.stringify(processedData.navigationData.depth));
+            //             JSON.stringify(processedData.navigationData.depth));
           }
         }
       }

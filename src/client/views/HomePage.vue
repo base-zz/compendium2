@@ -52,6 +52,10 @@
           <ion-icon src="/img/cog.svg" class="custom-icon"></ion-icon>
         </ion-button>
 
+        <ion-button @click="router.push('/bluetooth')" size="large" class="nav-button">
+          <ion-icon :icon="bluetooth" class="custom-icon"></ion-icon>
+        </ion-button>
+
         <!-- <ion-button @click="router.push('/junk3')" size="large" class="nav-button">
           <ion-icon :icon="dice" class="custom-icon"></ion-icon>
         </ion-button> -->
@@ -74,7 +78,7 @@ import {
 } from "@ionic/vue";
 import { useRouter } from "vue-router";
 import { ref, computed, watch, onMounted } from "vue";
-import { notifications, dice, tv, partlySunny, water } from "ionicons/icons";
+import { notifications, dice, tv, partlySunny, water, bluetooth } from "ionicons/icons";
 
  
 const router = useRouter();

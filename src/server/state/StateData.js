@@ -274,11 +274,15 @@ export const stateData = {
   get state() {
     return structuredClone({
       navigation: this.navigation,
+      position: this.position,
       environment: this.environment,
       vessel: this.vessel,
       anchor: this.anchor,
       aisTargets: this.aisTargets,
       alerts: this.alerts,
+      tides: this.tides,
+      forecast: this.forecast,
+      bluetooth: this.bluetooth,
     });
   },
 };

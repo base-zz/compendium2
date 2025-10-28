@@ -8,6 +8,7 @@ import {
 } from "../../client/utils/clientKeyPair.js";
 import { remoteLogger } from "../../client/utils/remoteLogger.js";
 import { createLogger } from '../../client/services/logger.js';
+import { createStateDataModel } from "../../shared/stateDataModel.js";
 
 const logger = createLogger('relay-adapter');
 
@@ -178,8 +179,9 @@ export class RelayConnectionBridge {
       lastError: null,
     };
 
-    // Unified state object (populated by full-state, updated by diffs)
-    this.state = null;
+    // Unified state object - initialize with base model to ensure all paths exist
+    // This prevents patch errors when patches arrive before full state
+    this.state = createStateDataModel();
 
     // Bind mitt pub/sub methods to this instance
     this.on = this.emitter.on;
@@ -874,8 +876,8 @@ export class RelayConnectionBridge {
           } top-level keys: ${stateKeys.join(", ")}`
         );
 
-        // Store the state
-        this.state = message.data;
+        // Merge with base model to ensure all required paths exist (like bluetooth)
+        this.state = this._mergeWithBaseModel(message.data);
 
         // Emit the direct event (like DirectConnectionAdapter)
         this.emit("state:full-update", message.data);
@@ -902,6 +904,9 @@ export class RelayConnectionBridge {
               `Applying state patch with ${message.data.length} operations`
             );
             try {
+              // Ensure parent paths exist before applying patches
+              this._ensureParentPaths(this.state, message.data);
+              
               const result = applyPatch(this.state, message.data, true);
               this.state = result.newDocument;
 
@@ -1080,6 +1085,61 @@ export class RelayConnectionBridge {
         subscriptions: this.subscriptions,
       });
     }
+  }
+
+  /**
+   * Merge incoming state with base state model to ensure all required paths exist
+   * @param {Object} incomingState - State received from server
+   * @returns {Object} Merged state with all base model paths
+   */
+  _mergeWithBaseModel(incomingState) {
+    // Create base state model with all required paths
+    const baseModel = createStateDataModel();
+    
+    // Deep merge incoming state into base model
+    const mergeDeep = (target, source) => {
+      for (const key in source) {
+        if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+          if (!target[key]) target[key] = {};
+          mergeDeep(target[key], source[key]);
+        } else {
+          target[key] = source[key];
+        }
+      }
+      return target;
+    };
+    
+    return mergeDeep(baseModel, incomingState);
+  }
+
+  /**
+   * Ensure parent paths exist before applying patches
+   * Similar to server's StateManager implementation
+   * @param {Object} state - The state object
+   * @param {Array} patches - Array of JSON Patch operations
+   */
+  _ensureParentPaths(state, patches) {
+    patches.forEach(operation => {
+      if (operation.op === 'add' || operation.op === 'replace') {
+        const pathParts = operation.path.substring(1).split('/');
+        
+        // For paths like /bluetooth/lastUpdated, we need to ensure:
+        // 1. bluetooth exists (parent)
+        // 2. Then we can set lastUpdated
+        
+        let current = state;
+        // Go through all parts except the last one (which is the property to set)
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          const part = pathParts[i];
+          if (!current[part] || typeof current[part] !== 'object') {
+            // Create parent object if it doesn't exist or isn't an object
+            current[part] = {};
+            console.log(`[RelayConnectionBridge] Created parent path: ${part} for ${operation.path}`);
+          }
+          current = current[part];
+        }
+      }
+    });
   }
 
   /**

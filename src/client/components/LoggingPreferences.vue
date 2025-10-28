@@ -69,7 +69,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { bug } from 'ionicons/icons';
-import { usePreferencesStore } from '@client/stores/preferences';
+import { usePreferencesStore, type PreferencesStore } from '@client/stores/preferences';
 import {
   IonLabel,
   IonList,
@@ -129,14 +129,14 @@ const presentToast = async (message: string, color: string = 'primary') => {
 
 const updatePreference = async (key: string, value: boolean) => {
   try {
-    (preferencesStore as unknown as PreferencesState).$patch((state: any) => {
+    (preferencesStore as any).$patch((state: any) => {
       if (!state.preferences) state.preferences = {};
       if (!state.preferences.logging) state.preferences.logging = {};
       state.preferences.logging[key] = value;
     });
     
-    await (preferencesStore as unknown as PreferencesState).savePreferences();
-    await (preferencesStore as unknown as PreferencesState).applyLoggingPreferences();
+    await (preferencesStore as any).savePreferences();
+    await (preferencesStore as any).applyLoggingPreferences();
     presentToast(`${key} logging ${value ? 'enabled' : 'disabled'}`);
   } catch (error) {
     console.error('Failed to update preference:', error);
@@ -154,7 +154,7 @@ const updateRemoteLogging = (key: string, value: boolean) => {
 
 const resetLogging = async () => {
   try {
-    await (preferencesStore as unknown as PreferencesState).resetLoggingPreferences();
+    await (preferencesStore as any).resetLoggingPreferences();
     presentToast('Logging preferences reset to defaults', 'success');
   } catch (error) {
     console.error('Failed to reset logging preferences:', error);

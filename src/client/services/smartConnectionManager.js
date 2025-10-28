@@ -219,8 +219,8 @@ async function tryDirectConnection() {
           
           const cleanup = () => {
             clearTimeout(timeout);
-            directConnectionAdapter.removeListener('connect', onConnect);
-            directConnectionAdapter.removeListener('error', onError);
+            directConnectionAdapter.off('connect', onConnect);
+            directConnectionAdapter.off('error', onError);
           };
           
           directConnectionAdapter.once('connect', onConnect);
@@ -253,7 +253,7 @@ async function tryDirectConnection() {
     await directConnectionAdapter.connect();
     
     // Remove the error listener if connection was successful
-    directConnectionAdapter.removeListener('error', errorListener);
+    directConnectionAdapter.off('error', errorListener);
     
     logger.info('Direct WebSocket connection established successfully');
     return true;

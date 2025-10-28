@@ -73,3 +73,5 @@ export interface PreferencesActions {
 }
 
 export type PreferencesStore = ReturnType<typeof usePreferencesStore>;
+
+export declare const usePreferencesStore: () => PreferencesState & PreferencesGetters & PreferencesActions;

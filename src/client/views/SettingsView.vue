@@ -13,6 +13,11 @@
           <ion-label>User Profile</ion-label>
         </ion-item>
 
+        <ion-item button @click="() => router.push('/bluetooth')" detail>
+          <ion-icon :icon="bluetooth" slot="start"></ion-icon>
+          <ion-label>Bluetooth Management</ion-label>
+        </ion-item>
+
         <!-- <ion-item button @click="() => router.push('/theme')" detail>
           <ion-icon src="/img/theme.svg" slot="start" class="external-icon"></ion-icon>
           <ion-label>Theme</ion-label>
@@ -51,7 +56,7 @@
 
 <script setup>
 import { IonPage, IonContent, IonList, IonItem, IonLabel, IonIcon } from "@ionic/vue";
-import { personCircle, logOut, options, wifi } from "ionicons/icons";
+import { personCircle, logOut, options, bluetooth } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import GenericHeader from "@/client/components/GenericHeader.vue";
 import UnitPreferencesEditor from "@/client/components/UnitPreferencesEditor.vue";

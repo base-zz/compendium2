@@ -162,7 +162,7 @@ httpServer.on("request", (req, res) => {
         return safeResponse.end(405, {
           error: "method_not_allowed",
           message: "Only GET requests are accepted",
-          docs: "[https://api.example.com/docs/tokens"](https://api.example.com/docs/tokens")
+          docs: "https://api.example.com/docs/tokens"
         }, {
           "Content-Type": "application/json",
           "Retry-After": "60"

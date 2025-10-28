@@ -7,6 +7,8 @@ declare module '@client/stores/boatConnection' {
     connectionMode: 'local' | 'remote' | null;
     error: string | null;
     isInitialized: boolean;
+    vpsConnected: boolean;
+    directConnected: boolean;
   }
 
   export interface BoatConnectionGetters {

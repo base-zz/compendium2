@@ -42,7 +42,11 @@ export function useRelayPiniaSync() {
   const handleTideUpdate = (data) => {
     try {
       logger.debug('Received tide update from relay');
-      store.updateTideData(data);
+      if (store && typeof store.updateTideData === 'function') {
+        store.updateTideData(data);
+      } else {
+        logger.error('Store or updateTideData method not available');
+      }
     } catch (error) {
       logger.error('Error handling tide update:', error);
     }

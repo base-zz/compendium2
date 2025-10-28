@@ -223,6 +223,15 @@ export const useStateDataStore = defineStore("stateData", () => {
   // --- Patch and Replace Logic ---
   // Handle full state updates from the server
   function replaceState(newState) {
+    console.log("========== FULL STATE UPDATE RECEIVED ==========");
+    console.log("Full state received:", newState);
+    console.log("Stack trace to identify caller:");
+    console.trace();
+    console.log("State keys:", Object.keys(newState || {}));
+    console.log("Has navigation?", !!newState?.navigation);
+    console.log("Has environment?", !!newState?.environment);
+    console.log("Has vessel?", !!newState?.vessel);
+    console.log("Has position?", !!newState?.position);
     dataLogger("Replacing full state", {
       stateKeys: Object.keys(newState || {}),
     });
@@ -256,16 +265,32 @@ export const useStateDataStore = defineStore("stateData", () => {
         }
       }
 
-      // Only delete keys that exist in the new state
-      const keysToUpdate = Object.keys(updatedState);
-      const keysToRemove = Object.keys(state).filter(
-        (key) => !keysToUpdate.includes(key)
-      );
-
-      if (keysToRemove.length > 0) {
-        dataLogger(`Removing ${keysToRemove.length} keys:`, keysToRemove);
-        keysToRemove.forEach((key) => delete state[key]);
+      // Preserve bluetooth data if not included in the update
+      // Bluetooth data is client-side only and should not be wiped by server updates
+      const currentBluetooth = state.bluetooth;
+      const newBluetooth = updatedState.bluetooth;
+      
+      if (currentBluetooth && !newBluetooth) {
+        dataLogger("Preserving bluetooth data - not included in server update");
+        updatedState.bluetooth = currentBluetooth;
+      } else if (currentBluetooth && newBluetooth) {
+        // If server sends bluetooth data, merge it with existing to preserve client-side device data
+        dataLogger("Merging bluetooth data from server with existing client data");
+        updatedState.bluetooth = {
+          ...newBluetooth,
+          devices: currentBluetooth.devices || {},
+          selectedDevices: currentBluetooth.selectedDevices || {}
+        };
       }
+
+      // Log what keys are being updated
+      const keysToUpdate = Object.keys(updatedState);
+      console.log("[REPLACE FULL STATE] Keys to update:", keysToUpdate);
+      
+      // DO NOT delete keys that aren't in the update
+      // The server may send partial updates marked as "full" updates
+      // We should preserve existing state data that isn't being updated
+      dataLogger(`Updating ${keysToUpdate.length} keys, preserving others`)
 
       // Update state properties reactively, being careful with nested objects
       dataLogger("Applying new state values");
@@ -274,6 +299,8 @@ export const useStateDataStore = defineStore("stateData", () => {
       if (updatedState.navigation?.position) {
         if (!state.navigation) state.navigation = {};
         state.navigation.position = { ...updatedState.navigation.position };
+        // Also update top-level position shortcut to maintain reference
+        state.position = state.navigation.position;
         delete updatedState.navigation.position; // Remove to avoid overwriting
       }
 
@@ -281,7 +308,12 @@ export const useStateDataStore = defineStore("stateData", () => {
       Object.keys(updatedState).forEach((key) => {
         if (key !== "navigation") {
           // Skip navigation as we handled it
-          state[key] = updatedState[key];
+          // Map 'weather' key to 'forecast' for consistency
+          if (key === "weather") {
+            state.forecast = updatedState[key];
+          } else {
+            state[key] = updatedState[key];
+          }
         } else if (updatedState.navigation) {
           // Update other navigation properties if any
           Object.keys(updatedState.navigation).forEach((navKey) => {
@@ -297,6 +329,8 @@ export const useStateDataStore = defineStore("stateData", () => {
       dataLogger("State Update Complete", {
         finalPos: state.navigation?.position,
       });
+      
+      console.log("========== FULL STATE UPDATE COMPLETED ==========");
 
       // Log if the position changed
       if (currentPos && state.navigation?.position) {
@@ -1189,6 +1223,32 @@ export const useStateDataStore = defineStore("stateData", () => {
   }
 
   /**
+   * Ensure parent paths exist before applying patches
+   * Similar to server's StateManager implementation
+   * @param {Object} state - The state object
+   * @param {Array} patches - Array of JSON Patch operations
+   */
+  function ensureParentPaths(state, patches) {
+    patches.forEach(operation => {
+      if (operation.op === 'add' || operation.op === 'replace') {
+        const pathParts = operation.path.substring(1).split('/');
+        
+        let current = state;
+        // Go through all parts except the last one (which is the property to set)
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          const part = pathParts[i];
+          if (!current[part] || typeof current[part] !== 'object') {
+            // Create parent object if it doesn't exist or isn't an object
+            current[part] = {};
+            dataLogger(`Created parent path: ${part} for ${operation.path}`);
+          }
+          current = current[part];
+        }
+      }
+    });
+  }
+
+  /**
    * Apply a JSON Patch to the state
    * @param {Array} patches - Array of JSON Patch operations
    * @returns {boolean} - True if successful, false otherwise
@@ -1204,9 +1264,14 @@ export const useStateDataStore = defineStore("stateData", () => {
       return true;
     }
 
+    console.log("========== PATCH UPDATE RECEIVED ==========");
+    console.log(`Applying ${patches.length} patch operations:`, patches);
     dataLogger(`Applying ${patches.length} patch operations`);
 
     try {
+      // Ensure all parent paths exist before applying patches
+      ensureParentPaths(state, patches);
+      
       // Apply each patch operation
       for (const patch of patches) {
         if (patch.op === 'replace' || patch.op === 'add') {
@@ -1290,7 +1355,61 @@ export const useStateDataStore = defineStore("stateData", () => {
 
   // --- Subscriptions and Watchers ---
   stateUpdateProvider.subscribe((evt) => {
-    // Only process events we care about
+    // Only log non-routine event types to reduce console noise
+    // Uncomment for debugging:
+    // if (evt.type !== 'state:patch' && evt.type !== 'state:full-update') {
+    //   console.log(`[StateDataStore] Received event type: ${evt.type}`, evt.data ? { dataKeys: Object.keys(evt.data) } : {});
+    // }
+    
+    // Check for tide:update and weather:update specifically
+    if (evt.type === 'tide:update') {
+      console.log('[StateDataStore] Received tide update:', evt.data);
+      if (!state.tides) state.tides = {};
+      // Store tide data in state
+      if (evt.data) {
+        state.tides = { ...state.tides, ...evt.data };
+        dataLogger('Updated tides data', { keys: Object.keys(evt.data) });
+      }
+      return;
+    }
+    
+    if (evt.type === 'weather:update') {
+      console.log('[StateDataStore] Received weather update event');
+      if (!state.forecast) state.forecast = {};
+      
+      // Store weather data in state
+      if (evt.data) {
+        try {
+          // Log the structure of the incoming data to help with debugging
+          console.log('[StateDataStore] Weather data structure:', {
+            keys: Object.keys(evt.data),
+            hasCurrentData: !!evt.data.current,
+            hasHourlyData: !!evt.data.hourly,
+            hasDailyData: !!evt.data.daily
+          });
+          
+          // Extract the weather data, ensuring we have the expected structure
+          const weatherData = evt.data;
+          
+          // Update the forecast state with the new data
+          state.forecast = { ...state.forecast, ...weatherData };
+          
+          // Log successful update
+          dataLogger('Updated forecast data', { 
+            keys: Object.keys(weatherData),
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          logger.error('Error processing weather update:', error.message || error, 
+            'Data keys:', evt.data ? Object.keys(evt.data).join(', ') : 'none');
+        }
+      } else {
+        logger.warn('Received weather:update event with no data');
+      }
+      return;
+    }
+    
+    // Only process state update events we care about
     if (!['state:patch', 'state:full-update', 'patch-update', 'full-update'].includes(evt.type)) {
       return; // Silently ignore other event types
     }
@@ -1342,7 +1461,12 @@ export const useStateDataStore = defineStore("stateData", () => {
         logger.debug("[StateDataStore] Received full update with no data");
         return;
       }
-      dataLogger("Applying full state update");
+      console.log(`========== FULL STATE UPDATE RECEIVED (${evt.type}) ==========`);
+      dataLogger("Applying full state update", {
+        eventType: evt.type,
+        dataKeys: Object.keys(evt.data || {}),
+        timestamp: new Date().toISOString()
+      });
       replaceState(evt.data);
     } 
     else if (evt.type === "state:patch" || evt.type === "patch-update") {
@@ -1747,52 +1871,192 @@ export const useStateDataStore = defineStore("stateData", () => {
 
   // Helper function to convert anchor values
   function convertAnchorValues(anchorObj) {
-    if (!anchorObj) return;
-
-    // Helper for location objects
-    const convertLocation = (location) => {
-      if (!location) return;
-
-      // Depth
-      convertMeasurementValues({ depth: location.depth }, UNIT_TYPES.LENGTH);
-
-      // Distances
-      convertMeasurementValues(
-        {
-          distancesFromCurrent: location.distancesFromCurrent,
-          distancesFromDrop: location.distancesFromDrop,
-        },
-        UNIT_TYPES.LENGTH
+    if (!anchorObj) return anchorObj;
+    
+    // Deep clone to avoid modifying the original
+    const converted = { ...anchorObj };
+    
+    // Convert rode length
+    if (converted.rode && typeof converted.rode === 'object') {
+      if (converted.rode.length !== undefined) {
+        const unitType = state.unitPreferences?.distance || 'feet';
+        converted.rode = {
+          ...converted.rode,
+          length: UnitConversion.convertDistance(
+            converted.rode.length,
+            'feet',
+            unitType
+          ),
+          units: unitType
+        };
+      }
+    }
+    
+    // Convert depth if present
+    if (converted.depth !== undefined) {
+      const unitType = state.unitPreferences?.depth || 'feet';
+      converted.depth = UnitConversion.convertDistance(
+        converted.depth,
+        'feet',
+        unitType
       );
+      converted.depthUnits = unitType;
+    }
+    
+    return converted;
+  }
+  
+  /**
+   * Update forecast data in the state
+   * @param {Object} forecastData - The forecast data to update
+   */
+  function updateForecastData(forecastData) {
+    console.log('[StateDataStore] updateForecastData called with:', { 
+      dataKeys: forecastData ? Object.keys(forecastData) : 'no data' 
+    });
+    
+    if (!forecastData) {
+      logger.warn('Received updateForecastData call with no data');
+      return;
+    }
+    
+    try {
+      // Initialize forecast object if it doesn't exist
+      if (!state.forecast) state.forecast = {};
+      
+      // Update the forecast state with the new data
+      state.forecast = { ...state.forecast, ...forecastData };
+      
+      // Log successful update
+      dataLogger('Updated forecast data via updateForecastData', { 
+        keys: Object.keys(forecastData),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Error in updateForecastData:', error.message || error);
+    }
+  }
+  
+  /**
+   * Update tide data in the state
+   * @param {Object} tideData - The tide data to update
+   */
+  function updateTideData(tideData) {
+    console.log('[StateDataStore] updateTideData called with:', { 
+      dataKeys: tideData ? Object.keys(tideData) : 'no data' 
+    });
+    
+    if (!tideData) {
+      logger.warn('Received updateTideData call with no data');
+      return;
+    }
+    
+    try {
+      // Initialize tides object if it doesn't exist
+      if (!state.tides) state.tides = {};
+      
+      // Update the tides state with the new data
+      state.tides = { ...state.tides, ...tideData };
+      
+      // Log successful update
+      dataLogger('Updated tide data via updateTideData', { 
+        keys: Object.keys(tideData),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Error in updateTideData:', error.message || error);
+    }
+  }
 
-      // Bearings
-      if (location.originalBearing) {
-        convertAngleValues({ cog: location.originalBearing });
-      }
-      if (location.bearing) {
-        convertAngleValues({ cog: location.bearing });
-      }
-    };
+  // Helper function to specifically handle location objects
+  function convertLocation(location) {
+    if (!location) return;
 
-    // Apply to anchor locations
-    convertLocation(anchorObj.anchorDropLocation);
-    convertLocation(anchorObj.anchorLocation);
+    // Depth
+    convertMeasurementValues({ depth: location.depth }, UNIT_TYPES.LENGTH);
 
-    // Rode and ranges
+    // Distances
     convertMeasurementValues(
       {
-        rode: anchorObj.rode,
-        criticalRange: anchorObj.criticalRange,
-        warningRange: anchorObj.warningRange,
+        distancesFromCurrent: location.distancesFromCurrent,
+        distancesFromDrop: location.distancesFromDrop,
       },
       UNIT_TYPES.LENGTH
     );
+
+    // Bearings
+    if (location.originalBearing) {
+      convertAngleValues({ cog: location.originalBearing });
+    }
+    if (location.bearing) {
+      convertAngleValues({ cog: location.bearing });
+    }
   }
 
+  // Helper function for location objects in anchor data
+  function convertLocationInAnchor(location) {
+    if (!location) return;
+
+    // Depth
+    convertMeasurementValues({ depth: location.depth }, UNIT_TYPES.LENGTH);
+
+    // Distances
+    convertMeasurementValues(
+      {
+        distancesFromCurrent: location.distancesFromCurrent,
+        distancesFromDrop: location.distancesFromDrop,
+      },
+      UNIT_TYPES.LENGTH
+    );
+
+    // Bearings
+    if (location.originalBearing) {
+      convertAngleValues({ cog: location.originalBearing });
+    }
+    if (location.bearing) {
+      convertAngleValues({ cog: location.bearing });
+    }
+  }
+
+  // Set up periodic state logging
+  let stateLogInterval;
+  function setupPeriodicStateLogging() {
+    // Clear any existing interval
+    if (stateLogInterval) {
+      clearInterval(stateLogInterval);
+      dataLogger("Cleared existing state log interval");
+    }
+    
+    // Log state immediately to confirm function is working
+    console.log("========== INITIAL STATE LOG ==========");
+    console.log("Full state object:", state);
+    console.log("State keys:", Object.keys(state));
+    console.log("Has forecast data:", !!state.forecast);
+    console.log("Has tides data:", !!state.tides);
+    console.log("========== END INITIAL STATE LOG ==========");
+    
+    // Set up new interval to log state every 30 seconds
+    stateLogInterval = setInterval(() => {
+      const timestamp = new Date().toISOString();
+      console.log(`========== PERIODIC STATE LOG (${timestamp}) ==========`);
+      console.log("Full state object:", state);
+      console.log("State keys:", Object.keys(state));
+      console.log("Has forecast data:", !!state.forecast);
+      console.log("Has tides data:", !!state.tides);
+      console.log(`========== END PERIODIC STATE LOG (${timestamp}) ==========`);
+    }, 30000); // 30 seconds
+    
+    dataLogger("Set up periodic state logging every 30 seconds");
+    console.log("PERIODIC STATE LOGGING ACTIVATED - Will log every 30 seconds");
+  }
+  
   // Initialize unit preferences and apply conversions immediately
   loadUnitPreferences()
     .then(() => {
       dataLogger("Unit preferences loaded, applying to state");
+      
+      // Set up periodic state logging
+      setupPeriodicStateLogging();
       // Apply unit conversions to initial state
       convertStateToPreferredUnits(state);
       dataLogger("Unit conversions applied to initial state");
@@ -1802,14 +2066,9 @@ export const useStateDataStore = defineStore("stateData", () => {
     })
     .then(() => {
       dataLogger("Alert rules loaded");
-    })
-    .catch((error) => {
-      logger.error("Failed to initialize store", {
-        error: error.message,
-        stack: error.stack,
-      });
     });
 
+  // Return the store object with all functions and state
   return {
     state,
     replaceState,
@@ -1854,5 +2113,9 @@ export const useStateDataStore = defineStore("stateData", () => {
     updateUnitPreference,
     updateUnitPreset,
     updateUnitsToPreferences,
+    
+    // Weather and Tide Data Management
+    updateForecastData,
+    updateTideData,
   };
 });

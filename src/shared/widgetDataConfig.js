@@ -596,3 +596,16 @@ export function getDataFromState(state, dataSourceId) {
 
   return r;
 }
+
+// Electrical Flow Widget - special widget type
+export const ELECTRICAL_FLOW_WIDGET = {
+  id: "electricalFlow",
+  type: "electrical-flow",
+  category: "Electrical",
+  statePath: ["vessel", "systems", "electrical"],
+  label: "Power Flow",
+  displayLabel: "Electrical System Flow",
+  description: "Victron-style power flow diagram showing solar, shore, batteries, and loads",
+  aspectRatio: 16 / 9, // Wide aspect ratio for flow diagram
+  maintainAspectRatio: false,
+};

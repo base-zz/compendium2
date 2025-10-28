@@ -66,6 +66,10 @@ import Sail360View from "../Sail360Component.vue";
 import DashboardInstrumentComponent from "./DashboardInstrumentComponent.vue";
 import TankLevelComponent from "../TankLevelComponent.vue";
 import BatteryComponent from "../BatteryComponent.vue";
+import RuuviWidgetComponent from "../RuuviWidgetComponent.vue";
+import VictronBatteryMonitorWidget from "../VictronBatteryMonitorWidget.vue";
+import VictronElectricalWidget from "../VictronElectricalWidget.vue";
+import ElectricalFlowWidget from "../electrical/ElectricalFlowWidget.vue";
 
 const props = defineProps({
   widget: {
@@ -141,6 +145,10 @@ const componentMap = {
   'instrument': DashboardInstrumentComponent,
   'tank': TankLevelComponent,
   'battery': BatteryComponent,
+  'ruuvi': RuuviWidgetComponent,
+  'victron-battery-monitor': VictronBatteryMonitorWidget,
+  'victron-electrical': VictronElectricalWidget,
+  'electrical-flow': ElectricalFlowWidget,
   'placeholder': PlaceholderWidget
 };
 

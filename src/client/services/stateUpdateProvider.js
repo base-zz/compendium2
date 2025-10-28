@@ -25,6 +25,11 @@ class StateUpdateProvider {
   }
 
   _notify(evt) {
+    // Only log non-routine message types to reduce console noise
+    // Uncomment for debugging:
+    // if (evt?.type !== 'state:patch' && evt?.type !== 'state:full-update') {
+    //   console.log(`[StateUpdateProvider] Received message type: ${evt?.type}`);
+    // }
     logger.debug("Notifying subscribers of event type:", evt?.type);
 
     // Make sure the event has the expected structure

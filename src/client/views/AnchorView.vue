@@ -11,6 +11,13 @@
             Request Location Access
           </ion-button>
         </div>
+        <ion-button 
+          @click="dismissLocationModal" 
+          fill="clear" 
+          class="dismiss-location-button"
+        >
+          Continue Without Location
+        </ion-button>
       </div>
     </div>
 
@@ -493,31 +500,68 @@ const lastKnownValidPosition = ref({
   timestamp: 0,
 });
 
-// Computed property for location modal visibility with debounce to prevent flickering
-const showLocationModal = computed(() => {
-  // Get the raw state to ensure we're accessing the data directly
+// Computed property to check if we have a valid position
+const hasValidPosition = computed(() => {
   const state = stateStore.state;
-  const pos = state?.navigation?.position;
+  
+  // Try navigation.position first (this is what updateBoatPosition uses)
+  const navPos = state?.navigation?.position;
+  let lat = navPos?.latitude?.value;
+  let lon = navPos?.longitude?.value;
+  
+  // If navigation.position doesn't have valid data, try top-level position
+  if (lat == null || lon == null) {
+    const topPos = state?.position;
+    lat = topPos?.latitude?.value;
+    lon = topPos?.longitude?.value;
+  }
+  
+  const isValid = lat != null && lon != null && typeof lat === 'number' && typeof lon === 'number' && !isNaN(lat) && !isNaN(lon);
+  
+  // Debug logging (uncomment if needed for troubleshooting)
+  // console.log('[AnchorView] Position check:', {
+  //   navLat: navPos?.latitude?.value,
+  //   navLon: navPos?.longitude?.value,
+  //   finalLat: lat,
+  //   finalLon: lon,
+  //   isValid
+  // });
+  
+  return isValid;
+});
 
-  // Check if we have valid coordinates
-  const hasValidPosition = pos?.latitude?.value && pos?.longitude?.value;
-
-  // If we have a valid position, update our last known state
-  if (hasValidPosition) {
+// Watch for valid position and update last known state
+// Use immediate: true to check on component mount
+watch(hasValidPosition, (isValid) => {
+  if (isValid) {
     lastKnownValidPosition.value = {
       hasPosition: true,
       timestamp: Date.now(),
     };
+    logger.debug("Valid position acquired", { timestamp: Date.now() });
   }
+}, { immediate: true });
 
+// Computed property for location modal visibility
+const showLocationModal = computed(() => {
   // Only show the modal if we've never had a valid position OR
   // if we haven't had a valid position for more than 10 seconds
   const shouldShowModal =
     !lastKnownValidPosition.value.hasPosition ||
-    (!hasValidPosition && Date.now() - lastKnownValidPosition.value.timestamp > 10000);
+    (!hasValidPosition.value && Date.now() - lastKnownValidPosition.value.timestamp > 10000);
 
   return shouldShowModal;
 });
+
+// Function to manually dismiss the location modal
+const dismissLocationModal = () => {
+  logger.info("User manually dismissed location modal");
+  // Mark as having position even without valid data to allow user to proceed
+  lastKnownValidPosition.value = {
+    hasPosition: true,
+    timestamp: Date.now(),
+  };
+};
 
 const updateAnchorPoints = () => {
   logger.debug("Updating anchor points...");
@@ -526,6 +570,9 @@ const updateAnchorPoints = () => {
   clearFeature(FEATURE_TYPES.ANCHOR_DROP_LOCATION);
   clearFeature(FEATURE_TYPES.ANCHOR_LOCATION);
   clearFeature(FEATURE_TYPES.RODE);
+
+  // Check if anchorState exists first
+  if (!anchorState.value) return;
 
   // Exit if anchor is not deployed
   if (!anchorDeployed.value) return;
@@ -611,6 +658,12 @@ const createCircleWithRadius = (centerLonLat, radius) => {
 };
 
 const updateCriticalRangeCircle = debounce(() => {
+  // Check if anchorState exists first
+  if (!anchorState.value) {
+    clearFeature(FEATURE_TYPES.CIRCLE);
+    return;
+  }
+
   logger.debug("Updating critical range circle", {
     anchorDeployed: anchorState.value.anchorDeployed,
     anchorLocation: anchorState.value.anchorLocation,
@@ -691,6 +744,11 @@ const updateRodeLine = debounce(() => {
 
   // First, clear any existing rode line
   clearFeature(FEATURE_TYPES.RODE);
+
+  // Check if anchorState exists first
+  if (!anchorState.value) {
+    return;
+  }
 
   // Exit if anchor is not deployed
   if (!anchorState.value.anchorDeployed) {
@@ -1117,6 +1175,12 @@ watch(
   anchorState,
   () => {
     logger.debug("Anchor state changed:", anchorState.value);
+    // Check if anchorState exists before accessing properties
+    if (!anchorState.value) {
+      logger.debug("Anchor state is undefined, skipping update");
+      return;
+    }
+    
     if (anchorState.value.anchorDeployed) {
       updateAnchorPoints();
       updateCriticalRangeCircle();
@@ -1136,6 +1200,11 @@ watch(
   boatPosition,
   (newPosition) => {
     logger.debug("Boat position updated", { position: newPosition });
+    // Check if anchorState exists before accessing properties
+    if (!anchorState.value) {
+      return;
+    }
+    
     if (anchorState.value.anchorDeployed) {
       // Get current boat position
       const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
@@ -1275,6 +1344,11 @@ const updateBoatRangeCircle = debounce(() => {
   // Clear any existing boat range circle
   clearFeature(FEATURE_TYPES.BOAT_RANGE);
 
+  // Skip if anchorState doesn't exist
+  if (!anchorState.value) {
+    return;
+  }
+
   // Skip if anchor is not deployed
   if (!anchorState.value.anchorDeployed) {
     return;
@@ -1320,6 +1394,12 @@ watch(
       criticalRange: range,
       isDragging: isDragging,
     });
+
+    // Check if anchorState exists before accessing properties
+    if (!anchorState.value) {
+      clearFeature(FEATURE_TYPES.CIRCLE);
+      return;
+    }
 
     // If anchor is deployed, fit the map to show both boat and anchor
     if (anchorState.value.anchorDeployed) {
@@ -2345,12 +2425,12 @@ h3 {
 /* Center slider label/value and enlarge modal card */
 .acquire-location-modal {
   position: fixed;
-  top: 0;
+  top: 56px; /* Start below the header (typical header height) */
   left: 0;
   width: 100vw;
-  height: 100vh;
+  height: calc(100vh - 56px); /* Full height minus header */
   background: rgba(0, 0, 0, 0.75);
-  z-index: 2000;
+  z-index: 999;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2369,6 +2449,12 @@ h3 {
   font-size: 1.25em;
   font-weight: 500;
   text-align: center;
+}
+
+.dismiss-location-button {
+  margin-top: 20px;
+  color: white;
+  --color: white;
 }
 
 .slider-value {
