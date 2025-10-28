@@ -79,24 +79,12 @@ const props = defineProps({
 
 const emit = defineEmits(['mounted']);
 
-// Log widget data when component mounts
-onMounted(() => {
-  console.log('Widget Component Mounted');
-  console.log('Widget Data:', props.widgetData);
-  console.log('Widget Data Source:', props.widgetData.dataSource);
-  console.log('Navigation State:', navigationState.value);
-});
-
 // Initialize state store
 const stateStore = useStateDataStore();
 const { state: navigationState } = storeToRefs(stateStore);
 
 // Get real-time instrument data from the navigation state
 const instrumentData = computed(() => {
-  console.log('Processing instrument data');
-  console.log('Widget Data:', props.widgetData);
-  console.log('Navigation State:', navigationState.value);
-  
   const dataSource = props.widgetData.dataSource;
   if (!dataSource) {
     console.warn('No data source specified in widget data');

@@ -138,16 +138,6 @@ class DirectConnectionAdapter {
         logger.info(`Attempting to connect to: ${this._wsUrl}`);
         this.ws = new WebSocket(this._wsUrl);
         
-        // Intercept ws.send() to debug if it's actually being called
-        const originalSend = this.ws.send.bind(this.ws);
-        this.ws.send = (data) => {
-          console.log('🚀🚀🚀 [WS-SEND-INTERCEPT] ws.send() CALLED! 🚀🚀🚀');
-          console.log('[WS-SEND-INTERCEPT] Data:', typeof data === 'string' ? data.substring(0, 100) : data);
-          console.log('[WS-SEND-INTERCEPT] WebSocket state:', this.ws.readyState);
-          console.log('[WS-SEND-INTERCEPT] WebSocket URL:', this.ws.url);
-          return originalSend(data);
-        };
-        
         this.ws.onopen = () => {
           logger.info(`✅ WebSocket connection established to: ${this._wsUrl}`);
           this.connectionState.status = 'connected';
@@ -268,13 +258,11 @@ class DirectConnectionAdapter {
       }
       
       if (msg.type === "tide:update") {
-        console.log(`========== EMITTING TIDE:UPDATE EVENT ==========`);
         // Create a properly structured event for the state update provider
         const tideEvent = {
           type: "tide:update",
           data: msg.data || msg
         };
-        console.log("Tide event being sent to state provider:", tideEvent);
         
         // Emit both specific and generic events
         this.emit("tide-update", msg.data || msg);
@@ -345,23 +333,14 @@ class DirectConnectionAdapter {
   }
 
   async sendCommand(serviceName, action, data) {
-    console.log(`[sendCommand] Attempting to send command: ${action}`, { serviceName, data });
-    console.log(`[SEND-DEBUG] WebSocket URL: ${this.ws?.url || 'NO URL'}`);
-    console.log(`[SEND-DEBUG] WebSocket instance exists: ${!!this.ws}`);
-    console.log(`[SEND-DEBUG] WebSocket readyState: ${this.ws ? this.getReadyStateName(this.ws.readyState) : 'NO WS'}`);
-    
     if (this.connectionState.status !== "connected") {
-      console.warn(`[sendCommand] Not connected. State: ${this.connectionState.status}. Attempting to connect...`);
       try {
         await this.connect();
-        console.log('[sendCommand] Connection successful after reconnect.');
       } catch (error) {
-        console.error("[sendCommand] Failed to establish connection for sending command:", error);
         return false;
       }
     }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error(`[sendCommand] WebSocket is not in OPEN state. State: ${this.ws ? this.getReadyStateName(this.ws.readyState) : 'no WebSocket'}`);
       return false;
     }
     try {
@@ -373,13 +352,9 @@ class DirectConnectionAdapter {
         _originalAction: action
       };
       const jsonMessage = JSON.stringify(message);
-      console.log(`[SEND-DEBUG] About to send message on WebSocket: ${this.ws.url}`);
-      console.log(`[SEND-DEBUG] Message content:`, message);
       this.ws.send(jsonMessage);
-      console.log('[sendCommand] ✅ Message sent successfully.');
       return true;
     } catch (error) {
-      console.error("[sendCommand] ❌ Error sending command:", error);
       return false;
     }
   }

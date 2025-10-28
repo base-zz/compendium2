@@ -207,10 +207,6 @@ const displayDcLoads = computed(() => {
 // PV Charger (solar)
 const pvPower = computed(() => {
   const solarPower = electricalData.value.inputs?.solar1?.power?.value || 0
-  const solarVoltage = electricalData.value.inputs?.solar1?.voltage?.value || 0
-  const solarCurrent = electricalData.value.inputs?.solar1?.current?.value || 0
-  console.log('[VictronElectrical] Solar power:', solarPower, 'voltage:', solarVoltage, 'current:', solarCurrent)
-  console.log('[VictronElectrical] Solar data:', electricalData.value.inputs?.solar1)
   return solarPower
 })
 

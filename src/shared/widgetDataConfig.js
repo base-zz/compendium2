@@ -109,6 +109,26 @@ export const WIDGET_DATA_SOURCES = [
     description: "Apparent wind angle, negative to port",
     defaultUnits: "°",
   },
+  {
+    id: "windSpeedApparentGauge",
+    type: "windspeed",
+    category: "Wind",
+    statePath: ["navigation", "wind", "apparent"],
+    label: "AWS",
+    displayLabel: "Apparent Wind",
+    description: "Apparent wind speed and angle",
+    defaultUnits: "kts",
+  },
+  {
+    id: "windSpeedTrueGauge",
+    type: "windspeed",
+    category: "Wind",
+    statePath: ["navigation", "wind", "true"],
+    label: "TWS",
+    displayLabel: "True Wind",
+    description: "True wind speed and angle",
+    defaultUnits: "kts",
+  },
 
   // Course data
   {
@@ -456,6 +476,42 @@ export function getDataFromState(state, dataSourceId) {
 
   if (!data) {
     return null;
+  }
+
+  if (dataSource.type === "windspeed") {
+    const speed = data && typeof data === "object" ? data.speed : undefined;
+    const angle = data && typeof data === "object" ? data.angle : undefined;
+    const direction = data && typeof data === "object" ? data.direction : undefined;
+
+    const speedValue =
+      speed && typeof speed === "object"
+        ? speed.value ?? speed?.value?.value ?? null
+        : null;
+
+    const units =
+      (speed && typeof speed === "object" && (speed.units || speed.unit)) ||
+      dataSource.defaultUnits;
+
+    const label =
+      (speed && typeof speed === "object" && (speed.label || speed.name)) ||
+      dataSource.label;
+
+    const displayLabel =
+      (speed && typeof speed === "object" && (speed.displayLabel || speed.label)) ||
+      dataSource.displayLabel;
+
+    return {
+      value: typeof speedValue === "number" ? speedValue : null,
+      units,
+      label,
+      displayLabel,
+      description:
+        (speed && typeof speed === "object" && speed.description) ||
+        dataSource.description,
+      speed: speed && typeof speed === "object" ? speed : null,
+      angle: angle && typeof angle === "object" ? angle : null,
+      direction: direction && typeof direction === "object" ? direction : null,
+    };
   }
 
   // Handle data sources with valueProperty and unitsProperty (for nested structures)

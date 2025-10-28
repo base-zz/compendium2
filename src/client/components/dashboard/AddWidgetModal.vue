@@ -36,6 +36,7 @@
               @click.stop
             >
               <ion-select-option value="sail360">Sail 360 &deg;</ion-select-option>
+              <ion-select-option value="windspeed">Wind Speed</ion-select-option>
               <ion-select-option value="instrument">Digital Instrument</ion-select-option>
               <ion-select-option value="tank">Tank</ion-select-option>
               <ion-select-option value="battery">Battery</ion-select-option>
@@ -312,6 +313,15 @@ const instrumentDataSources = computed(() => {
   return mappedSources;
 });
 
+const windSpeedDataSources = computed(() =>
+  getDataSourcesByType('windspeed').map((source) => ({
+    category: source.category,
+    value: source.id,
+    label: source.displayLabel || source.label,
+    description: source.description,
+  }))
+);
+
 // Tank types from configuration file
 const tankTypes = computed(() => {
   // Transform tank data sources to the format expected by the select component
@@ -330,6 +340,8 @@ const availableDataSources = computed(() => {
   if (displayType.value === 'instrument') {
     console.log('Instrument data sources:', instrumentDataSources.value);
     return instrumentDataSources.value;
+  } else if (displayType.value === 'windspeed') {
+    return windSpeedDataSources.value;
   } else if (displayType.value === 'tank') {
     console.log('Tank data sources:', tankTypes.value);
     return getDataSourcesByType('tank').map(source => ({
@@ -387,6 +399,15 @@ const availableDataSources = computed(() => {
 watch(displayType, (newType) => {
   if (newType === 'sail360') {
     maintainSquareRatio.value = true;
+  } else if (newType === 'windspeed' && !dataSource.value) {
+    maintainSquareRatio.value = true;
+    const sources = windSpeedDataSources.value;
+    if (sources.length > 0) {
+      dataSource.value = sources[0].value;
+      if (!widgetTitle.value) {
+        widgetTitle.value = sources[0].description || sources[0].label;
+      }
+    }
   } else if (newType === 'instrument' && !dataSource.value) {
     // Set a default data source but don't hardcode the title
     const defaultSource = instrumentDataSources.value[0];
@@ -496,6 +517,11 @@ async function saveWidget() {
     return;
   }
 
+  if (displayType.value === 'windspeed' && !dataSource.value) {
+    alert('Please select a wind data source');
+    return;
+  }
+
   if (displayType.value === 'tank' && !dataSource.value) {
     alert('Please select a tank');
     return;
@@ -546,6 +572,9 @@ async function saveWidget() {
       widgetData.units = dataSourceConfig.units;
       widgetData.description = dataSourceConfig.description;
     }
+  } else if (displayType.value === 'windspeed') {
+    console.log('Setting windspeed dataSource:', dataSource.value);
+    widgetData.dataSource = dataSource.value;
   } else if (displayType.value === 'tank') {
     console.log('Setting tank dataSource:', dataSource.value);
     widgetData.dataSource = dataSource.value;

@@ -201,8 +201,6 @@ function getInitialState() {
     Object.keys(canonicalStateData.state)
   );
   const clonedState = structuredClone(canonicalStateData.state);
-  console.log("---------INITIAL STATE---------- ");
-  console.log(clonedState);
   return clonedState;
 }
 
@@ -223,38 +221,37 @@ export const useStateDataStore = defineStore("stateData", () => {
   // --- Patch and Replace Logic ---
   // Handle full state updates from the server
   function replaceState(newState) {
-    console.log("========== FULL STATE UPDATE RECEIVED ==========");
-    console.log("Full state received:", newState);
-    console.log("Stack trace to identify caller:");
-    console.trace();
-    console.log("State keys:", Object.keys(newState || {}));
-    console.log("Has navigation?", !!newState?.navigation);
-    console.log("Has environment?", !!newState?.environment);
-    console.log("Has vessel?", !!newState?.vessel);
-    console.log("Has position?", !!newState?.position);
-    dataLogger("Replacing full state", {
-      stateKeys: Object.keys(newState || {}),
-    });
-    try {
-      dataLogger("Starting state replacement", {
-        currentStateKeys: Object.keys(state),
-        newStateKeys: Object.keys(newState),
-      });
+    if (!newState || typeof newState !== "object") {
+      logger.warn("replaceState called with invalid state payload");
+      return;
+    }
 
-      // Create a deep copy of the new state to avoid modifying the original
-      const updatedState = JSON.parse(JSON.stringify(newState));
+    try {
+      let updatedState;
+      try {
+        updatedState = structuredClone(newState);
+      } catch (cloneError) {
+        try {
+          updatedState = JSON.parse(JSON.stringify(newState));
+          logger.warn("structuredClone failed, used JSON fallback", cloneError);
+        } catch (jsonError) {
+          logger.error("Failed to clone new state payload", {
+            cloneError,
+            jsonError,
+          });
+          updatedState = { ...newState };
+        }
+      }
+
+      if (!updatedState || typeof updatedState !== "object") {
+        logger.warn("replaceState received non-object after cloning");
+        return;
+      }
 
       // Preserve valid navigation position if the incoming position has null values
       const currentPos = state.navigation?.position;
       const newPos = updatedState.navigation?.position;
 
-      // Log detailed position state before update
-      dataLogger("Position State Before Update", {
-        currentPos: currentPos,
-        newPos: newPos,
-      });
-
-      // Log if we're about to preserve position
       if (currentPos?.latitude?.value && currentPos?.longitude?.value) {
         if (!newPos?.latitude?.value || !newPos?.longitude?.value) {
           dataLogger(
@@ -266,73 +263,56 @@ export const useStateDataStore = defineStore("stateData", () => {
       }
 
       // Preserve bluetooth data if not included in the update
-      // Bluetooth data is client-side only and should not be wiped by server updates
       const currentBluetooth = state.bluetooth;
       const newBluetooth = updatedState.bluetooth;
-      
+
       if (currentBluetooth && !newBluetooth) {
         dataLogger("Preserving bluetooth data - not included in server update");
         updatedState.bluetooth = currentBluetooth;
       } else if (currentBluetooth && newBluetooth) {
-        // If server sends bluetooth data, merge it with existing to preserve client-side device data
         dataLogger("Merging bluetooth data from server with existing client data");
         updatedState.bluetooth = {
           ...newBluetooth,
           devices: currentBluetooth.devices || {},
-          selectedDevices: currentBluetooth.selectedDevices || {}
+          selectedDevices: currentBluetooth.selectedDevices || {},
         };
       }
 
-      // Log what keys are being updated
-      const keysToUpdate = Object.keys(updatedState);
-      console.log("[REPLACE FULL STATE] Keys to update:", keysToUpdate);
-      
-      // DO NOT delete keys that aren't in the update
-      // The server may send partial updates marked as "full" updates
-      // We should preserve existing state data that isn't being updated
-      dataLogger(`Updating ${keysToUpdate.length} keys, preserving others`)
+      dataLogger(`Updating ${Object.keys(updatedState).length} keys, preserving others`);
 
-      // Update state properties reactively, being careful with nested objects
-      dataLogger("Applying new state values");
+      // Update or initialize root-level keys
+      Object.keys(updatedState).forEach((key) => {
+        if (key === "navigation") {
+          if (!state.navigation) state.navigation = {};
+        } else {
+          state[key] = updatedState[key];
+        }
+      });
 
-      // Handle navigation position separately to ensure proper reactivity
       if (updatedState.navigation?.position) {
         if (!state.navigation) state.navigation = {};
         state.navigation.position = { ...updatedState.navigation.position };
-        // Also update top-level position shortcut to maintain reference
         state.position = state.navigation.position;
-        delete updatedState.navigation.position; // Remove to avoid overwriting
+        delete updatedState.navigation.position;
       }
 
-      // Update all other state properties
       Object.keys(updatedState).forEach((key) => {
         if (key !== "navigation") {
-          // Skip navigation as we handled it
-          // Map 'weather' key to 'forecast' for consistency
           if (key === "weather") {
             state.forecast = updatedState[key];
           } else {
             state[key] = updatedState[key];
           }
         } else if (updatedState.navigation) {
-          // Update other navigation properties if any
+          if (!state.navigation) state.navigation = {};
           Object.keys(updatedState.navigation).forEach((navKey) => {
             if (navKey !== "position") {
-              if (!state.navigation) state.navigation = {};
               state.navigation[navKey] = updatedState.navigation[navKey];
             }
           });
         }
       });
 
-      // Log detailed position state after update
-      dataLogger("State Update Complete", {
-        finalPos: state.navigation?.position,
-      });
-      
-      console.log("========== FULL STATE UPDATE COMPLETED ==========");
-
-      // Log if the position changed
       if (currentPos && state.navigation?.position) {
         const latChanged =
           currentPos.latitude?.value !==
@@ -342,7 +322,7 @@ export const useStateDataStore = defineStore("stateData", () => {
           state.navigation.position.longitude?.value;
 
         if (latChanged || lonChanged) {
-          dataLogger("Position changed:", {
+          dataLogger("Position changed", {
             lat: {
               from: currentPos.latitude?.value,
               to: state.navigation.position.latitude?.value,
@@ -354,8 +334,6 @@ export const useStateDataStore = defineStore("stateData", () => {
               changed: lonChanged,
             },
           });
-        } else {
-          dataLogger("Position unchanged");
         }
       }
     } catch (error) {
@@ -415,7 +393,6 @@ export const useStateDataStore = defineStore("stateData", () => {
       };
 
       // Send using stateUpdateProvider, which routes to the correct adapter
-      console.log('[stateDataStore->stateUpdateProvider] Sending command:', { service: 'state', action: messageType, data: '...' });
       await stateUpdateProvider.sendCommand('state', messageType, message);
       dataLogger(`Sent ${messageType} to server for boat ${boatId}`);
       return true;
@@ -1264,8 +1241,6 @@ export const useStateDataStore = defineStore("stateData", () => {
       return true;
     }
 
-    console.log("========== PATCH UPDATE RECEIVED ==========");
-    console.log(`Applying ${patches.length} patch operations:`, patches);
     dataLogger(`Applying ${patches.length} patch operations`);
 
     try {
@@ -1304,55 +1279,6 @@ export const useStateDataStore = defineStore("stateData", () => {
     }
   }
 
-  // Helper function to get nested property by path, handling Vue reactive proxies
-  function getValueByPath(obj, path) {
-    if (!path || !obj) return undefined;
-
-    // Handle root path
-    if (path === "/") return obj;
-
-    // Remove leading slash if present and split
-    const cleanPath = path.startsWith("/") ? path.substring(1) : path;
-    const parts = cleanPath.split("/").filter(Boolean);
-
-    let current = obj;
-
-    for (const part of parts) {
-      // Handle array indices (e.g., 'items/0/name')
-      if (Array.isArray(current) && /^\d+$/.test(part)) {
-        const index = parseInt(part, 10);
-        if (index >= 0 && index < current.length) {
-          current = current[index];
-          continue;
-        }
-        return undefined;
-      }
-
-      // Handle regular object properties
-      if (current && typeof current === "object" && part in current) {
-        current = current[part];
-      } else {
-        return undefined;
-      }
-    }
-
-    return current;
-  }
-
-  function ensurePathExists(obj, path) {
-    const parts = path.split("/").filter(Boolean);
-    let current = obj;
-
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      if (!current[part]) {
-        current[part] = {};
-      }
-      current = current[part];
-    }
-    return current;
-  }
-
   // --- Subscriptions and Watchers ---
   stateUpdateProvider.subscribe((evt) => {
     // Only log non-routine event types to reduce console noise
@@ -1363,7 +1289,6 @@ export const useStateDataStore = defineStore("stateData", () => {
     
     // Check for tide:update and weather:update specifically
     if (evt.type === 'tide:update') {
-      console.log('[StateDataStore] Received tide update:', evt.data);
       if (!state.tides) state.tides = {};
       // Store tide data in state
       if (evt.data) {
@@ -1374,20 +1299,11 @@ export const useStateDataStore = defineStore("stateData", () => {
     }
     
     if (evt.type === 'weather:update') {
-      console.log('[StateDataStore] Received weather update event');
       if (!state.forecast) state.forecast = {};
       
       // Store weather data in state
       if (evt.data) {
         try {
-          // Log the structure of the incoming data to help with debugging
-          console.log('[StateDataStore] Weather data structure:', {
-            keys: Object.keys(evt.data),
-            hasCurrentData: !!evt.data.current,
-            hasHourlyData: !!evt.data.hourly,
-            hasDailyData: !!evt.data.daily
-          });
-          
           // Extract the weather data, ensuring we have the expected structure
           const weatherData = evt.data;
           
@@ -1420,36 +1336,64 @@ export const useStateDataStore = defineStore("stateData", () => {
     // Handle wind data updates from patch events
     if (evt.type === "state:patch" && Array.isArray(evt.data)) {
       const windPatches = evt.data.filter((patch) =>
-        patch.path?.startsWith("/navigation/wind/")
+        typeof patch.path === "string" && patch.path.startsWith("/navigation/wind/")
       );
 
       if (windPatches.length > 0) {
         dataLogger("Processing wind data from patch:", windPatches);
 
-        // Ensure the wind structure exists
         if (!state.navigation) state.navigation = {};
         if (!state.navigation.wind) state.navigation.wind = {};
 
-        // Process each wind-related patch
         windPatches.forEach((patch) => {
-          const [, , windType, property] = patch.path.split("/");
-
-          if (
-            (windType === "apparent" || windType === "true") &&
-            (property === "speed" || property === "angle")
-          ) {
-            // Initialize the structure if it doesn't exist
-            if (!state.navigation.wind[windType]) {
-              state.navigation.wind[windType] = {};
-            }
-            if (!state.navigation.wind[windType][property]) {
-              state.navigation.wind[windType][property] = { value: null };
-            }
-
-            // Update the value
-            state.navigation.wind[windType][property].value = patch.value;
-            dataLogger(`Updated wind.${windType}.${property} =`, patch.value);
+          const pathParts = patch.path.split("/").filter(Boolean);
+          if (pathParts.length < 4) {
+            return;
           }
+
+          const [root, section, windType, property, ...rest] = pathParts;
+
+          if (root !== "navigation" || section !== "wind") {
+            return;
+          }
+
+          if (windType !== "apparent" && windType !== "true") {
+            return;
+          }
+
+          if (!state.navigation.wind[windType]) {
+            state.navigation.wind[windType] = {};
+          }
+
+          if (!property) {
+            return;
+          }
+
+          // Ensure the property container exists when we have nested paths
+          if (!state.navigation.wind[windType][property] || typeof state.navigation.wind[windType][property] !== "object") {
+            state.navigation.wind[windType][property] = {};
+          }
+
+          const target = state.navigation.wind[windType][property];
+
+          if (rest.length === 0) {
+            state.navigation.wind[windType][property] = patch.value;
+            dataLogger(`Updated wind.${windType}.${property} =`, patch.value);
+            return;
+          }
+
+          let current = target;
+          for (let i = 0; i < rest.length - 1; i += 1) {
+            const key = rest[i];
+            if (!current[key] || typeof current[key] !== "object") {
+              current[key] = {};
+            }
+            current = current[key];
+          }
+
+          const finalKey = rest[rest.length - 1];
+          current[finalKey] = patch.value;
+          dataLogger(`Updated wind.${windType}.${property}.${rest.join(".")} =`, patch.value);
         });
         return; // Skip the rest of the handler for wind patches
       }
@@ -1942,10 +1886,6 @@ export const useStateDataStore = defineStore("stateData", () => {
    * @param {Object} tideData - The tide data to update
    */
   function updateTideData(tideData) {
-    console.log('[StateDataStore] updateTideData called with:', { 
-      dataKeys: tideData ? Object.keys(tideData) : 'no data' 
-    });
-    
     if (!tideData) {
       logger.warn('Received updateTideData call with no data');
       return;
@@ -1968,95 +1908,10 @@ export const useStateDataStore = defineStore("stateData", () => {
     }
   }
 
-  // Helper function to specifically handle location objects
-  function convertLocation(location) {
-    if (!location) return;
-
-    // Depth
-    convertMeasurementValues({ depth: location.depth }, UNIT_TYPES.LENGTH);
-
-    // Distances
-    convertMeasurementValues(
-      {
-        distancesFromCurrent: location.distancesFromCurrent,
-        distancesFromDrop: location.distancesFromDrop,
-      },
-      UNIT_TYPES.LENGTH
-    );
-
-    // Bearings
-    if (location.originalBearing) {
-      convertAngleValues({ cog: location.originalBearing });
-    }
-    if (location.bearing) {
-      convertAngleValues({ cog: location.bearing });
-    }
-  }
-
-  // Helper function for location objects in anchor data
-  function convertLocationInAnchor(location) {
-    if (!location) return;
-
-    // Depth
-    convertMeasurementValues({ depth: location.depth }, UNIT_TYPES.LENGTH);
-
-    // Distances
-    convertMeasurementValues(
-      {
-        distancesFromCurrent: location.distancesFromCurrent,
-        distancesFromDrop: location.distancesFromDrop,
-      },
-      UNIT_TYPES.LENGTH
-    );
-
-    // Bearings
-    if (location.originalBearing) {
-      convertAngleValues({ cog: location.originalBearing });
-    }
-    if (location.bearing) {
-      convertAngleValues({ cog: location.bearing });
-    }
-  }
-
-  // Set up periodic state logging
-  let stateLogInterval;
-  function setupPeriodicStateLogging() {
-    // Clear any existing interval
-    if (stateLogInterval) {
-      clearInterval(stateLogInterval);
-      dataLogger("Cleared existing state log interval");
-    }
-    
-    // Log state immediately to confirm function is working
-    console.log("========== INITIAL STATE LOG ==========");
-    console.log("Full state object:", state);
-    console.log("State keys:", Object.keys(state));
-    console.log("Has forecast data:", !!state.forecast);
-    console.log("Has tides data:", !!state.tides);
-    console.log("========== END INITIAL STATE LOG ==========");
-    
-    // Set up new interval to log state every 30 seconds
-    stateLogInterval = setInterval(() => {
-      const timestamp = new Date().toISOString();
-      console.log(`========== PERIODIC STATE LOG (${timestamp}) ==========`);
-      console.log("Full state object:", state);
-      console.log("State keys:", Object.keys(state));
-      console.log("Has forecast data:", !!state.forecast);
-      console.log("Has tides data:", !!state.tides);
-      console.log(`========== END PERIODIC STATE LOG (${timestamp}) ==========`);
-    }, 30000); // 30 seconds
-    
-    dataLogger("Set up periodic state logging every 30 seconds");
-    console.log("PERIODIC STATE LOGGING ACTIVATED - Will log every 30 seconds");
-  }
-  
   // Initialize unit preferences and apply conversions immediately
   loadUnitPreferences()
     .then(() => {
       dataLogger("Unit preferences loaded, applying to state");
-      
-      // Set up periodic state logging
-      setupPeriodicStateLogging();
       // Apply unit conversions to initial state
       convertStateToPreferredUnits(state);
       dataLogger("Unit conversions applied to initial state");

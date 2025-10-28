@@ -70,6 +70,7 @@ import RuuviWidgetComponent from "../RuuviWidgetComponent.vue";
 import VictronBatteryMonitorWidget from "../VictronBatteryMonitorWidget.vue";
 import VictronElectricalWidget from "../VictronElectricalWidget.vue";
 import ElectricalFlowWidget from "../electrical/ElectricalFlowWidget.vue";
+import WindSpeedWidget from "../WindSpeedWidget.vue";
 
 const props = defineProps({
   widget: {
@@ -97,17 +98,6 @@ const widgetStyle = computed(() => {
     position: 'relative'
   };
 });
-
-// Debug isEditing prop
-
-
-// Watch for changes to isEditing
-watch(
-  () => props.isEditing,
-  (newValue) => {
-
-  }
-);
 
 // Add window resize listener to update container size
 onMounted(() => {
@@ -142,6 +132,7 @@ import PlaceholderWidget from './PlaceholderWidget.vue';
 // Component mapping
 const componentMap = {
   'sail360': Sail360View,
+  'windspeed': WindSpeedWidget,
   'instrument': DashboardInstrumentComponent,
   'tank': TankLevelComponent,
   'battery': BatteryComponent,
@@ -233,7 +224,9 @@ const adjustContainerSize = () => {
   if (!widgetContent.value || !widgetContainer.value) return;
   
   // Get the actual dimensions of the widget content
-  const content = widgetContent.value.querySelector('.instrument-container svg, .tank-component, .battery-component, .sail360-component');
+  const content = widgetContent.value.querySelector(
+    '.instrument-container svg, .tank-component, .battery-component, .sail360-component, .wind-speed-widget'
+  );
   
   if (content) {
     // For SVG components, ensure we're getting the square dimensions
@@ -257,43 +250,26 @@ const widgetData = computed(() => {
   
   // Get the data source configuration
   const dataSource = getDataSourceById(data.dataSource);
-  
+
   // Get data from the state using the data source configuration
   const stateData = getDataFromState(navigationState.value, data.dataSource);
   
   // Log detailed information about the data for tank widgets
-  if (data.type === 'tank') {
-
-    
-    // Log the state path we're trying to access
-    if (dataSource && dataSource.statePath) {
-      
-      // Log the navigation state structure focusing on the tanks
-      // Log the tanks structure:
-      
-      // Trace the path step by step to see where it breaks
-      let currentObj = navigationState.value;
-      let pathTrace = '';
-      for (const pathPart of dataSource.statePath) {
-        pathTrace = pathTrace ? `${pathTrace}.${pathPart}` : pathPart;
-        const nextObj = currentObj ? currentObj[pathPart] : undefined;
-
-        currentObj = nextObj;
-      }
-      
-      // Check if the specific tank exists in the state
-      const tankPath = dataSource.statePath.join('.');
-      const tankExists = tankPath.split('.').reduce((obj, key) => 
-        obj && typeof obj === 'object' ? obj[key] : undefined, navigationState.value);
-
-    }
-    
-    // Log the data retrieved from the state
-
-    
-
+  if (data.type === 'windspeed') {
+    return {
+      ...data,
+      ...stateData,
+      dataConfig: dataSource,
+      label: dataSource?.label || stateData?.label || data.label,
+      displayLabel:
+        dataSource?.displayLabel || stateData?.displayLabel || data.displayLabel,
+      units: stateData?.units || data.units || dataSource?.defaultUnits,
+      decimalPlaces: data.decimalPlaces ?? 1,
+      showThousandsSeparator: data.showThousandsSeparator ?? false,
+      updated: true,
+    };
   }
-  
+
   // Merge the state data with the widget data
   const result = {
     ...data,
@@ -311,11 +287,6 @@ const widgetData = computed(() => {
     showThousandsSeparator: data.showThousandsSeparator ?? false,
     updated: true
   };
-  
-  // Log the final merged data for tank widgets
-  if (data.type === 'tank') {
-
-  }
   
   return result;
 });
@@ -344,10 +315,7 @@ onMounted(() => {
     measureContainer();
     
     // Find parent placeholder
-    const parentPlaceholder = widgetContainer.value?.closest('.template-area');
-    if (parentPlaceholder) {
-      const placeholderRect = parentPlaceholder.getBoundingClientRect();
-    }
+    widgetContainer.value?.closest('.template-area');
     
     isReady.value = true;
 

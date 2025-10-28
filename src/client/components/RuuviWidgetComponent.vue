@@ -139,16 +139,10 @@ const displayTemperature = computed(() => {
   const sensorData = deviceData.value?.sensorData
   if (!sensorData?.temperature) return '--'
   
-  // Debug logging
-  console.log('Ruuvi - Preferences:', preferencesStore.preferences)
-  console.log('Ruuvi - useImperial:', preferencesStore.preferences?.units?.useImperial)
-  
   // Use user preference for temperature unit (useImperial = true means Fahrenheit)
   if (preferencesStore.preferences?.units?.useImperial) {
-    console.log('Ruuvi - Using Fahrenheit:', sensorData.temperature.fahrenheit)
     return sensorData.temperature.fahrenheit?.toFixed(1) || '--'
   }
-  console.log('Ruuvi - Using Celsius:', sensorData.temperature.value)
   return sensorData.temperature.value?.toFixed(1) || '--'
 })
 
@@ -306,9 +300,5 @@ text {
   50% {
     opacity: 0.5;
   }
-}
-
-.secondary-metrics {
-  /* Group styling if needed */
 }
 </style>
