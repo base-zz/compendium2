@@ -57,6 +57,15 @@ export function createWidgetModel(widgetData = {}) {
       data: widgetData
     };
 
+    // Disable forced aspect ratio for wide-layout widgets like the anchor when not explicitly set
+    const displayType = standardWidget.displayType || standardWidget.type;
+    if (
+      displayType === 'anchor' &&
+      widgetData.maintainAspectRatio === undefined
+    ) {
+      standardWidget.maintainAspectRatio = false;
+    }
+
     // Set default units from data source config if available
     if (standardWidget.dataConfig?.defaultUnits) {
       standardWidget.units = standardWidget.dataConfig.defaultUnits;

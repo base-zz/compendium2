@@ -37,6 +37,8 @@
             >
               <ion-select-option value="sail360">Sail 360 &deg;</ion-select-option>
               <ion-select-option value="instrument">Digital Instrument</ion-select-option>
+              <ion-select-option value="clock">Clock</ion-select-option>
+              <ion-select-option value="anchor">Anchor</ion-select-option>
               <ion-select-option value="tank">Tank</ion-select-option>
               <ion-select-option value="battery">Battery</ion-select-option>
               <ion-select-option value="ruuvi">Ruuvi Sensor</ion-select-option>
@@ -44,7 +46,15 @@
           </div>
 
           <!-- Data Source Selection -->
-          <div class="form-group" v-if="displayType && displayType !== 'sail360'">
+          <div
+            class="form-group"
+            v-if="
+              displayType &&
+              displayType !== 'sail360' &&
+              displayType !== 'clock' &&
+              displayType !== 'anchor'
+            "
+          >
             <div class="form-label">Data Source</div>
             <ion-select
               class="form-control"

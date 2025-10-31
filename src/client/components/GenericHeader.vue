@@ -58,3 +58,11 @@ watch(
 /*
  */
 </script>
+
+<style scoped>
+@media (max-width: 480px) {
+  .header ion-toolbar {
+    --min-height: 54px;
+  }
+}
+</style>

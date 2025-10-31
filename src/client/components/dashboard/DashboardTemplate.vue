@@ -3,7 +3,7 @@
     <h3>Select a Dashboard Template</h3>
     <div class="template-grid">
       <div 
-        v-for="(template, index) in availableTemplates" 
+        v-for="(template, index) in filteredTemplates" 
         :key="index"
         class="template-option"
         :class="{ 'selected': selectedTemplate === template.id }"
@@ -24,8 +24,9 @@
 </template>
 
 <script setup>
-import { defineEmits } from 'vue';
+import { computed, defineEmits } from 'vue';
 import { useDashboardStore } from '../../stores/dashboardStore';
+import { isPlatform } from '@ionic/vue';
 
 const emit = defineEmits(['update:selectedTemplate', 'apply']);
 const dashboardStore = useDashboardStore();
@@ -39,6 +40,26 @@ const props = defineProps({
 
 // Use templates from the dashboard store
 const availableTemplates = dashboardStore.availableTemplates;
+
+const currentDeviceType = computed(() => {
+  if (isPlatform('tablet')) {
+    return 'tablet';
+  }
+  if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+    return 'tablet';
+  }
+  return 'phone';
+});
+
+const filteredTemplates = computed(() => {
+  const device = currentDeviceType.value;
+  return availableTemplates.filter((template) => {
+    if (!Array.isArray(template.deviceTypes) || template.deviceTypes.length === 0) {
+      return true;
+    }
+    return template.deviceTypes.includes(device);
+  });
+});
 
 const selectTemplate = (templateId) => {
   emit('update:selectedTemplate', templateId);
@@ -171,6 +192,17 @@ h3 {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr 1fr;
   gap: 4px;
+}
+
+.template-7 .preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1.5fr;
+  gap: 4px;
+}
+
+.template-7 .preview-area:nth-last-child(1) {
+  grid-column: 1 / span 3;
 }
 
 .preview-area {

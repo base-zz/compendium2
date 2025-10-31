@@ -9,7 +9,7 @@
       preserveAspectRatio="xMidYMid meet"
     >
       <text class="title" x="150" y="45" ref="titleRef">
-        {{ widgetData?.dataConfig?.displayLabel || widgetData?.widgetTitle || widgetData?.dataSource }}
+        {{ titleText }}
       </text>
       <text class="units" x="266" y="95" ref="unitsRef">
         {{ widgetData?.dataConfig?.defaultUnits || widgetData?.units || "" }}
@@ -59,6 +59,7 @@ const measureContainer = () => {
       height: size
     };
     console.log('Measured widget parent container:', containerSize.value);
+    nextTick(() => resizeTitle());
   } else {
     // Fallback if we can't find the widget-container
     const rect = containerRef.value.getBoundingClientRect();
@@ -67,6 +68,7 @@ const measureContainer = () => {
       height: rect.height
     };
     console.log('Fallback container size:', containerSize.value);
+    nextTick(() => resizeTitle());
   }
 };
 
@@ -82,6 +84,16 @@ const emit = defineEmits(['mounted']);
 // Initialize state store
 const stateStore = useStateDataStore();
 const { state: navigationState } = storeToRefs(stateStore);
+
+const titleText = computed(() => {
+  return (
+    props.widgetData?.dataConfig?.displayLabel ||
+    props.widgetData?.widgetTitle ||
+    props.widgetData?.label ||
+    props.widgetData?.dataSource ||
+    ""
+  );
+});
 
 // Get real-time instrument data from the navigation state
 const instrumentData = computed(() => {
@@ -182,10 +194,58 @@ const adjustFontSize = () => {
   }
 };
 
+const resizeTitle = () => {
+  if (!titleRef.value) return;
+
+  const baseSize = 24;
+  const minSize = 14;
+  const maxSize = 36;
+  const maxWidth = 240;
+
+  titleRef.value.style.fontSize = `${baseSize}px`;
+  titleRef.value.setAttribute("font-size", `${baseSize}px`);
+
+  let bbox;
+  try {
+    bbox = titleRef.value.getBBox();
+  } catch (error) {
+    return;
+  }
+
+  if (!bbox || !bbox.width) {
+    return;
+  }
+
+  const ratio = maxWidth / bbox.width;
+  let newSize = baseSize * ratio;
+
+  if (!Number.isFinite(newSize) || newSize <= 0) {
+    newSize = baseSize;
+  }
+
+  if (ratio < 1) {
+    newSize = Math.max(minSize, newSize);
+  } else {
+    newSize = Math.min(maxSize, Math.max(baseSize, newSize));
+  }
+
+  newSize = Math.min(maxSize, Math.max(minSize, newSize));
+
+  titleRef.value.style.fontSize = `${newSize}px`;
+  titleRef.value.setAttribute("font-size", `${newSize}px`);
+};
+
 // Watch for changes to the formatted value and adjust font size
 watch(formattedValue, () => {
   nextTick(() => {
     adjustFontSize();
+    resizeTitle();
+  });
+});
+
+watch(titleText, () => {
+  nextTick(() => {
+    resizeTitle();
   });
 });
 
@@ -198,10 +258,12 @@ onMounted(() => {
   window.addEventListener('resize', () => {
     measureContainer();
     adjustFontSize();
+    resizeTitle();
   });
   
   // Adjust font size on mount
   adjustFontSize();
+  resizeTitle();
   
   // Emit mounted event
   setTimeout(() => {

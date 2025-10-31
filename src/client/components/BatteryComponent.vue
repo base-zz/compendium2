@@ -235,7 +235,7 @@
           
         </g>
       </g>
-      <text ref="title" class="title" x="150" y="48">
+      <text ref="titleRef" class="title" x="150" y="48">
         {{ batteryTitle }}
       </text>
     </svg>
@@ -265,6 +265,7 @@ const emit = defineEmits(['mounted'])
 // const container = ref(null)
 const svg = ref(null)
 const metric = ref(null)
+const titleRef = ref(null)
 
 const batteryValue = computed(() => {
   return props.widgetData.value ?? 0
@@ -290,7 +291,13 @@ const displayAmperage = computed(() => {
 })
 
 const batteryTitle = computed(() => {
-  return props.widgetData.label || props.widgetData.displayLabel || 'Battery'
+  return (
+    props.widgetData.widgetTitle ||
+    props.widgetData.label ||
+    props.widgetData.displayLabel ||
+    props.widgetData.widgetName ||
+    'Battery'
+  )
 })
 
 // Computed property to determine the font size class based on the number of digits
@@ -303,7 +310,7 @@ const fontSizeClass = computed(() => {
   
   // Use smaller font if we have 3 digits (100%)
   return numericValue.length >= 3 ? 'smaller-font' : '';
-});
+})
 
 const adjustFontSize = () => {
   if (!metric.value) return;
@@ -315,6 +322,90 @@ const adjustFontSize = () => {
   if (fontSizeClass.value) {
     metric.value.classList.add('smaller-font');
   }
+}
+
+const resizeTitle = () => {
+  const el = titleRef.value
+  if (!el) return
+
+  const baseSize = 32
+  const minSize = 16
+  const maxSize = 42
+  const maxWidth = 220
+
+  el.style.fontSize = `${baseSize}px`
+  el.setAttribute('font-size', `${baseSize}px`)
+
+  let bbox
+  try {
+    bbox = el.getBBox()
+  } catch (error) {
+    return
+  }
+
+  if (!bbox || !bbox.width) {
+    return
+  }
+
+  const ratio = maxWidth / bbox.width
+  let newSize = baseSize * ratio
+
+  if (!Number.isFinite(newSize)) {
+    newSize = baseSize
+  }
+
+  if (ratio < 1) {
+    newSize = Math.max(minSize, newSize)
+  } else {
+    newSize = Math.min(maxSize, Math.max(baseSize, newSize))
+  }
+
+  newSize = Math.min(maxSize, Math.max(minSize, newSize))
+
+  el.style.fontSize = `${newSize}px`
+  el.setAttribute('font-size', `${newSize}px`)
+};
+
+const powerSegments = ref([])
+
+const initializePowerSegments = () => {
+  powerSegments.value = Array.from({ length: 10 }, (_, index) => {
+    const segment = svg.value?.querySelector(`#power-${10 - index}`)
+    return segment || null
+  })
+}
+
+const setPowerMarker = () => {
+  if (!svg.value) {
+    return
+  }
+
+  if (!powerSegments.value.length) {
+    initializePowerSegments()
+  }
+
+  if (!powerSegments.value.length) {
+    return
+  }
+
+  const value = Number.isFinite(batteryValue.value) ? batteryValue.value : 0
+  const normalized = Math.max(0, Math.min(100, value))
+  const activeCount = Math.round((normalized / 100) * powerSegments.value.length)
+
+  powerSegments.value.forEach((segment, idx) => {
+    if (!segment) {
+      return
+    }
+
+    const isActive = idx < activeCount
+    segment.setAttribute('fill-opacity', isActive ? '1' : '0.15')
+    segment.setAttribute('stroke-opacity', isActive ? '1' : '0.25')
+  })
+}
+
+const generateBatteryAlerts = () => {
+  // Alerts disabled temporarily; implementation needs store integration
+  return
 }
 
 const threshold = computed(() => {
@@ -356,137 +447,38 @@ const pastThreshold = computed(() => {
   }
 })
 
-
-
-// Import the state store for alerts
-import { useStateDataStore } from '../stores/stateDataStore';
-const stateStore = useStateDataStore();
-
 // Watchers
 watch(batteryValue, () => {
   nextTick(() => {
     adjustFontSize()
     setPowerMarker()
-    
+    resizeTitle()
+
     // Generate alerts based on battery level and threshold
     generateBatteryAlerts()
   })
 })
 
-// Generate alerts for battery levels
-const generateBatteryAlerts = () => {
-  let alert;
-  const batteryId = props.widgetData?.id || 'unknown-battery';
-  const batteryLabel = props.widgetData?.label || 'Battery';
-  const batteryValue = props.widgetData.value;
-  const thresholdValue = typeof props.widgetData.threshold === 'number' ? props.widgetData.threshold : 20;
-  const operator = props.widgetData.thresholdOperator || 'LESS_THAN';
-  
-  // Check if we should trigger an alert based on the threshold and operator
-  if (pastThreshold.value) {
-    // The battery level has crossed the configured threshold
-    alert = stateStore.newAlert();
-    
-    // Set appropriate alert title and message based on the operator
-    if (operator === 'LESS_THAN' || operator === 'LESS_THAN_EQUALS') {
-      alert.title = "Low Battery Level";
-      alert.message = `${batteryLabel} level is low at ${batteryValue}%`;
-    } else {
-      alert.title = "High Battery Level";
-      alert.message = `${batteryLabel} level is high at ${batteryValue}%`;
-    }
-    
-    alert.label = batteryLabel;
-    alert.type = "warning";
-    alert.category = "electrical";
-    alert.level = "warning";
-    alert.data = {
-      widget: "battery",
-      variable: "capacity",
-      value: batteryValue,
-      batteryId: batteryId,
-      threshold: thresholdValue,
-      operator: operator
-    };
-    
-    stateStore.addAlertWithPrevention(alert, {
-      strategies: stateStore.AlertPreventionStrategy.STATE_TRACKING,
-      signature: `battery-${batteryId}-threshold-alert`,
-      value: batteryValue,
-      threshold: thresholdValue,
-      isHigherBad: operator === 'GREATER_THAN' || operator === 'GREATER_THAN_EQUALS'
-    });
-    
-    // For batteries, we typically care about low levels
-    // Add a critical alert for very low battery levels
-    if ((operator === 'LESS_THAN' || operator === 'LESS_THAN_EQUALS') && batteryValue <= thresholdValue / 2) {
-      alert = stateStore.newAlert();
-      alert.title = "Critical Battery Level";
-      alert.label = batteryLabel;
-      alert.message = `${batteryLabel} is critically low at ${batteryValue}%`;
-      alert.type = "error";
-      alert.category = "electrical";
-      alert.level = "critical";
-      alert.data = {
-        widget: "battery",
-        variable: "capacity",
-        value: batteryValue,
-        batteryId: batteryId,
-        threshold: thresholdValue / 2
-      };
-      
-      stateStore.addAlertWithPrevention(alert, {
-        strategies: [
-          stateStore.AlertPreventionStrategy.STATE_TRACKING,
-          stateStore.AlertPreventionStrategy.COOLDOWN
-        ],
-        signature: `battery-${batteryId}-critical`,
-        value: batteryValue,
-        threshold: thresholdValue / 2,
-        isHigherBad: false,
-        cooldownMs: 1800000 // Remind every 30 minutes for critical levels
-      });
-    }
-  }
-}
-
-// Watch for threshold changes
-watch(threshold, () => {
+watch(batteryTitle, () => {
   nextTick(() => {
-    adjustFontSize()
-    setPowerMarker()
+    resizeTitle()
   })
 })
-
-// Component-specific methods
-const setPowerMarker = () => {
-  const powerLevel = Math.floor(batteryValue.value / 10)
-  const powerRefs = [
-    'power-10', 'power-9', 'power-8', 'power-7',
-    'power-6', 'power-5', 'power-4', 'power-3',
-    'power-2', 'power-1'
-  ]
-
-  powerRefs.forEach((power, index) => {
-    const el = document.getElementById(power)
-    if (el) {
-      el.style.fill = index < powerLevel ? widgetColor.value : 'none'
-    }
-  })
-}
 
 // Lifecycle
 // Function to handle component setup
 const setupComponent = () => {
   nextTick(() => {
     adjustFontSize();
+    resizeTitle();
     setPowerMarker();
-  });
+
+    // Emit mounted event once the component is fully initialized
+    emit('mounted')
+  })
 }
 
 onMounted(() => {
-  emit('mounted')
-  // Initial setup
   setupComponent()
 })
 

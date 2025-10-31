@@ -291,15 +291,11 @@ ion-button.nav-button ion-icon {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding-top: 1rem;
-  margin-top: 1rem;
-  position: relative;
+  gap: clamp(1rem, 4vh, 2.5rem);
   width: 100%;
   max-width: 500px; /* Limit maximum width on larger screens */
-  margin-left: auto;
-  margin-right: auto;
-  height: auto; /* Allow height to adjust based on content */
-  max-height: 50vh; /* Maximum height as percentage of viewport */
+  margin: 0 auto;
+  padding: clamp(1rem, 3vh, 2rem) 1rem;
 }
 
 #logo {
@@ -327,10 +323,9 @@ ion-button.nav-button ion-icon {
 }
 
 .company-name {
-  margin-top: 3rem;
+  margin: 0;
   text-align: center;
   position: relative;
-  margin-bottom: 0;
 }
 
 .company-name h1 {
@@ -345,8 +340,7 @@ ion-button.nav-button ion-icon {
 /* Media queries for responsive design */
 @media (min-width: 768px) {
   .logo-container {
-    padding-top: 2rem;
-    max-height: 40vh;
+    padding: clamp(1.5rem, 4vh, 3rem) 1.5rem;
   }
 
   .company-name h1 {
@@ -356,8 +350,7 @@ ion-button.nav-button ion-icon {
 
 @media (min-width: 1024px) {
   .logo-container {
-    padding-top: 1.5rem;
-    max-height: 35vh;
+    padding: clamp(2rem, 5vh, 3.5rem) 2rem;
   }
 
   ion-content {
@@ -383,9 +376,9 @@ ion-button.nav-button ion-icon {
   align-items: center;
   justify-content: center;
   width: 100%;
-  margin-top: 1.5rem;
+  margin-top: clamp(1rem, 4vh, 2.5rem);
   padding: 0 1rem;
-  gap: 0.8rem;
+  gap: clamp(0.75rem, 3vw, 1rem);
 }
 
 .nav-button {
@@ -427,12 +420,14 @@ ion-button.nav-button ion-icon {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 2rem 1rem;
   text-align: center;
+  margin: 0 auto;
+  padding: clamp(1rem, 3vh, 2rem) 1rem;
+  gap: clamp(1rem, 4vh, 2.5rem);
 }
 
 .company-name {
-  margin-bottom: 1.5rem;
+  margin-bottom: clamp(1rem, 3vh, 1.75rem);
   z-index: 1;
 }
 

@@ -25,5 +25,6 @@
 
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "src/**/*.js", "src/client/views/AnchorView.bak"],
+  "exclude": ["src/server/**/*.js", "src/relay/server/**/*.js", "src/relay/vps/**/*.js", "src/relay/VPSClient.js", "src/core/sync/**/*"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -36,7 +36,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { createLogger } from "@/client/services/logger";
 
 const props = defineProps({
   widgetData: {
@@ -44,6 +45,8 @@ const props = defineProps({
     required: true,
   },
 });
+
+const logger = createLogger("wind-speed-widget");
 
 const speedData = computed(() => props.widgetData?.speed || null);
 const angleData = computed(() => props.widgetData?.angle || null);
@@ -186,6 +189,29 @@ onMounted(() => {
     caretTransitionReady.value = true;
   });
 });
+
+watch(
+  () => ({
+    label: displayLabel.value,
+    speed: speedValue.value,
+    angle: angleValue.value,
+  }),
+  (next, prev) => {
+    if (
+      !prev ||
+      next.label !== prev.label ||
+      next.speed !== prev.speed ||
+      next.angle !== prev.angle
+    ) {
+      logger.info("WindSpeedWidget update", {
+        label: next.label,
+        speed: next.speed,
+        angle: next.angle,
+      });
+    }
+  },
+  { immediate: true }
+);
 
 const caretGroupStyle = computed(() => {
   const angle = normalizedAngle.value ?? 0;

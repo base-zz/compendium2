@@ -127,10 +127,10 @@ const anchorState = computed(() => state.value.anchor);
 const alertState = computed(() => state.value.alerts?.active);
 
 
-setTimeout(() => {
-console.log("--------Sail360] state", state.value)
-console.log("--------Sail360] navData", navData.value)
-}, 5000);
+// setTimeout(() => {
+// console.log("--------Sail360] state", state.value)
+// console.log("--------Sail360] navData", navData.value)
+// }, 5000);
 
 const radius = 350,
   x = 500,

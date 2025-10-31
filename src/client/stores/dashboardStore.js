@@ -532,6 +532,7 @@ export const useDashboardStore = defineStore("dashboards", () => {
     { 
       id: 1, 
       name: 'Single Widget', 
+      deviceTypes: ['phone'],
       areas: ['main'],
       layout: { 
         main: { x: 0, y: 0, width: 100, height: 100 } 
@@ -548,6 +549,7 @@ export const useDashboardStore = defineStore("dashboards", () => {
     { 
       id: 2, 
       name: 'Stacked (2)', 
+      deviceTypes: ['phone'],
       areas: ['top', 'bottom'],
       layout: { 
         top: { x: 0, y: 0, width: 100, height: 48 },
@@ -566,6 +568,7 @@ export const useDashboardStore = defineStore("dashboards", () => {
     { 
       id: 3, 
       name: 'Stacked (3)', 
+      deviceTypes: ['phone'],
       areas: ['top', 'middle', 'bottom'],
       layout: { 
         top: { x: 0, y: 0, width: 100, height: 32 },
@@ -586,6 +589,7 @@ export const useDashboardStore = defineStore("dashboards", () => {
     { 
       id: 4, 
       name: 'Cross Layout', 
+      deviceTypes: ['phone'],
       areas: ['topLeft', 'topRight', 'center', 'bottomLeft', 'bottomRight'],
       layout: { 
         topLeft: { x: 0, y: 0, width: 50, height: 25 },
@@ -608,6 +612,7 @@ export const useDashboardStore = defineStore("dashboards", () => {
     { 
       id: 5, 
       name: 'Grid (2x2)', 
+      deviceTypes: ['phone'],
       areas: ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'],
       layout: { 
         topLeft: { x: 0, y: 0, width: 48, height: 48 },
@@ -628,6 +633,7 @@ export const useDashboardStore = defineStore("dashboards", () => {
     { 
       id: 6, 
       name: 'Grid (2x3)', 
+      deviceTypes: ['phone'],
       areas: ['topLeft', 'topRight', 'middleLeft', 'middleRight', 'bottomLeft', 'bottomRight'],
       layout: { 
         topLeft: { x: 0, y: 0, width: 48, height: 32 }, 
@@ -645,6 +651,38 @@ export const useDashboardStore = defineStore("dashboards", () => {
           'topLeft topRight',
           'middleLeft middleRight',
           'bottomLeft bottomRight'
+        ]
+      }
+    },
+    {
+      id: 7,
+      name: 'Anchor Watch',
+      deviceTypes: ['tablet'],
+      areas: [
+        'topLeft',
+        'topCenter',
+        'topRight',
+        'middleLeft',
+        'middleCenter',
+        'middleRight',
+        'bottom'
+      ],
+      layout: {
+        topLeft: { x: 0, y: 0, width: 32, height: 30 },
+        topCenter: { x: 34, y: 0, width: 32, height: 30 },
+        topRight: { x: 68, y: 0, width: 32, height: 30 },
+        middleLeft: { x: 0, y: 34, width: 32, height: 30 },
+        middleCenter: { x: 34, y: 34, width: 32, height: 30 },
+        middleRight: { x: 68, y: 34, width: 32, height: 30 },
+        bottom: { x: 0, y: 68, width: 100, height: 32 }
+      },
+      gridTemplate: {
+        columns: '1fr 1fr 1fr',
+        rows: '1fr 1fr 2fr',
+        areas: [
+          'topLeft topCenter topRight',
+          'middleLeft middleCenter middleRight',
+          'bottom bottom bottom'
         ]
       }
     }

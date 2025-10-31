@@ -22,6 +22,7 @@ import {
 import { createStateDataModel } from "@/shared/stateDataModel.js";
 import { UnitConversion } from "@/shared/unitConversion";
 import { createLogger } from "../services/logger";
+import { generateUuid } from "@/client/utils/uuid.js";
 
 
 const logger = createLogger("state-data-store");
@@ -457,7 +458,7 @@ export const useStateDataStore = defineStore("stateData", () => {
   const newAlert = () => {
     return {
       ...JSON.parse(JSON.stringify(BASE_ALERT_DATUM)),
-      id: crypto.randomUUID(),
+      id: generateUuid(),
       timestamp: new Date().toISOString(),
       status: "active",
       actions: ["acknowledge", "mute"],
@@ -500,14 +501,14 @@ export const useStateDataStore = defineStore("stateData", () => {
    */
   const addAlert = (alert) => {
     // Ensure required fields
-    if (!alert.id) alert.id = crypto.randomUUID();
+    if (!alert.id) alert.id = generateUuid();
     if (!alert.timestamp) alert.timestamp = new Date().toISOString();
     if (!alert.status) alert.status = "active";
 
     // Add to active alerts
     state.alerts.active.push(alert);
 
-    logger(`New alert added: ${alert.title || alert.label}`);
+    logger.info(`New alert added: ${alert.title || alert.label}`);
     return alert;
   };
 
@@ -528,7 +529,7 @@ export const useStateDataStore = defineStore("stateData", () => {
 
     if (alertsToResolve.length === 0) return [];
 
-    logger(
+    logger.info(
       `Auto-resolving ${alertsToResolve.length} alerts with trigger: ${triggerType}`
     );
 
@@ -643,7 +644,7 @@ export const useStateDataStore = defineStore("stateData", () => {
 
       // If any strategy says to prevent, don't add the alert
       if (shouldPrevent) {
-        logger(`Prevented alert due to ${strategy} strategy: ${signature}`);
+        logger.info(`Prevented alert due to ${strategy} strategy: ${signature}`);
         return null;
       }
     }
@@ -1801,16 +1802,7 @@ export const useStateDataStore = defineStore("stateData", () => {
       }
     }
 
-    // Convert true wind
-    if (windObj.true) {
-      // Speed
-      convertMeasurementValues(windObj.true, UNIT_TYPES.SPEED);
-
-      // Direction
-      if (windObj.true.direction) {
-        convertAngleValues({ cog: windObj.true.direction });
-      }
-    }
+    // True wind values are already normalized server-side; leave untouched
   }
 
   // Helper function to convert anchor values

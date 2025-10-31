@@ -325,6 +325,121 @@
             />
           </div>
         </template>
+
+        <!-- Anchor Watch (Template 7) -->
+        <template v-else-if="currentTemplate === 7">
+          <div class="grid-area area-topLeft">
+            <Widget 
+              v-if="getWidgetForArea('topLeft')"
+              :widget="getWidgetForArea('topLeft')" 
+              :type="getWidgetForArea('topLeft').type || 'placeholder'" 
+              :is-editing="isEditing"
+              @edit="$emit('edit-widget', getWidgetForArea('topLeft'))"
+              @remove="$emit('delete-widget', getWidgetForArea('topLeft'))"
+            />
+            <PlaceholderWidget 
+              v-else
+              area="topLeft" 
+              @add-widget="handleAddWidget('topLeft')" 
+            />
+          </div>
+
+          <div class="grid-area area-topCenter">
+            <Widget 
+              v-if="getWidgetForArea('topCenter')"
+              :widget="getWidgetForArea('topCenter')" 
+              :type="getWidgetForArea('topCenter').type || 'placeholder'" 
+              :is-editing="isEditing"
+              @edit="$emit('edit-widget', getWidgetForArea('topCenter'))"
+              @remove="$emit('delete-widget', getWidgetForArea('topCenter'))"
+            />
+            <PlaceholderWidget 
+              v-else
+              area="topCenter" 
+              @add-widget="handleAddWidget('topCenter')" 
+            />
+          </div>
+
+          <div class="grid-area area-topRight">
+            <Widget 
+              v-if="getWidgetForArea('topRight')"
+              :widget="getWidgetForArea('topRight')" 
+              :type="getWidgetForArea('topRight').type || 'placeholder'" 
+              :is-editing="isEditing"
+              @edit="$emit('edit-widget', getWidgetForArea('topRight'))"
+              @remove="$emit('delete-widget', getWidgetForArea('topRight'))"
+            />
+            <PlaceholderWidget 
+              v-else
+              area="topRight" 
+              @add-widget="handleAddWidget('topRight')" 
+            />
+          </div>
+
+          <div class="grid-area area-middleLeft">
+            <Widget 
+              v-if="getWidgetForArea('middleLeft')"
+              :widget="getWidgetForArea('middleLeft')" 
+              :type="getWidgetForArea('middleLeft').type || 'placeholder'" 
+              :is-editing="isEditing"
+              @edit="$emit('edit-widget', getWidgetForArea('middleLeft'))"
+              @remove="$emit('delete-widget', getWidgetForArea('middleLeft'))"
+            />
+            <PlaceholderWidget 
+              v-else
+              area="middleLeft" 
+              @add-widget="handleAddWidget('middleLeft')" 
+            />
+          </div>
+
+          <div class="grid-area area-middleCenter">
+            <Widget 
+              v-if="getWidgetForArea('middleCenter')"
+              :widget="getWidgetForArea('middleCenter')" 
+              :type="getWidgetForArea('middleCenter').type || 'placeholder'" 
+              :is-editing="isEditing"
+              @edit="$emit('edit-widget', getWidgetForArea('middleCenter'))"
+              @remove="$emit('delete-widget', getWidgetForArea('middleCenter'))"
+            />
+            <PlaceholderWidget 
+              v-else
+              area="middleCenter" 
+              @add-widget="handleAddWidget('middleCenter')" 
+            />
+          </div>
+
+          <div class="grid-area area-middleRight">
+            <Widget 
+              v-if="getWidgetForArea('middleRight')"
+              :widget="getWidgetForArea('middleRight')" 
+              :type="getWidgetForArea('middleRight').type || 'placeholder'" 
+              :is-editing="isEditing"
+              @edit="$emit('edit-widget', getWidgetForArea('middleRight'))"
+              @remove="$emit('delete-widget', getWidgetForArea('middleRight'))"
+            />
+            <PlaceholderWidget 
+              v-else
+              area="middleRight" 
+              @add-widget="handleAddWidget('middleRight')" 
+            />
+          </div>
+
+          <div class="grid-area area-bottom">
+            <Widget 
+              v-if="getWidgetForArea('bottom')"
+              :widget="getWidgetForArea('bottom')" 
+              :type="getWidgetForArea('bottom').type || 'placeholder'" 
+              :is-editing="isEditing"
+              @edit="$emit('edit-widget', getWidgetForArea('bottom'))"
+              @remove="$emit('delete-widget', getWidgetForArea('bottom'))"
+            />
+            <PlaceholderWidget 
+              v-else
+              area="bottom" 
+              @add-widget="handleAddWidget('bottom')" 
+            />
+          </div>
+        </template>
       </div>
     </template>
   </div>
@@ -571,5 +686,39 @@ onMounted(() => {
 
 .template-6 .area-bottomRight {
   grid-area: 3 / 2 / 4 / 3;
+}
+
+/* Template 7: Anchor Watch */
+.grid-container.template-7 {
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1.5fr;
+}
+
+.template-7 .area-topLeft {
+  grid-area: 1 / 1 / 2 / 2;
+}
+
+.template-7 .area-topCenter {
+  grid-area: 1 / 2 / 2 / 3;
+}
+
+.template-7 .area-topRight {
+  grid-area: 1 / 3 / 2 / 4;
+}
+
+.template-7 .area-middleLeft {
+  grid-area: 2 / 1 / 3 / 2;
+}
+
+.template-7 .area-middleCenter {
+  grid-area: 2 / 2 / 3 / 3;
+}
+
+.template-7 .area-middleRight {
+  grid-area: 2 / 3 / 3 / 4;
+}
+
+.template-7 .area-bottom {
+  grid-area: 3 / 1 / 4 / 4;
 }
 </style>

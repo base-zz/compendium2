@@ -69,8 +69,9 @@ import BatteryComponent from "../BatteryComponent.vue";
 import RuuviWidgetComponent from "../RuuviWidgetComponent.vue";
 import VictronBatteryMonitorWidget from "../VictronBatteryMonitorWidget.vue";
 import VictronElectricalWidget from "../VictronElectricalWidget.vue";
-import ElectricalFlowWidget from "../electrical/ElectricalFlowWidget.vue";
 import WindSpeedWidget from "../WindSpeedWidget.vue";
+import ClockWidget from "../ClockWidget.vue";
+import AnchorWidget from "../AnchorWidget.vue";
 
 const props = defineProps({
   widget: {
@@ -101,12 +102,16 @@ const widgetStyle = computed(() => {
 
 // Add window resize listener to update container size
 onMounted(() => {
-  window.addEventListener('resize', adjustContainerSize);
+  if (props.widget?.maintainAspectRatio) {
+    window.addEventListener('resize', adjustContainerSize);
+  }
 });
 
 // Clean up event listeners when component is unmounted
 onUnmounted(() => {
-  window.removeEventListener('resize', adjustContainerSize);
+  if (props.widget?.maintainAspectRatio) {
+    window.removeEventListener('resize', adjustContainerSize);
+  }
 });
 
 const emit = defineEmits(['edit', 'remove', 'mounted', 'add-widget']);
@@ -131,30 +136,31 @@ import PlaceholderWidget from './PlaceholderWidget.vue';
 
 // Component mapping
 const componentMap = {
-  'sail360': Sail360View,
-  'windspeed': WindSpeedWidget,
-  'instrument': DashboardInstrumentComponent,
-  'tank': TankLevelComponent,
-  'battery': BatteryComponent,
-  'ruuvi': RuuviWidgetComponent,
+  sail360: Sail360View,
+  windspeed: WindSpeedWidget,
+  instrument: DashboardInstrumentComponent,
+  tank: TankLevelComponent,
+  battery: BatteryComponent,
+  ruuvi: RuuviWidgetComponent,
   'victron-battery-monitor': VictronBatteryMonitorWidget,
   'victron-electrical': VictronElectricalWidget,
-  'electrical-flow': ElectricalFlowWidget,
-  'placeholder': PlaceholderWidget
+  clock: ClockWidget,
+  anchor: AnchorWidget,
+  placeholder: PlaceholderWidget,
 };
 
 // Resolve component based on type
 const resolvedComponent = computed(() => {
-  if (!props.type) {
-
+  const widgetType = props.type || props.widget?.displayType;
+  if (!widgetType) {
     return null;
   }
   
-  const component = componentMap[props.type];
+  const component = componentMap[widgetType];
 
   
   // Log widget data when the component is a tank
-  if (props.type === 'tank') {
+  if (widgetType === 'tank') {
 
 
     
@@ -211,16 +217,17 @@ const handleComponentMounted = () => {
     isReady.value = true;
     emit('mounted');
     
-    // Measure container and adjust size to be square
-    measureContainer();
-    
-    // Adjust container size to match the square widget content
-    adjustContainerSize();
+    // Measure container and adjust size only when aspect ratio is enforced
+    if (props.widget?.maintainAspectRatio) {
+      measureContainer();
+      adjustContainerSize();
+    }
   }, 100);
 };
 
 // Function to adjust the container size to match the square widget
 const adjustContainerSize = () => {
+  if (!props.widget?.maintainAspectRatio) return;
   if (!widgetContent.value || !widgetContainer.value) return;
   
   // Get the actual dimensions of the widget content
@@ -247,14 +254,35 @@ const adjustContainerSize = () => {
 const widgetData = computed(() => {
   // Start with the widget data
   const data = { ...props.widget };
-  
+  if (!data.type && data.displayType) {
+    data.type = data.displayType;
+  }
+
   // Get the data source configuration
   const dataSource = getDataSourceById(data.dataSource);
 
   // Get data from the state using the data source configuration
-  const stateData = getDataFromState(navigationState.value, data.dataSource);
+  const stateData = getDataFromState(navigationState.value, data.dataSource) || {};
   
   // Log detailed information about the data for tank widgets
+  if (data.type === 'clock') {
+    return {
+      ...data,
+      dataConfig: dataSource,
+      label: data.widgetTitle || data.label || 'Clock',
+      updated: true,
+    };
+  }
+
+  if (data.type === 'anchor') {
+    return {
+      ...data,
+      dataConfig: dataSource,
+      label: data.widgetTitle || data.label || 'Anchor',
+      updated: true,
+    };
+  }
+
   if (data.type === 'windspeed') {
     return {
       ...data,

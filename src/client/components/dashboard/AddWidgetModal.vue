@@ -38,17 +38,24 @@
               <ion-select-option value="sail360">Sail 360 &deg;</ion-select-option>
               <ion-select-option value="windspeed">Wind Speed</ion-select-option>
               <ion-select-option value="instrument">Digital Instrument</ion-select-option>
+              <ion-select-option value="clock">Clock</ion-select-option>
+              <ion-select-option value="anchor">Anchor</ion-select-option>
               <ion-select-option value="tank">Tank</ion-select-option>
               <ion-select-option value="battery">Battery</ion-select-option>
               <ion-select-option value="ruuvi">Ruuvi Sensor</ion-select-option>
               <ion-select-option value="victron-battery-monitor">Victron Battery Monitor</ion-select-option>
               <ion-select-option value="victron-electrical">Victron Electrical System</ion-select-option>
-              <ion-select-option value="electrical-flow">Electrical Power Flow</ion-select-option>
             </ion-select>
           </div>
 
           <!-- Data Source Selection (not needed for electrical-flow or victron-electrical) -->
-          <div class="form-group" v-if="displayType && displayType !== 'electrical-flow' && displayType !== 'victron-electrical'">
+          <div
+            class="form-group"
+            v-if="
+              displayType &&
+              !widgetsWithoutDataSource.includes(displayType)
+            "
+          >
             <div class="form-label">Data Source</div>
             <ion-select
               class="form-control"
@@ -396,6 +403,7 @@ const availableDataSources = computed(() => {
 });
 
 // Watch for displayType changes to set default values
+const widgetsWithoutDataSource = ['sail360', 'clock', 'anchor'];
 watch(displayType, (newType) => {
   if (newType === 'sail360') {
     maintainSquareRatio.value = true;
@@ -407,6 +415,24 @@ watch(displayType, (newType) => {
       if (!widgetTitle.value) {
         widgetTitle.value = sources[0].description || sources[0].label;
       }
+    }
+  } else if (newType === 'clock') {
+    dataSource.value = '';
+    maintainSquareRatio.value = true;
+    if (!widgetTitle.value) {
+      widgetTitle.value = 'Clock';
+    }
+    if (!widgetName.value) {
+      widgetName.value = 'Clock';
+    }
+  } else if (newType === 'anchor') {
+    dataSource.value = '';
+    maintainSquareRatio.value = true;
+    if (!widgetTitle.value) {
+      widgetTitle.value = 'Anchor';
+    }
+    if (!widgetName.value) {
+      widgetName.value = 'Anchor';
     }
   } else if (newType === 'instrument' && !dataSource.value) {
     // Set a default data source but don't hardcode the title
@@ -506,126 +532,39 @@ async function saveWidget() {
   // Validate required fields
   if (!displayType.value) {
     alert('Please select a widget type');
-    return;
   }
-
-  // Skip data source validation for widgets that don't need it
-  const widgetsWithoutDataSource = ['electrical-flow', 'sail360'];
-  
-  if (displayType.value === 'instrument' && !dataSource.value) {
-    alert('Please select a data source');
-    return;
-  }
-
-  if (displayType.value === 'windspeed' && !dataSource.value) {
-    alert('Please select a wind data source');
-    return;
-  }
-
-  if (displayType.value === 'tank' && !dataSource.value) {
-    alert('Please select a tank');
-    return;
-  }
-  
-  if (!widgetsWithoutDataSource.includes(displayType.value) && 
-      displayType.value !== 'instrument' && 
-      displayType.value !== 'tank' && 
-      displayType.value !== 'sail360' && 
-      !dataSource.value) {
-    // Most widgets need a data source
-    // (electrical-flow and sail360 are exceptions)
-  }
-
-  // Get the data source configuration if available
-  let dataSourceConfig = null;
-  if (displayType.value === 'instrument' && dataSource.value) {
-    dataSourceConfig = getDataSourceById(dataSource.value);
-    console.log('Data source config:', dataSourceConfig);
-  }
-
-  // Create base widget data object
-  const widgetData = {
-    type: displayType.value,
-    displayType: displayType.value,
-    widgetName: widgetName.value,
-    widgetTitle: widgetTitle.value || dataSourceConfig?.label || 'Widget',
-    label: widgetTitle.value || dataSourceConfig?.label || 'Widget',
-    graphColor: graphColor.value,
-    maintainSquareRatio: maintainSquareRatio.value,
-    // Number formatting options
-    decimalPlaces: decimalPlaces.value,
-    showThousandsSeparator: showThousandsSeparator.value,
-    // Include the area if provided
-    area: props.area,
-    // Preserve ID if in edit mode
-    id: props.editMode && props.widgetData.id ? props.widgetData.id : undefined,
-  };
-
-  // Add type-specific properties
-  if (displayType.value === 'instrument') {
-    console.log('Setting instrument dataSource:', dataSource.value);
-    widgetData.dataSource = dataSource.value;
-    widgetData.graphType = graphType.value;
-    
-    // Add additional data from the config
-    if (dataSourceConfig) {
-      widgetData.units = dataSourceConfig.units;
-      widgetData.description = dataSourceConfig.description;
-    }
-  } else if (displayType.value === 'windspeed') {
-    console.log('Setting windspeed dataSource:', dataSource.value);
-    widgetData.dataSource = dataSource.value;
-  } else if (displayType.value === 'tank') {
-    console.log('Setting tank dataSource:', dataSource.value);
-    widgetData.dataSource = dataSource.value;
-  } else if (displayType.value === 'sail360') {
-    console.log('Setting sail360 dataSource: sail360');
-    widgetData.dataSource = 'sail360';
-  } else if (displayType.value === 'battery') {
-    console.log('Setting battery dataSource:', dataSource.value);
-    widgetData.dataSource = dataSource.value;
-  } else if (displayType.value === 'ruuvi') {
-    console.log('Setting ruuvi dataSource:', dataSource.value);
-    widgetData.dataSource = dataSource.value;
-  } else if (displayType.value === 'victron-battery-monitor') {
-    console.log('Setting victron-battery-monitor dataSource:', dataSource.value);
-    widgetData.dataSource = dataSource.value;
-    widgetData.deviceId = dataSource.value;
-  } else if (displayType.value === 'victron-electrical') {
-    console.log('Setting victron-electrical widget (no dataSource needed)');
-    widgetData.dataSource = 'victronElectrical'; // Use a config ID
-  } else if (displayType.value === 'electrical-flow') {
-    console.log('Setting electrical-flow widget (no dataSource needed)');
-    widgetData.dataSource = 'electricalFlow'; // Use the config ID
-  }
-  
-  console.log('Widget data before standardization:', widgetData);
-
-  // Create a direct widget object that doesn't rely on the model transformation
   const directWidget = {
     id: props.editMode ? props.widgetData.id : `widget-${Date.now()}`,
-    title: widgetData.label || widgetData.widgetTitle || 'Widget',
-    type: widgetData.type,
-    displayType: widgetData.displayType,
-    component: widgetData.displayType,
-    dataSource: widgetData.dataSource, // Explicitly include dataSource at the top level
-    tankType: widgetData.tankType,     // Explicitly include tankType at the top level
-    graphType: widgetData.graphType,   // Explicitly include graphType at the top level
-    label: widgetData.label,           // Explicitly include label at the top level
-    widgetTitle: widgetData.widgetTitle, // Explicitly include widgetTitle at the top level
-    widgetName: widgetData.widgetName,   // Explicitly include widgetName at the top level
-    // Number formatting options at the top level
-    decimalPlaces: widgetData.decimalPlaces,
-    showThousandsSeparator: widgetData.showThousandsSeparator,
-    // Position will be set by DashboardView
-    data: widgetData // Include the full data object
+    title: widgetTitle.value || 'Widget',
+    type: displayType.value,
+    displayType: displayType.value,
+    component: displayType.value,
+    dataSource: dataSource.value || null,
+    tankType: null,
+    graphType: displayType.value === 'instrument' ? graphType.value : null,
+    label: widgetTitle.value || widgetName.value || 'Widget',
+    widgetTitle: widgetTitle.value,
+    widgetName: widgetName.value,
+    decimalPlaces:
+      displayType.value === 'instrument' ? decimalPlaces.value : undefined,
+    showThousandsSeparator:
+      displayType.value === 'instrument' ? showThousandsSeparator.value : undefined,
+    maintainSquareRatio: maintainSquareRatio.value,
+    data: {
+      displayType: displayType.value,
+      widgetTitle: widgetTitle.value,
+      widgetName: widgetName.value,
+      dataSource: dataSource.value || null,
+      graphType: displayType.value === 'instrument' ? graphType.value : null,
+      decimalPlaces:
+        displayType.value === 'instrument' ? decimalPlaces.value : undefined,
+      showThousandsSeparator:
+        displayType.value === 'instrument' ? showThousandsSeparator.value : undefined,
+      maintainSquareRatio: maintainSquareRatio.value,
+      label: widgetTitle.value,
+    },
   };
-  
-  console.log('Number formatting options being saved:', {
-    decimalPlaces: widgetData.decimalPlaces,
-    showThousandsSeparator: widgetData.showThousandsSeparator
-  });
-  
+
   console.log('Saving direct widget data:', directWidget);
 
   // Dismiss modal with the direct widget data

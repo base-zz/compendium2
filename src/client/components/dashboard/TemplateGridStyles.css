@@ -154,6 +154,44 @@
   grid-area: bottomRight;
 }
 
+/* Template 7 - Anchor Watch (2x3 + full-width bottom) */
+.template-grid-7 {
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1.5fr;
+  grid-template-areas:
+    "topLeft topCenter topRight"
+    "middleLeft middleCenter middleRight"
+    "bottom bottom bottom";
+}
+
+.template-grid-7 .area-topLeft {
+  grid-area: topLeft;
+}
+
+.template-grid-7 .area-topCenter {
+  grid-area: topCenter;
+}
+
+.template-grid-7 .area-topRight {
+  grid-area: topRight;
+}
+
+.template-grid-7 .area-middleLeft {
+  grid-area: middleLeft;
+}
+
+.template-grid-7 .area-middleCenter {
+  grid-area: middleCenter;
+}
+
+.template-grid-7 .area-middleRight {
+  grid-area: middleRight;
+}
+
+.template-grid-7 .area-bottom {
+  grid-area: bottom;
+}
+
 /* Template areas */
 .template-area {
   position: relative;

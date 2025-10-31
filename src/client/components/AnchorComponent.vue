@@ -38,21 +38,6 @@
         <ion-content fullscreen class="ion-padding">
           <div class="popover-content">
             <div class="popover-block">
-              Set the range for the anchor alarm.
-              <ion-range
-                color="light"
-                min="0"
-                max="250"
-                v-model="store.anchorData.criticalRange.r"
-              ></ion-range>
-              <div class="info-box" :class="[hasRange ? 'success' : 'warning']">
-                <div class="label">Range</div>
-                <ion-text class="metric label-highlight">
-                  {{ store.anchorData.criticalRange.r || 0 }}</ion-text
-                >
-              </div>
-            </div>
-            <div class="popover-block">
               Set the amount of rode deployed.
               <ion-range
                 color="light"
@@ -64,6 +49,21 @@
                 <div class="label">Rode</div>
                 <ion-text class="metric label-highlight">
                   {{ store.anchorData.rode.amount || 0 }}</ion-text
+                >
+              </div>
+            </div>
+            <div class="popover-block">
+              Set the critical range for the anchor alarm.
+              <ion-range
+                color="light"
+                min="0"
+                max="250"
+                v-model="store.anchorData.criticalRange.r"
+              ></ion-range>
+              <div class="info-box" :class="[hasRange ? 'success' : 'warning']">
+                <div class="label">Critical Range</div>
+                <ion-text class="metric label-highlight">
+                  {{ store.anchorData.criticalRange.r || 0 }}</ion-text
                 >
               </div>
             </div>

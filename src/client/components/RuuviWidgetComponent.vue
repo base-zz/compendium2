@@ -131,7 +131,20 @@ onUnmounted(() => {
 
 // Device label
 const deviceLabel = computed(() => {
-  return props.widgetData?.label || props.data?.label || deviceData.value?.name || deviceData.value?.localName || 'Ruuvi Sensor'
+  const widgetData = props.widgetData || {}
+  const externalData = props.data || {}
+
+  return (
+    widgetData.widgetTitle ||
+    widgetData.displayLabel ||
+    widgetData.label ||
+    externalData.widgetTitle ||
+    externalData.displayLabel ||
+    externalData.label ||
+    deviceData.value?.name ||
+    deviceData.value?.localName ||
+    'Ruuvi Sensor'
+  )
 })
 
 // Temperature

@@ -241,6 +241,7 @@
         @cancel-anchor="handleCancelAnchor"
       />
       <div ref="mapElement" class="openlayers-map"></div>
+      <div ref="attributionContainer" class="map-attribution"></div>
 
       <!-- Custom zoom controls -->
       <div class="custom-zoom-controls">
@@ -331,6 +332,7 @@ import LineString from "ol/geom/LineString";
 // Circle is imported but now only used in comments
 // import Circle from "ol/geom/Circle";
 import { defaults as defaultControls } from "ol/control";
+import Attribution from "ol/control/Attribution";
 import { defaults as defaultInteractions } from "ol/interaction";
 import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import ScaleLine from "ol/control/ScaleLine";
@@ -353,6 +355,7 @@ const FEATURE_TYPES = {
 
 // Main component setup
 const mapElement = ref(null);
+const attributionContainer = ref(null);
 const map = ref(null);
 const vectorSource = new VectorSource();
 const {
@@ -763,11 +766,19 @@ const updateRodeLine = debounce(() => {
   const boatPos = state?.navigation?.position;
   const anchorPos = state?.anchor?.anchorLocation?.position;
 
-  // Access the coordinates directly from the nested structure
-  const boatLat = boatPos?.latitude?.value;
-  const boatLon = boatPos?.longitude?.value;
-  const anchorLat = anchorPos?.latitude?.value;
-  const anchorLon = anchorPos?.longitude?.value;
+  const toScalar = (value) => {
+    if (value == null) return null;
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value === "object" && typeof value.value === "number") {
+      return Number.isFinite(value.value) ? value.value : null;
+    }
+    return null;
+  };
+
+  const boatLat = toScalar(boatPos?.latitude);
+  const boatLon = toScalar(boatPos?.longitude);
+  const anchorLat = toScalar(anchorPos?.latitude);
+  const anchorLon = toScalar(anchorPos?.longitude);
 
   // Log the raw values for debugging
   logger.debug("Direct state access - Coordinates:", {
@@ -780,12 +791,17 @@ const updateRodeLine = debounce(() => {
 
   // Simple validation
   if (
-    typeof boatLon !== "number" ||
-    typeof boatLat !== "number" ||
-    typeof anchorLon !== "number" ||
-    typeof anchorLat !== "number"
+    !Number.isFinite(boatLon) ||
+    !Number.isFinite(boatLat) ||
+    !Number.isFinite(anchorLon) ||
+    !Number.isFinite(anchorLat)
   ) {
     logger.warn("Invalid coordinates - using fallback values");
+    return;
+  }
+
+  if (!map.value || !vectorSource) {
+    logger.warn("Map not ready for rode line update");
     return;
   }
 
@@ -1090,7 +1106,7 @@ const initializeMap = () => {
       minZoom: 5,
       maxZoom: 22,
     }),
-    controls: defaultControls({ zoom: true }),
+    controls: defaultControls({ zoom: true, attribution: false }),
     interactions: defaultInteractions({
       // Start with minimal interactions
       dragPan: true,
@@ -1143,6 +1159,14 @@ const initializeMap = () => {
   map.value.addInteraction(mouseWheelZoom);
 
   map.value.addControl(new ScaleLine({ units: "metric" }));
+  if (attributionContainer.value) {
+    map.value.addControl(
+      new Attribution({
+        collapsible: false,
+        target: attributionContainer.value,
+      })
+    );
+  }
   map.value.on("moveend", saveViewState);
 
   // Add click handler for features
@@ -2282,6 +2306,25 @@ ion-page.page-container {
 .custom-icon {
   width: 24px;
   height: 24px;
+}
+
+.map-attribution {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  line-height: 1.4;
+}
+
+.map-attribution a {
+  color: inherit;
+  text-decoration: underline;
 }
 
 .map-wrapper .ol-scale-line {

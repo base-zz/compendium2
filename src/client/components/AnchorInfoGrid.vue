@@ -781,4 +781,39 @@ const handleDropAnchor = () => {
   50% { opacity: 0.5; }
   100% { opacity: 1; }
 }
+
+@media (max-width: 480px) {
+  .anchor-grid-div {
+    top: calc(var(--ion-safe-area-top, 0) + 56px);
+    width: 90vw;
+    padding: 4px 6px;
+  }
+
+  .drop-anchor-rect {
+    height: 42px !important;
+    margin: 6px auto 10px auto !important;
+    border-radius: 6px !important;
+  }
+
+  .drop-anchor-rect span {
+    font-size: 1.1em !important;
+  }
+
+  .grid-row {
+    gap: 4px;
+  }
+
+  .info-rect-div {
+    padding: 3px 2px;
+    min-height: 26px;
+  }
+
+  .label-div {
+    font-size: 0.78em;
+  }
+
+  .metric-div {
+    font-size: 0.92em;
+  }
+}
 </style>
