@@ -239,6 +239,20 @@ class StateUpdateProvider {
     this.currentAdapter.on("env-temperature", envTempListener);
     this._listenerRefs.push({ event: "env-temperature", fn: envTempListener });
 
+    const preferencesListener = (payload) => {
+      if (!payload) {
+        return;
+      }
+
+      const event = payload.type === "preferences:update"
+        ? payload
+        : { type: "preferences:update", preferences: payload.preferences ?? payload, timestamp: payload.timestamp ?? Date.now() };
+
+      this._notify(event);
+    };
+    this.currentAdapter.on("preferences:update", preferencesListener);
+    this._listenerRefs.push({ event: "preferences:update", fn: preferencesListener });
+
     // Listen for patch-update events (incremental patches)
     const patchUpdateListener = (data) =>
       this._notify({ type: "patch-update", data });

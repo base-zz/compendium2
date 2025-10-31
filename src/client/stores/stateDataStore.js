@@ -14,15 +14,16 @@ import { BASE_ALERT_DATUM } from "@/shared/alertDatum.js";
 
 
 import {
-  getUserUnitPreferences,
   setUnitPreference,
   setUnitPreset,
   UNIT_TYPES,
+  UNIT_PRESETS,
 } from "@/shared/unitPreferences";
 import { createStateDataModel } from "@/shared/stateDataModel.js";
 import { UnitConversion } from "@/shared/unitConversion";
 import { createLogger } from "../services/logger";
 import { generateUuid } from "@/client/utils/uuid.js";
+import { usePreferencesStore } from "@/client/stores/preferences";
 
 
 const logger = createLogger("state-data-store");
@@ -1500,20 +1501,28 @@ export const useStateDataStore = defineStore("stateData", () => {
 
   // --- Export everything needed for components ---
   // Unit preferences state
-  const unitPreferences = ref(null);
+  const preferencesStore = usePreferencesStore();
+  const serverDefaultUnitPreferences = { ...UNIT_PRESETS.IMPERIAL };
+  const unitPreferences = computed(() => {
+    const current = preferencesStore.rawPreferences;
+    if (current && Object.keys(current).length > 0) {
+      return current;
+    }
+    return serverDefaultUnitPreferences;
+  });
 
   // Load unit preferences
   async function loadUnitPreferences() {
     try {
-      unitPreferences.value = await getUserUnitPreferences();
+      const loaded = unitPreferences.value;
       logger.debug(
         "[StateDataStore] Loaded unit preferences:",
-        unitPreferences.value
+        loaded
       );
-      return unitPreferences.value;
+      return loaded;
     } catch (error) {
       logger.error("[StateDataStore] Failed to load unit preferences:", error);
-      return null;
+      return serverDefaultUnitPreferences;
     }
   }
 
@@ -1521,7 +1530,7 @@ export const useStateDataStore = defineStore("stateData", () => {
   async function updateUnitPreference(unitType, unit) {
     try {
       const updatedPrefs = await setUnitPreference(unitType, unit);
-      unitPreferences.value = updatedPrefs;
+      preferencesStore.applyServerPreferences(updatedPrefs);
       await updateUnitsToPreferences();
       return updatedPrefs;
     } catch (error) {
@@ -1534,7 +1543,7 @@ export const useStateDataStore = defineStore("stateData", () => {
   async function updateUnitPreset(preset) {
     try {
       const updatedPrefs = await setUnitPreset(preset);
-      unitPreferences.value = updatedPrefs;
+      preferencesStore.applyServerPreferences(updatedPrefs);
       await updateUnitsToPreferences();
       return updatedPrefs;
     } catch (error) {
@@ -1545,11 +1554,6 @@ export const useStateDataStore = defineStore("stateData", () => {
 
   // Convert all values in state to match user preferences
   async function updateUnitsToPreferences() {
-    // Make sure preferences are loaded
-    if (!unitPreferences.value) {
-      await loadUnitPreferences();
-    }
-
     // Apply conversions to the state
     convertStateToPreferredUnits(state);
 
@@ -1558,7 +1562,8 @@ export const useStateDataStore = defineStore("stateData", () => {
 
   // Convert a specific state object to preferred units
   function convertStateToPreferredUnits(stateObj) {
-    if (!unitPreferences.value || !stateObj) return;
+    const currentUnitPreferences = unitPreferences.value;
+    if (!currentUnitPreferences || !stateObj) return;
 
     // Process navigation data
     if (stateObj.navigation) {

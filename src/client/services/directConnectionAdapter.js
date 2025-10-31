@@ -256,7 +256,17 @@ class DirectConnectionAdapter {
         }
         return;
       }
-      
+
+      if (msg.type === "preferences:update") {
+        const preferencesEvent = { ...msg };
+        if (!Object.prototype.hasOwnProperty.call(preferencesEvent, "timestamp")) {
+          preferencesEvent.timestamp = Date.now();
+        }
+
+        this.emit("preferences:update", preferencesEvent);
+        return;
+      }
+
       if (msg.type === "tide:update") {
         // Create a properly structured event for the state update provider
         const tideEvent = {

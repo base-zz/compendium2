@@ -16,9 +16,13 @@ const logger = createLogger('relay-adapter');
 class RelayConnectionAdapter {
   constructor() {
     this.emitter = mitt();
+    this.on = this.emitter.on;
+    this.off = this.emitter.off;
+    this.once = this.emitter.once;
+    this.emit = this.emitter.emit;
+
     this.mode = 'relay';
     this.services = new Map();
-    this.eventListeners = new Map();
     this.connectionState = {
       status: 'disconnected',
       lastError: null
@@ -33,31 +37,6 @@ class RelayConnectionAdapter {
     this._setupRelayEventMapping();
   }
 
-    // Replace EventEmitter methods with mitt equivalents
-    on(event, handler) {
-      this.emitter.on(event, handler);
-      return this; // For method chaining
-    }
-  
-    off(event, handler) {
-      this.emitter.off(event, handler);
-      return this; // For method chaining
-    }
-
-    once(event, handler) {
-      const onceHandler = (...args) => {
-        this.off(event, onceHandler);
-        handler(...args);
-      };
-      this.on(event, onceHandler);
-      return this; // For method chaining
-    }    
-  
-    emit(event, data) {
-      this.emitter.emit(event, data);
-      return this; // For method chaining
-    }
-  
   _setupRelayEventMapping() {
     logger.info('Setting up relay event mapping');
     
@@ -90,6 +69,11 @@ class RelayConnectionAdapter {
     relayConnectionBridge.on('weather-update', (data) => {
       logger.debug('Weather update received:', data);
       this.emit('weather-update', data);
+    });
+
+    relayConnectionBridge.on('preferences-update', (data) => {
+      logger.debug('Preferences update received:', data);
+      this.emit('preferences:update', data);
     });
 
     
@@ -247,18 +231,13 @@ class RelayConnectionAdapter {
   }
   
   on(event, callback) {
-    if (!this.eventListeners.has(event)) {
-      this.eventListeners.set(event, new Set());
-    }
-    this.eventListeners.get(event).add(callback);
-    
-    // Return unsubscribe function
-    return () => this.eventListeners.get(event)?.delete(callback);
+    return this.emitter.on(event, callback);
   }
-  
+
   emit(event, data) {
-    this.eventListeners.get(event)?.forEach(cb => cb(data));
+    this.emitter.emit(event, data);
   }
+
   
   async sendCommand(serviceName, action, data) {
     // Forward commands to the relay server
