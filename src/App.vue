@@ -8,11 +8,11 @@
 <script setup lang="ts">
 import { IonApp } from '@ionic/vue';
 import { onMounted } from 'vue';
-import { useStateDataStore } from './client/stores/stateDataStore';
-import { useRelayPiniaSync } from './client/services/useRelayPiniaSync';
-import { useDirectPiniaSync } from './client/services/useDirectPiniaSync';
-import { createLogger } from './client/services/logger';
-import { notificationService } from './client/services/NotificationService';
+import { useStateDataStore } from '@/stores/stateDataStore';
+import { useRelayPiniaSync } from '@/services/useRelayPiniaSync';
+import { useDirectPiniaSync } from '@/services/useDirectPiniaSync';
+import { createLogger } from '@/services/logger';
+import { notificationService } from '@/services/NotificationService';
 
 const logger = createLogger('App');
 logger.info('Initializing application...');

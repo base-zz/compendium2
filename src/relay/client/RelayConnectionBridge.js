@@ -5,9 +5,9 @@ import {
   signMessage,
   getClientPublicKey,
   registerClientKeyWithVPS,
-} from "../../client/utils/clientKeyPair.js";
-import { remoteLogger } from "../../client/utils/remoteLogger.js";
-import { createLogger } from '../../client/services/logger.js';
+} from "../../utils/clientKeyPair.js";
+import { remoteLogger } from "../../utils/remoteLogger.js";
+import { createLogger } from '../../services/logger.js';
 import { createStateDataModel } from "../../shared/stateDataModel.js";
 
 const logger = createLogger('relay-adapter');

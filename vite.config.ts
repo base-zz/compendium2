@@ -14,12 +14,10 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
-        '@client': path.resolve(__dirname, './src/client'),
         '@server': path.resolve(__dirname, './src/server'),
-        '@config': path.resolve(__dirname, './src/config'),
         '@shared': path.resolve(__dirname, './src/shared'),
-        '@components': path.resolve(__dirname, './src/client/components'),
-        '@views': path.resolve(__dirname, './src/client/views')
+        '@components': path.resolve(__dirname, './src/components'),
+        '@views': path.resolve(__dirname, './src/views')
       },
     },
     server: {

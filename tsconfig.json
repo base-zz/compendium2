@@ -2,11 +2,9 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@client/*": ["src/client/*"],
-      "@relay/*": ["src/relay/*"],
       "@/*": ["./src/*"],
-      "@components/*": ["src/client/components/*"],
-      "@views/*": ["src/client/views/*"]
+      "@components/*": ["src/components/*"],
+      "@views/*": ["src/views/*"]
     },
     "target": "ESNext",
     "useDefineForClassFields": true,
@@ -24,7 +22,7 @@
     "noEmit": true,
 
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "src/**/*.js", "src/client/views/AnchorView.bak"],
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "src/**/*.js"],
   "exclude": ["src/server/**/*.js", "src/relay/server/**/*.js", "src/relay/vps/**/*.js", "src/relay/VPSClient.js", "src/core/sync/**/*"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

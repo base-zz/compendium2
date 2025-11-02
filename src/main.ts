@@ -1,8 +1,8 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { IonicVue } from '@ionic/vue';
-import { startSmartConnectionManager } from '@client/services/smartConnectionManager.js';
-import { createLogger } from './client/services/logger.js';
+import { startSmartConnectionManager } from '@/services/smartConnectionManager.js';
+import { createLogger } from '@/services/logger.js';
 import App from './App.vue';
 import router from './router';
 
@@ -28,7 +28,7 @@ const app = createApp(App);
 app.use(pinia);
 
 // Import the preferences store
-import { usePreferencesStore } from './client/stores/preferences'; // No .ts extension
+import { usePreferencesStore } from '@/stores/preferences'; // No .ts extension
 
 // Create a function to initialize the store after Pinia is set up
 const initializeStores = () => {

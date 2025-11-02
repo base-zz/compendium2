@@ -9,24 +9,24 @@ declare global {
   }
 }
 
-import { useBoatConnectionStore } from "@client/stores/boatConnection";
-import AnchorView from "@client/views/AnchorView.vue";
-import SplashScreen from "@client/views/SplashScreen.vue";
-import Settings from "@client/views/SettingsView.vue";
-import InstrumentView from "@client/components/InstrumentComponent.vue";
-import SailView from "@client/views/SailView.vue";
-import TideChart from "@client/components/charts/TideChart.vue";
-import DashboardView from "@client/views/DashboardView.vue";
-import HomePage from "@client/views/HomePage.vue";
-import BoatPairing from "@client/components/onboarding/BoatPairing.vue";
-import WeatherView from "@client/views/WeatherView.vue";
-import TidalView from "@client/views/TidalView.vue";
+import { useBoatConnectionStore } from "@/stores/boatConnection";
+import AnchorView from "@/views/AnchorView.vue";
+import SplashScreen from "@/views/SplashScreen.vue";
+import Settings from "@/views/SettingsView.vue";
+import InstrumentView from "@/components/InstrumentComponent.vue";
+import SailView from "@/views/SailView.vue";
+import TideChart from "@/components/charts/TideChart.vue";
+import DashboardView from "@/views/DashboardView.vue";
+import HomePage from "@/views/HomePage.vue";
+import BoatPairing from "@/components/onboarding/BoatPairing.vue";
+import WeatherView from "@/views/WeatherView.vue";
+import TidalView from "@/views/TidalView.vue";
 const routes = [
   {
     path: "/:pathMatch(.*)*",
     name: "NotFound",
     meta: { title: "Page Not Found" },
-    component: () => import("@client/views/NotFoundView.vue"),
+    component: () => import("@/views/NotFoundView.vue"),
   },
   {
     path: "/pair",
@@ -66,7 +66,7 @@ const routes = [
     name: "AISTarget",
     props: true,
     meta: { requiresAuth: true, title: "AIS Target" },
-    component: () => import("@client/views/AISTargetView.vue"),
+    component: () => import("@/views/AISTargetView.vue"),
   },
 
   {
@@ -97,20 +97,20 @@ const routes = [
     path: "/login",
     name: "Login",
     props: false,
-    component: () => import("@client/views/LoginView.vue"),
+    component: () => import("@/views/LoginView.vue"),
     meta: { title: "Login" },
   },
   {
     path: "/register",
     name: "Register",
     props: false,
-    component: () => import("@client/components/RegisterComponent.vue"),
+    component: () => import("@/components/RegisterComponent.vue"),
     meta: { title: "Register" },
   },
   {
     path: "/forgot-password",
     name: "ForgotPassword",
-    component: () => import("@client/views/PasswordResetView.vue"),
+    component: () => import("@/views/PasswordResetView.vue"),
     meta: { title: "Forgot Password" },
   },
   // JunkView2 route now fixed with correct CurrentLines component path
@@ -118,26 +118,26 @@ const routes = [
   // {
   //   path: "/junk3",
   //   name: "Junk3",
-  //   component: () => import("@client/views/JunkView3.vue"),
+  //   component: () => import("@/views/JunkView3.vue"),
   //   meta: { title: "Junk3" },
   // },
   // {
   //   path: "/datamonitor",
   //   name: "SignalKDataMonitor",
-  //   component: () => import("@client/views/SignalKDataView.vue"),
+  //   component: () => import("@/views/SignalKDataView.vue"),
   //   meta: { title: "SignalK Data Viewer" },
   // },
   // Pages route commented out due to import issues
   {
     path: "/pages",
     name: "Pages",
-    component: () => import("@client/views/DashboardView.vue"),
+    component: () => import("@/views/DashboardView.vue"),
     meta: { title: "Pages" },
   },
   {
     path: "/logging-test",
     name: "LoggingTest",
-    component: () => import("@client/components/LoggingTest.vue"),
+    component: () => import("@/components/LoggingTest.vue"),
     meta: { requiresAuth: true, title: "Logging Test" },
   },
   {
@@ -169,25 +169,25 @@ const routes = [
   {
     path: "/alerts",
     name: "Alerts",
-    component: () => import("@client/views/AlertView.vue"),
+    component: () => import("@/views/AlertView.vue"),
     meta: { title: "Alerts" },
   },
   // Alert Rules Management
   {
     path: "/alert-rules",
-    component: () => import("@client/views/AlertRulesView.vue"),
+    component: () => import("@/views/AlertRulesView.vue"),
     meta: { title: "Alert Rules" },
     children: [
       {
         path: "",
         name: "alert-rules",
-        component: () => import("@client/components/AlertRuleList.vue"),
+        component: () => import("@/components/AlertRuleList.vue"),
         meta: { title: "Alert Rules" },
       },
       {
         path: ":mode(create|edit)/:id?",
         name: "alert-rule-editor",
-        component: () => import("@client/components/AlertRuleEditor.vue"),
+        component: () => import("@/components/AlertRuleEditor.vue"),
         props: true,
         meta: { title: "Edit Alert Rule" },
       },
@@ -197,7 +197,7 @@ const routes = [
   {
     path: "/userinfo",
     name: "userinfo",
-    component: () => import("@client/views/UserInfoView.vue"),
+    component: () => import("@/views/UserInfoView.vue"),
     meta: {
       requiresAuth: true,
       title: "User Info",
@@ -206,7 +206,7 @@ const routes = [
   {
     path: "/bluetooth",
     name: "BluetoothManagement",
-    component: () => import("@client/views/BluetoothManagementView.vue"),
+    component: () => import("@/views/BluetoothManagementView.vue"),
     meta: { 
       requiresAuth: true, 
       title: "Bluetooth Management" 
@@ -216,7 +216,7 @@ const routes = [
   // {
   //   path: '/settheme',
   //   name: 'settheme',
-  //   component: () => import("@client/views/SetThemeView.vue"),
+  //   component: () => import("@/views/SetThemeView.vue"),
   //   meta: {
   //     requiresAuth: true,
   //     title: "Set Theme"
@@ -226,7 +226,7 @@ const routes = [
   // {
   //   path: '/deviceconfig',
   //   name: 'deviceconfig',
-  //   component: () => import("@client/views/DeviceConfigView.vue"),
+  //   component: () => import("@/views/DeviceConfigView.vue"),
   //   meta: {
   //     requiresAuth: true,
   //     title: "Device Config"
@@ -235,7 +235,7 @@ const routes = [
   // {
   //   path: '/systemconfig',
   //   name: 'systemconfig',
-  //   component: () => import("@client/views/SystemConfigView.vue"),
+  //   component: () => import("@/views/SystemConfigView.vue"),
   //   meta: {
   //     requiresAuth: true,
   //     title: "System Config"
