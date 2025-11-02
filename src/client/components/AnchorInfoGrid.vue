@@ -56,13 +56,16 @@
       <div class="modal-content enhanced-modal">
         <h3>Edit Anchor Alarm Radius</h3>
         <div class="slider-label">
-          <strong>Radius:</strong> <span class="slider-value">{{ editRadiusValue }} m</span>
+          <strong>Radius:</strong>
+          <span class="slider-value">
+            {{ formattedRadius }} {{ isMetric ? 'm' : 'ft' }}
+          </span>
         </div>
         <ion-range
           v-model="editRadiusValue"
-          :min="5"
-          :max="150"
-          :step="1"
+          :min="radiusMin"
+          :max="radiusMax"
+          :step="radiusStep"
           ticks="true"
           color="primary"
           class="modal-range modal-range-center"
@@ -83,6 +86,8 @@ import { IonModal, IonButton, IonRange } from '@ionic/vue';
 import { useStateDataStore } from '@/client/stores/stateDataStore.js';
 import { storeToRefs } from 'pinia';
 import { createLogger } from '@/client/services/logger';
+import { usePreferencesStore } from '@/client/stores/preferences';
+import { UnitConversion } from '@/shared/unitConversion';
 
 const logger = createLogger('AnchorInfoGrid');
 
@@ -93,24 +98,79 @@ const emit = defineEmits(['anchor-dropped']);
 const showEditRadiusModal = ref(false);
 const editRadiusValue = ref(0);
 
+const stateStore = useStateDataStore();
+const { state } = storeToRefs(stateStore);
+const anchorState = computed(() => state.value.anchor);
+
+const preferencesStore = usePreferencesStore();
+const { preferences } = storeToRefs(preferencesStore);
+
+const preferredLengthUnit = computed(() => {
+  const unit = preferences.value?.units?.length;
+  if (unit === 'm' || unit === 'ft') {
+    return unit;
+  }
+  const current = anchorState.value?.criticalRange?.units;
+  if (current === 'm' || current === 'ft') {
+    return current;
+  }
+  return 'm';
+});
+
+const isMetric = computed(() => preferredLengthUnit.value === 'm');
+
+function convertLengthToPreferred(value, units) {
+  if (value == null) {
+    return 0;
+  }
+  if (units === preferredLengthUnit.value) {
+    return value;
+  }
+  if (units === 'm' && preferredLengthUnit.value === 'ft') {
+    return UnitConversion.mToFt(value);
+  }
+  if (units === 'ft' && preferredLengthUnit.value === 'm') {
+    return UnitConversion.ftToM(value);
+  }
+  return value;
+}
+
+function convertLengthFromPreferred(value, preferredUnits) {
+  if (value == null) {
+    return 0;
+  }
+  if (preferredUnits === 'm') {
+    return value;
+  }
+  if (preferredUnits === 'ft') {
+    return UnitConversion.ftToM(value);
+  }
+  return value;
+}
+
 watch(showEditRadiusModal, (val) => {
   if (val && anchorState.value?.criticalRange?.r) {
-    editRadiusValue.value = anchorState.value.criticalRange.r;
+    const currentRadius = anchorState.value.criticalRange.r;
+    const currentUnits = anchorState.value.criticalRange.units || 'm';
+    editRadiusValue.value = convertLengthToPreferred(currentRadius, currentUnits);
   }
 });
 
+const formattedRadius = computed(() => Math.round(editRadiusValue.value));
+const radiusStep = computed(() => (isMetric.value ? 1 : 5));
+const radiusMin = computed(() => (isMetric.value ? 5 : 15));
+const radiusMax = computed(() => (isMetric.value ? 150 : 500));
+
 function confirmEditRadius() {
   if (anchorState.value && anchorState.value.criticalRange) {
-    anchorState.value.criticalRange.r = editRadiusValue.value;
+    const preferredUnits = preferredLengthUnit.value;
+    const baseValue = convertLengthFromPreferred(editRadiusValue.value, preferredUnits);
+    anchorState.value.criticalRange.r = baseValue;
+    anchorState.value.criticalRange.units = preferredUnits;
   }
   showEditRadiusModal.value = false;
 }
 
-
-const stateStore = useStateDataStore();
-const { state } = storeToRefs(stateStore);
-const anchorState = computed(() => state.value.anchor);
-  
 // Alert cycling state
 const currentAlertIndex = ref(0);
 const alertCycleInterval = ref(null);

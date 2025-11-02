@@ -387,6 +387,11 @@ function projectPoint(target) {
 }
 
 const boatPoint = computed(() => {
+  const coordinatePoint = projectPoint(boatCoordinates.value);
+  if (coordinatePoint) {
+    return coordinatePoint;
+  }
+
   const ratio = boatDistanceRatio.value;
   if (ratio == null) return null;
   const angle = boatDirectionRadians.value;
@@ -398,7 +403,11 @@ const boatPoint = computed(() => {
     y: CENTER - Math.cos(angle) * distancePx,
   };
 });
-const anchorPoint = computed(() => projectPoint(anchorCoordinates.value));
+const anchorPoint = computed(() => {
+  const source = anchorCoordinates.value || dropCoordinates.value;
+  if (!source) return null;
+  return projectPoint(source);
+});
 
 const aisPoints = computed(() => {
   const targets = state.value.aisTargets || {};

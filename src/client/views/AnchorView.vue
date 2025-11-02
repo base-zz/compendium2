@@ -26,6 +26,22 @@
       <div class="modal-content enhanced-modal">
         <h3>Set Anchor</h3>
         <div class="slider-label">
+          <strong>Rode:</strong>
+          <span class="slider-value"
+            >{{ anchorState.rode.amount }} {{ isMetric.value ? "m" : "ft" }}</span
+          >
+        </div>
+        <ion-range
+          v-model="anchorState.rode.amount"
+          :min="0"
+          :max="rodeRangeMax"
+          :step="isMetric.value ? 1 : 5"
+          ticks="true"
+          color="secondary"
+          class="modal-range modal-range-center"
+          style="margin-bottom: 18px; width: 80%"
+        />
+        <div class="slider-label">
           <strong>Anchor Range:</strong>
           <span class="slider-value"
             >{{
@@ -48,22 +64,6 @@
           style="margin-bottom: 18px; width: 80%"
         />
         <div v-else class="text-danger">Critical range not initialized</div>
-        <div class="slider-label">
-          <strong>Rode:</strong>
-          <span class="slider-value"
-            >{{ anchorState.rode.amount }} {{ isMetric.value ? "m" : "ft" }}</span
-          >
-        </div>
-        <ion-range
-          v-model="anchorState.rode.amount"
-          :min="0"
-          :max="rodeRangeMax"
-          :step="isMetric.value ? 1 : 5"
-          ticks="true"
-          color="secondary"
-          class="modal-range modal-range-center"
-          style="margin-bottom: 18px; width: 80%"
-        />
         <div class="slider-label">
           <strong>AIS Alert Range:</strong>
           <span class="slider-value"
@@ -293,6 +293,8 @@ import {
   useStateDataStore,
   calculateDistanceMeters,
 } from "@/client/stores/stateDataStore";
+import { usePreferencesStore } from "@/client/stores/preferences";
+import { UnitConversion } from "@/shared/unitConversion";
 // Alert creation is now handled server-side via the rule engine
 import { debounce } from "lodash-es";
 import { getComputedAnchorLocation } from "@/client/stores/stateDataStore";
@@ -369,6 +371,8 @@ const {
 // Store integration
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
+const preferencesStore = usePreferencesStore();
+const { preferences } = storeToRefs(preferencesStore);
 const navigationState = computed(() => state.value.navigation);
 const anchorState = computed(() => state.value.anchor);
 const alertState = computed(() => state.value.alerts?.active);
@@ -429,8 +433,23 @@ const computedCriticalRange = computed(
 
 // Unit system handling
 const isMetric = computed(() => {
-  // Default to imperial if settings not available
-  return false; // Default to imperial
+  const preferredLength = preferences.value?.units?.length;
+  if (preferredLength === "m") {
+    return true;
+  }
+  if (preferredLength === "ft") {
+    return false;
+  }
+  // Fallback to current rode units if preferences missing
+  const rodeUnits = state.value.anchor?.rode?.units;
+  if (rodeUnits === "m") {
+    return true;
+  }
+  if (rodeUnits === "ft") {
+    return false;
+  }
+  // Default to imperial (legacy behavior)
+  return false;
 });
 
 // Dynamic range bounds based on unit system
@@ -1719,7 +1738,15 @@ const handleSetAnchor = () => {
     const bearingRad = (bearingDegrees * Math.PI) / 180; // Convert degrees to radians
 
     // Make sure we have a non-zero rode length (default to 50m if not set)
-    const rode = anchorState.value.rode?.amount ?? 50;
+    const rodeAmount = anchorState.value.rode?.amount ?? 50;
+    const currentRodeUnits = anchorState.value.rode?.units || "m";
+    const preferredUnits = preferences.value?.units?.length || currentRodeUnits;
+    let rode = rodeAmount;
+    if (preferredUnits === "m" && currentRodeUnits === "ft") {
+      rode = UnitConversion.ftToM(rodeAmount);
+    } else if (preferredUnits === "ft" && currentRodeUnits === "m") {
+      rode = UnitConversion.mToFt(rodeAmount);
+    }
     const depth = navigationState.value?.depth?.value ?? 0; // Use 0 as default if no depth
 
     // Debug the values being passed to getComputedAnchorLocation
@@ -1787,15 +1814,15 @@ const handleSetAnchor = () => {
       },
       rode: {
         amount: rode,
-        units: "m",
+        units: preferredUnits,
       },
       criticalRange: {
         r: anchorState.value.criticalRange?.r || rode,
-        units: "m",
+        units: preferredUnits,
       },
       warningRange: {
         r: anchorState.value.warningRange?.r || 15,
-        units: "m",
+        units: preferredUnits,
       },
       defaultScope: {
         value: 5,

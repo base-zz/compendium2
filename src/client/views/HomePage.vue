@@ -9,56 +9,58 @@
       </ion-toolbar>
     </ion-header>
     <ion-content :fullscreen="true" class="content-with-header home-content">
-      <div class="logo-container">
-        <div class="company-name">
-          <h1>Compendium</h1>
-          <h6>Systems</h6>
+      <div class="home-inner">
+        <div class="logo-container">
+          <div class="company-name">
+            <h1>Compendium</h1>
+            <h6>Systems</h6>
+          </div>
+          <div class="logo-wrapper">
+            <img 
+              src="/img/compendium_logo.png" 
+              alt="Compendium Navigation"
+              class="logo-image"
+            />
+          </div>
         </div>
-        <div class="logo-wrapper">
-          <img 
-            src="/img/compendium_logo.png" 
-            alt="Compendium Navigation"
-            class="logo-image"
-          />
+
+        <div class="button-container">
+          <ion-button @click="router.push('/anchor')" size="large" class="nav-button">
+            <ion-icon src="/img/anchor.svg" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <ion-button @click="router.push('/sail')" size="large" class="nav-button">
+            <ion-icon src="/img/sail-test.svg" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <ion-button @click="router.push('/pages')" size="large" class="nav-button">
+            <ion-icon src="/img/pages.svg" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <ion-button @click="router.push('/alerts')" size="large" class="nav-button">
+            <ion-icon :icon="notifications" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <ion-button @click="router.push('/weather')" size="large" class="nav-button">
+            <ion-icon :icon="partlySunny" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <ion-button @click="router.push('/tides')" size="large" class="nav-button">
+            <ion-icon :icon="water" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <ion-button @click="router.push('/settings')" size="large" class="nav-button">
+            <ion-icon src="/img/cog.svg" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <ion-button @click="router.push('/bluetooth')" size="large" class="nav-button">
+            <ion-icon :icon="bluetooth" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <!-- <ion-button @click="router.push('/junk3')" size="large" class="nav-button">
+            <ion-icon :icon="dice" class="custom-icon"></ion-icon>
+          </ion-button> -->
         </div>
-      </div>
-
-      <div class="button-container">
-        <ion-button @click="router.push('/anchor')" size="large" class="nav-button">
-          <ion-icon src="/img/anchor.svg" class="custom-icon"></ion-icon>
-        </ion-button>
-
-        <ion-button @click="router.push('/sail')" size="large" class="nav-button">
-          <ion-icon src="/img/sail-test.svg" class="custom-icon"></ion-icon>
-        </ion-button>
-
-        <ion-button @click="router.push('/pages')" size="large" class="nav-button">
-          <ion-icon src="/img/pages.svg" class="custom-icon"></ion-icon>
-        </ion-button>
-
-        <ion-button @click="router.push('/alerts')" size="large" class="nav-button">
-          <ion-icon :icon="notifications" class="custom-icon"></ion-icon>
-        </ion-button>
-
-        <ion-button @click="router.push('/weather')" size="large" class="nav-button">
-          <ion-icon :icon="partlySunny" class="custom-icon"></ion-icon>
-        </ion-button>
-
-        <ion-button @click="router.push('/tides')" size="large" class="nav-button">
-          <ion-icon :icon="water" class="custom-icon"></ion-icon>
-        </ion-button>
-
-        <ion-button @click="router.push('/settings')" size="large" class="nav-button">
-          <ion-icon src="/img/cog.svg" class="custom-icon"></ion-icon>
-        </ion-button>
-
-        <ion-button @click="router.push('/bluetooth')" size="large" class="nav-button">
-          <ion-icon :icon="bluetooth" class="custom-icon"></ion-icon>
-        </ion-button>
-
-        <!-- <ion-button @click="router.push('/junk3')" size="large" class="nav-button">
-          <ion-icon :icon="dice" class="custom-icon"></ion-icon>
-        </ion-button> -->
       </div>
     </ion-content>
   </ion-page>
@@ -77,40 +79,10 @@ import {
   IonMenuButton,
 } from "@ionic/vue";
 import { useRouter } from "vue-router";
-import { ref, computed, watch, onMounted } from "vue";
-import { notifications, dice, tv, partlySunny, water, bluetooth } from "ionicons/icons";
+import { notifications, partlySunny, water, bluetooth } from "ionicons/icons";
 
- 
+
 const router = useRouter();
-
-const logoFillColor = ref("white");
-
-onMounted(() => {
-  setTimeout(() => {
-    const w = window.innerWidth * 0.9;
-    const svgw = 500;
-    let r = w / svgw;
-
-    // Limit the maximum scale for larger screens
-    const maxScale = 0.6; // Adjust this value as needed
-    if (r > maxScale) {
-      r = maxScale;
-    }
-
-    // Set a minimum scale for very small screens
-    const minScale = 0.3;
-    if (r < minScale) {
-      r = minScale;
-    }
-
-    const svg = document.getElementById("logo");
-    if (svg) {
-      svg.style.transformOrigin = "center";
-      svg.style.transform = `scale(${r})`;
-      document.getElementById("path1").style.boxShadow = "12px 8px 40px 20px #000";
-    }
-  }, 100); // Small delay to ensure DOM is ready
-});
 </script>
 
 <style scoped>
@@ -260,18 +232,21 @@ ion-content {
 
 ion-button.nav-button {
   border: 2px solid var(--ion-color-primary-contrast);
-  border-radius: 8px;
-  margin: 0 5px;
-  font-weight: bold;
+  border-radius: 12px;
+  font-weight: 600;
   cursor: pointer;
   transition: background-color 0.3s ease;
   --background: var(--ion-color-primary);
-  --padding-start: 16px;
-  --padding-end: 16px;
-  --padding-top: 16px;
-  --padding-bottom: 16px;
-  min-width: 60px;
-  min-height: 60px;
+  --padding-start: 0;
+  --padding-end: 0;
+  --padding-top: 0;
+  --padding-bottom: 0;
+  width: 100%;
+  max-width: 72px;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 ion-button.nav-button ion-icon {
@@ -281,9 +256,14 @@ ion-button.nav-button ion-icon {
   color: var(--ion-color-primary-contrast);
 }
 
-/* Ensure proper spacing for touch targets */
-.button-container ion-button {
-  margin: 10px;
+.button-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(0.5rem, 3vw, 0.9rem);
+  width: 100%;
+  max-width: 260px;
+  margin: 0 auto;
 }
 
 .logo-container {
@@ -361,69 +341,45 @@ ion-button.nav-button ion-icon {
 /* Add specific styling for larger screens */
 @media (min-width: 1200px) {
   ion-content {
-    --padding-top: 5rem;
+    --padding-top: var(--ion-safe-area-top);
+    --padding-bottom: var(--ion-safe-area-bottom);
+  }
+
+  .home-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vh, 3rem) clamp(1rem, 4vw, 2.5rem);
+    display: flex;
+    flex-direction: column;
+    gap: clamp(2rem, 5vh, 3rem);
   }
 
   .button-container {
-    margin-top: 3rem;
+    display: grid;
+    justify-items: center;
+    max-width: 560px;
+    grid-template-columns: repeat(4, minmax(96px, 1fr));
   }
-}
 
-.button-container {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  margin-top: clamp(1rem, 4vh, 2.5rem);
-  padding: 0 1rem;
-  gap: clamp(0.75rem, 3vw, 1rem);
-}
-
-.nav-button {
-  flex: 0 0 auto;
-  margin: 0.3rem;
-  min-width: 120px;
-  max-width: 180px;
+  .menu-icon {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    color: var(--ion-color-primary-contrast);
+  }
 }
 
 @media (min-width: 768px) {
   .button-container {
+    display: grid;
+    justify-items: center;
     margin-top: 2rem;
     gap: 1.2rem;
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+    grid-template-columns: repeat(4, minmax(104px, 1fr));
   }
-
-  .nav-button {
-    margin: 0.5rem;
-  }
-}
-
-.menu-icon {
-  font-size: 24px;
-  width: 24px;
-  height: 24px;
-  color: var(--ion-color-primary-contrast);
-}
-
-/* Safe area handling for mobile */
-@supports (padding: max(0px)) {
-  ion-header,
-  ion-toolbar {
-    --padding-top: max(var(--ion-safe-area-top), 16px);
-  }
-}
-
-/* Logo Styles */
-.logo-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  margin: 0 auto;
-  padding: clamp(1rem, 3vh, 2rem) 1rem;
-  gap: clamp(1rem, 4vh, 2.5rem);
 }
 
 .company-name {
@@ -432,21 +388,21 @@ ion-button.nav-button ion-icon {
 }
 
 .company-name h1 {
-  font-size: 2.5rem;
-  font-weight: 400;
+  font-size: clamp(2rem, 6vw, 2.8rem);
+  font-weight: 600;
   margin: 0;
   color: var(--ion-color-primary);
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  letter-spacing: 0.5rem;
+  letter-spacing: clamp(0.25rem, 2vw, 0.5rem);
   text-transform: uppercase;
 }
 
 .company-name h6 {
-  font-size: 1.2rem;
+  font-size: clamp(1rem, 3vw, 1.2rem);
   margin: 0.5rem 0 0;
   color: var(--ion-color-medium);
   font-weight: 400;
-  letter-spacing: 0.5rem;
+  letter-spacing: clamp(0.25rem, 2vw, 0.5rem);
   text-transform: uppercase;
 }
 
@@ -521,18 +477,10 @@ ion-button.nav-button ion-icon {
     width: 160px;
     height: 160px;
   }
-  
-  .company-name h1 {
-    font-size: 2rem;
-  }
-  
-  .company-name h6 {
-    font-size: 1rem;
-    letter-spacing: 0.3rem;
-  }
 
-  ion-content {
-    --padding-bottom: max(var(--ion-safe-area-bottom), 16px);
+  .home-inner {
+    padding: clamp(1rem, 3vh, 2rem) clamp(1rem, 6vw, 1.5rem);
+    gap: clamp(1.5rem, 4vh, 2.5rem);
   }
 }
 
