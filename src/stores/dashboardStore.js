@@ -2,8 +2,8 @@ import { defineStore } from "pinia";
 import { Preferences } from "@capacitor/preferences";
 import { ref } from "vue";
 import { createWidgetModel } from "@/shared/widgetModel";
-import crypto from 'crypto';
 import { createLogger } from '../services/logger';
+import { generateUuid } from '@/utils/uuid.js';
 
 // Create logger instance
 const logger = createLogger('dashboard-store');
@@ -349,7 +349,7 @@ export const useDashboardStore = defineStore("dashboards", () => {
       // Create a standardized widget using our model
       const standardWidget = createWidgetModel({
         ...widget,
-        id: widget.id || crypto.randomUUID(),
+        id: widget.id || generateUuid(),
         area: typeof widget.area === 'object' && widget.area !== null && 'area' in widget.area
           ? widget.area.area
           : widget.area

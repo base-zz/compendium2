@@ -86,6 +86,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
 
     syncRawPreferences();
     savePreferences();
+    applyDisplayPreferences();
 
     if (serverPreferences.logging) {
       applyLoggingPreferences();
@@ -94,8 +95,8 @@ export const usePreferencesStore = defineStore('preferences', () => {
     return rawPreferences.value;
   }
 
-
   console.log("LOADED PREFERENCES", preferences);
+  applyDisplayPreferences();
   // Getters
   const useImperial = computed(() => preferences.units.useImperial);
   const darkMode = computed(() => preferences.display.darkMode);
@@ -212,6 +213,19 @@ export const usePreferencesStore = defineStore('preferences', () => {
     syncRawPreferences();
     logger(`Units toggled to ${preferences.units.useImperial ? 'imperial' : 'metric'}`);
     return preferences.units.useImperial;
+  }
+
+  function setDarkMode(enabled) {
+    const desired = Boolean(enabled);
+    if (preferences.display.darkMode === desired) {
+      applyDisplayPreferences();
+      return preferences.display.darkMode;
+    }
+    preferences.display.darkMode = desired;
+    savePreferences();
+    syncRawPreferences();
+    applyDisplayPreferences();
+    return preferences.display.darkMode;
   }
 
   async function resetPreferences() {
@@ -382,6 +396,17 @@ export const usePreferencesStore = defineStore('preferences', () => {
     }
   }
 
+  function applyDisplayPreferences() {
+    if (typeof document === 'undefined' || !document.body) {
+      return;
+    }
+    if (preferences.display?.darkMode) {
+      document.body.classList.add('dark');
+    } else {
+      document.body.classList.remove('dark');
+    }
+  }
+
   // Log the store methods being returned
   const debugInfo = {
     preferences: !!preferences,
@@ -396,6 +421,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
     resetLoggingPreferences: typeof resetLoggingPreferences === 'function',
     setLoggingPreference: typeof setLoggingPreference === 'function',
     setRemoteLogging: typeof setRemoteLogging === 'function',
+    setDarkMode: typeof setDarkMode === 'function',
     applyLoggingPreferences: typeof applyLoggingPreferences === 'function',
     applyServerPreferences: typeof applyServerPreferences === 'function',
     loadPreferencesFromServer: typeof loadPreferencesFromServer === 'function',
@@ -425,6 +451,7 @@ export const usePreferencesStore = defineStore('preferences', () => {
     resetLoggingPreferences,
     setLoggingPreference,
     setRemoteLogging,
+    setDarkMode,
     applyLoggingPreferences,
     applyServerPreferences,
     loadPreferencesFromServer,

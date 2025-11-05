@@ -1,16 +1,16 @@
 <template>
-  <ion-page>
+  <ion-page class="bluetooth-page">
     <generic-header title="Bluetooth Management" />
-    <ion-content class="content-with-header">
+    <ion-content class="content-with-header bluetooth-content">
       <!-- Status and Controls Section -->
-      <ion-card>
+      <ion-card class="surface-card status-card">
         <ion-card-header>
           <ion-card-title>Bluetooth Status</ion-card-title>
         </ion-card-header>
         <ion-card-content>
           <ion-item>
             <ion-label>Status</ion-label>
-            <ion-badge slot="end" :color="bluetoothStatus.color">
+            <ion-badge slot="end" :class="['status-badge', bluetoothStatus.tone]">
               {{ bluetoothStatus.text }}
             </ion-badge>
           </ion-item>
@@ -27,7 +27,7 @@
             <ion-button 
               :disabled="!canToggleBluetooth" 
               @click="toggleBluetooth"
-              :color="bluetooth.enabled ? 'danger' : 'primary'"
+              :class="['action-button', bluetooth.enabled ? 'warning-button' : 'primary-button']"
             >
               {{ bluetooth.enabled ? 'Disable' : 'Enable' }} Bluetooth
             </ion-button>
@@ -35,7 +35,7 @@
             <ion-button 
               :disabled="!canScan" 
               @click="toggleScan"
-              :color="bluetooth.scanning ? 'warning' : 'primary'"
+              :class="['action-button', bluetooth.scanning ? 'warning-button' : 'secondary-button']"
             >
               {{ bluetooth.scanning ? 'Stop Scan' : 'Start Scan' }}
             </ion-button>
@@ -44,7 +44,7 @@
       </ion-card>
       
       <!-- Devices Section -->
-      <ion-card>
+      <ion-card class="surface-card">
         <ion-card-header>
           <ion-card-title>Discovered Devices</ion-card-title>
           <ion-card-subtitle>{{ deviceCount }} devices found</ion-card-subtitle>
@@ -62,13 +62,13 @@
           <div v-if="deviceCount === 0" class="empty-state">
             <ion-icon :icon="searchOutline" size="large"></ion-icon>
             <p>No Bluetooth devices discovered</p>
-            <ion-button @click="startScan" size="small">Start Scanning</ion-button>
+            <ion-button @click="startScan" size="small" class="action-button primary-button">Start Scanning</ion-button>
           </div>
         </ion-card-content>
       </ion-card>
       
       <!-- Selected Devices Section -->
-      <ion-card>
+      <ion-card class="surface-card">
         <ion-card-header>
           <ion-card-title>Selected Devices</ion-card-title>
           <ion-card-subtitle>{{ selectedCount }} devices selected</ion-card-subtitle>
@@ -146,24 +146,24 @@ const selectedDevicesData = computed(() => selectedDevices.value);
 // Status computation
 const bluetoothStatus = computed(() => {
   if (bluetooth.value.error) {
-    return { text: 'Error', color: 'danger' };
+    return { text: 'Error', tone: 'error' };
   }
   
   if (bluetooth.value.scanning) {
-    return { text: 'Scanning...', color: 'primary' };
+    return { text: 'Scanning...', tone: 'scanning' };
   }
   
   switch (bluetooth.value.status?.state) {
     case 'enabled':
-      return { text: 'Enabled', color: 'success' };
+      return { text: 'Enabled', tone: 'enabled' };
     case 'disabled':
-      return { text: 'Disabled', color: 'medium' };
+      return { text: 'Disabled', tone: 'disabled' };
     case 'unauthorized':
-      return { text: 'Unauthorized', color: 'warning' };
+      return { text: 'Unauthorized', tone: 'warning' };
     case 'unsupported':
-      return { text: 'Unsupported', color: 'danger' };
+      return { text: 'Unsupported', tone: 'error' };
     default:
-      return { text: 'Unknown', color: 'medium' };
+      return { text: 'Unknown', tone: 'muted' };
   }
 });
 
@@ -261,13 +261,62 @@ const formatDate = (timestamp) => {
   const date = new Date(timestamp);
   return date.toLocaleString();
 };
+
+// ... rest of the code remains the same ...
 </script>
 
 <style scoped>
+.bluetooth-page {
+  background: var(--app-background-color);
+  color: var(--app-text-color);
+}
+
+.bluetooth-content {
+  --background: var(--app-background-color);
+  color: var(--app-text-color);
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+.surface-card {
+  --background: var(--app-surface-color);
+  --color: var(--app-text-color);
+  --border-color: var(--app-border-color);
+  margin: 16px;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--app-text-color) 12%, transparent);
+}
+
+.surface-card :deep(ion-card-header) {
+  color: var(--app-text-color);
+  border-bottom: 1px solid var(--app-border-color);
+}
+
+.surface-card :deep(ion-card-title),
+.surface-card :deep(ion-card-subtitle) {
+  color: inherit;
+}
+
+.surface-card :deep(ion-item) {
+  --background: transparent;
+  --color: var(--app-text-color);
+  --border-color: var(--app-border-color);
+  --inner-border-width: 0 0 1px 0;
+}
+
+.surface-card :deep(ion-item:last-of-type) {
+  --inner-border-width: 0;
+}
+
+.surface-card :deep(ion-note) {
+  color: var(--app-muted-text-color);
+}
+
 .button-container {
   display: flex;
-  justify-content: space-around;
+  justify-content: center;
+  gap: 12px;
   margin-top: 16px;
+  flex-wrap: wrap;
 }
 
 .empty-state {
@@ -276,17 +325,18 @@ const formatDate = (timestamp) => {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  color: var(--ion-color-medium);
+  color: var(--app-muted-text-color);
 }
 
 .empty-state ion-icon {
   font-size: 48px;
   margin-bottom: 16px;
+  color: var(--app-accent-color);
 }
 
 .hint {
   font-size: 0.8em;
-  opacity: 0.7;
+  opacity: 0.8;
   margin-top: 4px;
 }
 </style>

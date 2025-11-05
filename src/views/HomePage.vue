@@ -231,12 +231,13 @@ ion-content {
 }
 
 ion-button.nav-button {
-  border: 2px solid var(--ion-color-primary-contrast);
+  border: 2px solid var(--widget-border-color);
   border-radius: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.3s ease;
-  --background: var(--ion-color-primary);
+  --background: var(--widget-surface-color);
+  --color: var(--widget-text-color);
   --padding-start: 0;
   --padding-end: 0;
   --padding-top: 0;
@@ -253,7 +254,7 @@ ion-button.nav-button ion-icon {
   font-size: 24px;
   width: 24px;
   height: 24px;
-  color: var(--ion-color-primary-contrast);
+  color: var(--widget-text-color);
 }
 
 .button-container {
@@ -308,10 +309,11 @@ ion-button.nav-button ion-icon {
   position: relative;
 }
 
+
 .company-name h1 {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--ion-color-primary-contrast);
+  color: var(--app-text-color);
   margin: 0;
   font-family: "Prompt", sans-serif;
   letter-spacing: 0.05em;
@@ -391,7 +393,7 @@ ion-button.nav-button ion-icon {
   font-size: clamp(2rem, 6vw, 2.8rem);
   font-weight: 600;
   margin: 0;
-  color: var(--ion-color-primary);
+  color: var(--app-text-color);
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   letter-spacing: clamp(0.25rem, 2vw, 0.5rem);
   text-transform: uppercase;
@@ -400,7 +402,7 @@ ion-button.nav-button ion-icon {
 .company-name h6 {
   font-size: clamp(1rem, 3vw, 1.2rem);
   margin: 0.5rem 0 0;
-  color: var(--ion-color-medium);
+  color: var(--app-muted-text-color);
   font-weight: 400;
   letter-spacing: clamp(0.25rem, 2vw, 0.5rem);
   text-transform: uppercase;
@@ -501,7 +503,7 @@ ion-button.nav-button ion-icon {
   font-size: 24px;
   width: 24px;
   height: 24px;
-  color: var(--ion-color-primary-contrast);
+  color: var(--app-text-color);
 }
 
 ion-menu-button {

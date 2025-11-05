@@ -1,11 +1,13 @@
 <template>
-  <div class="alert-rule-list">
-    <div class="header">
-      <h2>Alert Rules</h2>
-      <button class="btn-add" @click="createNewRule">
-        <i class="fas fa-plus"></i> New Rule
-      </button>
-    </div>
+  <ion-page>
+    <generic-header title="Alert Rules" />
+    <ion-content class="alert-rules-content">
+      <div class="alert-rule-list">
+        <div class="header">
+          <button class="btn-add" @click="createNewRule">
+            <i class="fas fa-plus"></i> New Rule
+          </button>
+        </div>
     
     <div v-if="loading" class="loading">
       <i class="fas fa-spinner fa-spin"></i> Loading alert rules...
@@ -81,12 +83,16 @@
         </div>
       </div>
     </teleport>
-  </div>
+      </div>
+    </ion-content>
+  </ion-page>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { IonPage, IonContent } from '@ionic/vue';
+import GenericHeader from '@/components/GenericHeader.vue';
 import { useStateDataStore } from '@/stores/stateDataStore';
 
 const router = useRouter();
@@ -211,22 +217,23 @@ const formatStrategy = (strategy) => {
 </script>
 
 <style scoped>
+.alert-rules-content {
+  --background: var(--app-background-color);
+}
+
 .alert-rule-list {
   padding: 1rem;
   max-width: 1200px;
   margin: 0 auto;
+  min-height: 100%;
 }
 
 .header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   margin-bottom: 1.5rem;
-}
-
-.header h2 {
-  margin: 0;
-  font-size: 1.5rem;
+  padding-top: 0.5rem;
 }
 
 .btn-add {

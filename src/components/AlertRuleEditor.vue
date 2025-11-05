@@ -389,7 +389,7 @@ const saveRule = async () => {
 
 // Go back to the alert rules list
 const goBack = () => {
-  router.push({ name: 'alert-rules' });
+  router.replace({ name: 'alert-rules' });
 };
 </script>
 

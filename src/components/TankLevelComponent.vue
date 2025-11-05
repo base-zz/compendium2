@@ -37,12 +37,27 @@
       <g>
         <rect
           class="ring"
-          v-bind:class="pastThreshold ? 'pulsating' : ''"
+          :class="{ 
+            'alert-ring-warning': alertSeverity === 'warning',
+            'alert-ring-critical': alertSeverity === 'critical'
+          }"
           x="0"
           y="0"
           width="300"
           height="300"
+          rx="150"
+          ry="150"
         />
+        <!-- Alert indicator badge -->
+        <g v-if="pastThreshold" class="alert-badge">
+          <circle cx="240" cy="60" r="25" 
+            :class="{
+              'badge-bg-warning': alertSeverity === 'warning',
+              'badge-bg-critical': alertSeverity === 'critical'
+            }" 
+          />
+          <text x="240" y="68" class="badge-icon">⚠</text>
+        </g>
         <rect class="base" x="0" y="0" width="300" height="300" />
 
         <rect
@@ -59,7 +74,10 @@
 
         <text
           class="metric instrument-value"
-          :class="pastThreshold ? 'pulsating-text' : ''"
+          :class="{ 
+            'alert-text-warning': alertSeverity === 'warning',
+            'alert-text-critical': alertSeverity === 'critical'
+          }"
           x="150"
           y="165"
         >
@@ -113,7 +131,68 @@ const fluidValue = computed(() => {
   return props.widgetData.value || 0
 })
 
+// Determine alert severity: 'none', 'warning', or 'critical'
+const alertSeverity = computed(() => {
+  const threshold = Number(typeof props.widgetData.threshold === 'number' ? props.widgetData.threshold : 20)
+  const value = Number(typeof fluidValue.value === 'number' ? fluidValue.value : 0)
+  const operator = props.widgetData.thresholdOperator || 
+                  (props.widgetData.fluidType === 'water' ? 'LESS_THAN' : 'GREATER_THAN')
+  
+  // Check if past threshold first
+  let isPastThreshold = false
+  
+  if ('thresholdOperator' in props.widgetData) {
+    switch(operator) {
+      case 'LESS_THAN':
+        isPastThreshold = value < threshold
+        break
+      case 'LESS_THAN_EQUALS':
+        isPastThreshold = value <= threshold
+        break
+      case 'GREATER_THAN':
+        isPastThreshold = value > threshold
+        break
+      case 'GREATER_THAN_EQUALS':
+        isPastThreshold = value >= threshold
+        break
+      case 'EQUALS':
+        isPastThreshold = value === threshold
+        break
+      case 'NOT_EQUALS':
+        isPastThreshold = value !== threshold
+        break
+    }
+  } else {
+    isPastThreshold = value < threshold
+  }
+  
+  if (!isPastThreshold) return 'none'
+  
+  // Determine if critical based on severity
+  // For low-level tanks (water, fuel): critical if at or below half the threshold
+  if (operator === 'LESS_THAN' || operator === 'LESS_THAN_EQUALS') {
+    if (value <= threshold / 2 || value === 0) {
+      return 'critical'
+    }
+    return 'warning'
+  }
+  
+  // For high-level tanks (waste): critical if significantly above threshold
+  if (operator === 'GREATER_THAN' || operator === 'GREATER_THAN_EQUALS') {
+    if (value >= threshold * 1.1 || value >= 95) {
+      return 'critical'
+    }
+    return 'warning'
+  }
+  
+  return 'warning'
+})
+
 const pastThreshold = computed(() => {
+  return alertSeverity.value !== 'none'
+})
+
+const _originalPastThreshold = computed(() => {
   const threshold = Number(typeof props.widgetData.threshold === 'number' ? props.widgetData.threshold : 20)
   const value = Number(typeof fluidValue.value === 'number' ? fluidValue.value : 0)
   
@@ -376,9 +455,24 @@ onMounted(() => {
 <style scoped>
 text {
   font-weight: bold;
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
   dominant-baseline: middle;
   text-anchor: middle;
+}
+
+.tank-level-component {
+  height: 100% !important;
+  width: 100% !important;
+  aspect-ratio: 1 / 1 !important;
+  background-color: var(--widget-surface-color);
+  color: var(--widget-text-color);
+  border: none;
+  border-radius: 8px;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent !important; /* Disable iOS tap highlight */
+  -webkit-touch-callout: none; /* Disable callout */
+  user-select: none; /* Disable text selection */
 }
 
 .instrument {
@@ -408,20 +502,19 @@ text {
   font-size: 1.75em;
 }
 .ring {
-  fill: var(--ion-color-primary-contrast);
-  stroke: var(--ion-color-primary-contrast);
+  fill: rgba(255, 255, 255, 0.2);
+  stroke: rgba(255, 255, 255, 0.2);
   stroke-width: 8px;
 }
 
 .base {
-  fill: var(--ion-color-primary);
+  fill: var(--widget-surface-color);
 }
 
 .instrument-value {
-
   text-anchor: middle;
   dominant-baseline: middle;
-  fill: white;
+  fill: var(--widget-text-color);
 }
 
 .tank-level-container {
@@ -432,7 +525,7 @@ text {
   align-items: center;
   padding: 0;
   margin: 0;
-  background-color: var(--ion-color-primary);
+  background-color: var(--widget-surface-color);
   border-radius: 8px;
   pointer-events: auto;
   touch-action: manipulation;
@@ -449,58 +542,54 @@ text {
   user-select: none !important;
 }
 
-@keyframes pulsate {
-  0% {
-    stroke-width: 5px;
-    opacity: 0.7;
-  }
+/* Alert status styling - Warning (orange) */
+.alert-ring-warning {
+  stroke: #f59e0b;
+  stroke-width: 10px;
+}
 
+.alert-text-warning {
+  fill: #f59e0b;
+}
+
+.badge-bg-warning {
+  fill: #f59e0b;
+}
+
+/* Alert status styling - Critical (red) */
+.alert-ring-critical {
+  stroke: #ef4444;
+  stroke-width: 10px;
+}
+
+.alert-text-critical {
+  fill: #ef4444;
+}
+
+.badge-bg-critical {
+  fill: #ef4444;
+}
+
+/* Alert badge */
+.alert-badge {
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% {
+    opacity: 1;
+  }
   50% {
-    stroke-width: 10px;
-    opacity: 1;
-    /* Slightly fade */
-  }
-
-  100% {
-    stroke-width: 5px;
-    opacity: 0.7;
-    /* Return to original size and full opacity */
+    opacity: 0.6;
   }
 }
 
-.pulsating {
-  animation: pulsate 2s ease-in-out infinite;
-  transform-origin: center;
-  font-weight: bolder;
-  stroke: red;
-  /* Add a more visible indicator for debugging */
-  stroke-width: 15px !important;
-}
-
-@keyframes pulsateText {
-  0% {
-    font-size: 6em;
-    opacity: 1;
-  }
-
-  50% {
-    font-size: 6.1em;
-    opacity: 0.7;
-  }
-
-  100% {
-    font-size: 6em;
-    opacity: 1;
-  }
-}
-
-.pulsating-text {
-  animation: pulsateText 2s ease-in-out infinite;
-  transform-origin: center;
-  /* Ensure scaling happens from the center */
-  font-weight: bolder;
-  stroke: red;
-  fill: red;
+.badge-icon {
+  fill: white;
+  font-size: 28px;
+  font-weight: bold;
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 
 .fluid {

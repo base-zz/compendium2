@@ -1,2 +1,60 @@
 /* For information on how to create your own theme, please see:
 http://ionicframework.com/docs/theming/ */
+
+:root {
+  --widget-surface-color: var(--ion-color-primary);
+  --widget-surface-elevated-color: rgba(var(--ion-color-primary-rgb, 10, 48, 83), 0.55);
+  --widget-border-color: rgba(var(--ion-color-primary-contrast-rgb, 255, 255, 255), 0.12);
+  --widget-text-color: var(--ion-color-primary-contrast);
+  --widget-muted-text-color: rgba(var(--ion-color-primary-contrast-rgb, 255, 255, 255), 0.7);
+
+  --app-background-color: #f1f5f9;
+  --app-surface-color: #ffffff;
+  --app-border-color: rgba(15, 23, 42, 0.08);
+  --app-text-color: #0f172a;
+  --app-muted-text-color: rgba(15, 23, 42, 0.7);
+  --app-accent-color: var(--ion-color-primary);
+  --app-accent-contrast-color: var(--ion-color-primary-contrast);
+  --app-accent-soft-color: rgba(var(--ion-color-primary-rgb, 10, 48, 83), 0.12);
+
+  --ion-background-color: var(--app-background-color);
+  --ion-background-color-rgb: 241, 245, 249;
+  --ion-text-color: var(--app-text-color);
+  --ion-text-color-rgb: 15, 23, 42;
+  --ion-card-background: var(--app-surface-color);
+  --ion-toolbar-background: var(--app-surface-color);
+  --ion-item-background: var(--app-surface-color);
+}
+
+body.dark {
+  --widget-surface-color: #111827;
+  --widget-surface-elevated-color: #161f2c;
+  --widget-border-color: rgba(248, 250, 252, 0.2);
+  --widget-text-color: #f8fafc;
+  --widget-muted-text-color: rgba(248, 250, 252, 0.7);
+
+  --app-background-color: #111827;
+  --app-surface-color: #1f2933;
+  --app-border-color: rgba(248, 250, 252, 0.12);
+  --app-text-color: #f8fafc;
+  --app-muted-text-color: rgba(248, 250, 252, 0.65);
+  --app-accent-color: var(--ion-color-primary);
+  --app-accent-contrast-color: var(--ion-color-primary-contrast);
+  --app-accent-soft-color: rgba(var(--ion-color-primary-rgb, 10, 48, 83), 0.35);
+
+  --ion-background-color: #111827;
+  --ion-background-color-rgb: 17, 24, 39;
+  --ion-text-color: #f8fafc;
+  --ion-text-color-rgb: 248, 250, 252;
+  --ion-card-background: #1f2933;
+  --ion-toolbar-background: #1f2933;
+  --ion-item-background: #1f2933;
+}
+
+body.dark ion-content {
+  --background: #111827 !important;
+}
+
+body.dark ion-content::part(background) {
+  background: #111827 !important;
+}

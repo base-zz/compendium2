@@ -17,7 +17,6 @@ import '@ionic/vue/css/text-alignment.css';
 import '@ionic/vue/css/text-transformation.css';
 import '@ionic/vue/css/flex-utils.css';
 import '@ionic/vue/css/display.css';
-import '@ionic/vue/css/palettes/dark.system.css';
 import './theme/variables.css';
 
 // Create Pinia and app

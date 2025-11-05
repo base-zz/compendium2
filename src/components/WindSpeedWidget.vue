@@ -230,7 +230,7 @@ const caretGroupStyle = computed(() => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  color: var(--ion-color-primary-contrast);
+  color: var(--widget-text-color);
 }
 
 .instrument-surface {
@@ -239,8 +239,8 @@ const caretGroupStyle = computed(() => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  background-color: var(--ion-color-primary);
-  color: var(--ion-color-primary-contrast);
+  background-color: var(--widget-surface-color);
+  color: var(--widget-text-color);
   border-radius: 8px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent !important;
@@ -273,7 +273,7 @@ const caretGroupStyle = computed(() => {
 }
 
 .label-text {
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
   font-size: 22px;
   font-weight: 600;
   text-anchor: middle;
@@ -291,13 +291,13 @@ const caretGroupStyle = computed(() => {
   font-weight: 700;
   text-anchor: middle;
   dominant-baseline: middle;
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
 }
 
 .units-text {
   font-size: 16px;
   text-anchor: middle;
   dominant-baseline: middle;
-  fill: rgba(255, 255, 255, 0.8);
+  fill: var(--widget-muted-text-color);
 }
 </style>

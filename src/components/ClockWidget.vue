@@ -175,13 +175,13 @@ watch([
 .clock-widget {
   width: 100%;
   height: 100%;
-  background-color: var(--ion-color-primary);
-  color: var(--ion-color-primary-contrast);
+  background-color: var(--widget-surface-color);
+  color: var(--widget-text-color);
   border-radius: 8px;
 }
 
 .title {
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
   font-size: 24px;
   font-weight: 500;
   text-anchor: middle;
@@ -189,7 +189,7 @@ watch([
 }
 
 .metric {
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
   font-size: 64px;
   font-weight: 700;
   text-anchor: middle;
@@ -198,11 +198,10 @@ watch([
 
 .metric-meridiem {
   font-size: 0.4em;
-  font-weight: 500;
 }
 
 .subtitle {
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-muted-text-color);
   font-size: 24px;
   font-weight: 400;
   text-anchor: middle;

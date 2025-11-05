@@ -28,7 +28,10 @@
       width="100%"
       ref="svg"
       class="instrument display-component battery-component no-tap-highlight"
-      :class="pastThreshold ? 'critical-border' : ''"
+      :class="{
+        'warning-border': alertSeverity === 'warning',
+        'critical-border': alertSeverity === 'critical'
+      }"
       viewBox="0 0 300 300"
       preserveAspectRatio="xMidYMid meet"
       style="
@@ -51,13 +54,16 @@
           <rect
             ref="battery"
             class="battery"
-            :class="pastThreshold ? 'critical' : ''"
+            :class="{
+              'battery-warning': alertSeverity === 'warning',
+              'battery-critical': alertSeverity === 'critical'
+            }"
             x="30"
             y="40"
             width="80"
             height="240"
-            :stroke="widgetColor"
-            stroke-width="3"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            stroke-width="5"
             rx="5"
           ></rect>
           <rect
@@ -68,7 +74,7 @@
             width="40"
             height="15"
             :stroke="widgetColor"
-            :fill="pastThreshold ? 'red' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="2"
             rx="5"
           ></rect>
@@ -82,8 +88,8 @@
             y="46"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -96,8 +102,8 @@
             y="70"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -110,8 +116,8 @@
             y="94"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -124,8 +130,8 @@
             y="118"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -138,8 +144,8 @@
             y="142"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -152,8 +158,8 @@
             y="166"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -166,8 +172,8 @@
             y="190"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -180,8 +186,8 @@
             y="214"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -194,8 +200,8 @@
             y="238"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -208,8 +214,8 @@
             y="262"
             width="70"
             height="19"
-            :stroke="widgetColor"
-            :fill="widgetColor"
+            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
+            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
@@ -218,7 +224,10 @@
           <text
             ref="metric"
             class="metric"
-            :class="pastThreshold ? 'pulsating-text' : ''"
+            :class="{
+              'alert-text-warning': alertSeverity === 'warning',
+              'alert-text-critical': alertSeverity === 'critical'
+            }"
             x="114"
             y="80"
           >
@@ -412,39 +421,56 @@ const threshold = computed(() => {
   return props.widgetData.threshold ?? 20
 })
 
-const pastThreshold = computed(() => {
-  // Get the battery value
+// Determine alert severity: 'none', 'warning', or 'critical'
+const alertSeverity = computed(() => {
   const value = batteryValue.value
-  // Get the threshold value
   const thresholdValue = threshold.value
+  const operator = props.widgetData.thresholdOperator || 'LESS_THAN_EQUALS'
   
-  // Check if thresholdOperator exists in the widget data
-  if ('thresholdOperator' in props.widgetData) {
-    const operator = props.widgetData.thresholdOperator
-    
-    // Apply the appropriate comparison based on the operator
-    switch(operator) {
-      case 'LESS_THAN':
-        return value < thresholdValue
-      case 'LESS_THAN_EQUALS':
-        return value <= thresholdValue
-      case 'GREATER_THAN':
-        return value > thresholdValue
-      case 'GREATER_THAN_EQUALS':
-        return value >= thresholdValue
-      case 'EQUALS':
-        return value === thresholdValue
-      case 'NOT_EQUALS':
-        return value !== thresholdValue
-      default: {
-        // Default behavior for batteries is to alert when below threshold
-        return value <= thresholdValue
-      }
-    }
-  } else {
-    // Default behavior for batteries is to alert when below threshold
-    return value <= thresholdValue
+  // Check if past threshold first
+  let isPastThreshold = false
+  
+  switch(operator) {
+    case 'LESS_THAN':
+      isPastThreshold = value < thresholdValue
+      break
+    case 'LESS_THAN_EQUALS':
+      isPastThreshold = value <= thresholdValue
+      break
+    case 'GREATER_THAN':
+      isPastThreshold = value > thresholdValue
+      break
+    case 'GREATER_THAN_EQUALS':
+      isPastThreshold = value >= thresholdValue
+      break
+    case 'EQUALS':
+      isPastThreshold = value === thresholdValue
+      break
+    case 'NOT_EQUALS':
+      isPastThreshold = value !== thresholdValue
+      break
+    default:
+      isPastThreshold = value <= thresholdValue
   }
+  
+  if (!isPastThreshold) return 'none'
+  
+  // Determine if critical based on severity
+  // For batteries, low levels are bad
+  if (operator === 'LESS_THAN' || operator === 'LESS_THAN_EQUALS') {
+    // Critical if at or below half the threshold OR at 0%
+    if (value <= thresholdValue / 2 || value === 0) {
+      return 'critical'
+    }
+    return 'warning'
+  }
+  
+  // For other operators, just use warning
+  return 'warning'
+})
+
+const pastThreshold = computed(() => {
+  return alertSeverity.value !== 'none'
 })
 
 // Watchers
@@ -497,8 +523,8 @@ onActivated(() => {
   height: 100% !important;
   width: 100% !important;
   aspect-ratio: 1 / 1 !important;
-  background-color: var(--ion-color-primary);
-  color: var(--ion-color-primary-contrast);
+  background-color: var(--widget-surface-color);
+  color: var(--widget-text-color);
   border: none;
   border-radius: 8px;
   margin: 0;
@@ -510,7 +536,7 @@ onActivated(() => {
 
 text {
   font-weight: bold;
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
   text-anchor: middle;
 }
 
@@ -549,15 +575,62 @@ text {
   animation: pulsate-text 1.5s ease-in-out infinite;
 }
 
-.critical {
-  stroke: red;
+/* Alert status styling - Warning (orange) */
+.alert-text-warning {
+  fill: #f59e0b;
 }
+
+.battery-warning {
+  stroke: #f59e0b;
+}
+
+.warning-border {
+  border: none;
+  border-radius: 8px;
+}
+
+.badge-bg-warning {
+  fill: #f59e0b;
+}
+
+/* Alert status styling - Critical (red) */
+.alert-text-critical {
+  fill: #ef4444;
+}
+
+.battery-critical {
+  stroke: #ef4444;
+}
+
 .critical-border {
   border: none;
   border-radius: 8px;
-  -webkit-box-shadow: 0px 0px 6px red, 0px 0px 6px rgb(241, 45, 45);
-  -moz-box-shadow: 0px 0px 6px red, 0px 0px 6px rgb(241, 45, 45);
-  box-shadow: 0px 0px 6px red, 0px 0px 6px rgb(241, 45, 45);
+}
+
+.badge-bg-critical {
+  fill: #ef4444;
+}
+
+/* Alert badge */
+.alert-badge {
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.badge-icon {
+  fill: white;
+  font-size: 28px;
+  font-weight: bold;
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 
 .battery-container {

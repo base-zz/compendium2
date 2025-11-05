@@ -37,9 +37,13 @@
             >
               <ion-select-option value="sail360">Sail 360 &deg;</ion-select-option>
               <ion-select-option value="windspeed">Wind Speed</ion-select-option>
+              <ion-select-option value="windcompassarrow">Wind Compass</ion-select-option>
               <ion-select-option value="instrument">Digital Instrument</ion-select-option>
               <ion-select-option value="clock">Clock</ion-select-option>
               <ion-select-option value="anchor">Anchor</ion-select-option>
+              <ion-select-option value="weather">Boating Weather</ion-select-option>
+              <ion-select-option value="temp-wind">Temp &amp; Wind</ion-select-option>
+              <ion-select-option value="pressure-tide">Pressure &amp; Tide</ion-select-option>
               <ion-select-option value="tank">Tank</ion-select-option>
               <ion-select-option value="battery">Battery</ion-select-option>
               <ion-select-option value="ruuvi">Ruuvi Sensor</ion-select-option>
@@ -403,7 +407,7 @@ const availableDataSources = computed(() => {
 });
 
 // Watch for displayType changes to set default values
-const widgetsWithoutDataSource = ['sail360', 'clock', 'anchor'];
+const widgetsWithoutDataSource = ['sail360', 'clock', 'anchor', 'weather', 'temp-wind', 'pressure-tide', 'windcompassarrow'];
 watch(displayType, (newType) => {
   if (newType === 'sail360') {
     maintainSquareRatio.value = true;
@@ -433,6 +437,33 @@ watch(displayType, (newType) => {
     }
     if (!widgetName.value) {
       widgetName.value = 'Anchor';
+    }
+  } else if (newType === 'weather') {
+    dataSource.value = '';
+    maintainSquareRatio.value = true;
+    if (!widgetTitle.value) {
+      widgetTitle.value = 'Weather';
+    }
+    if (!widgetName.value) {
+      widgetName.value = 'Weather';
+    }
+  } else if (newType === 'temp-wind') {
+    dataSource.value = '';
+    maintainSquareRatio.value = true;
+    if (!widgetTitle.value) {
+      widgetTitle.value = 'Temp & Wind';
+    }
+    if (!widgetName.value) {
+      widgetName.value = 'Temp & Wind';
+    }
+  } else if (newType === 'pressure-tide') {
+    dataSource.value = '';
+    maintainSquareRatio.value = true;
+    if (!widgetTitle.value) {
+      widgetTitle.value = 'Pressure & Tide';
+    }
+    if (!widgetName.value) {
+      widgetName.value = 'Pressure & Tide';
     }
   } else if (newType === 'instrument' && !dataSource.value) {
     // Set a default data source but don't hardcode the title

@@ -238,27 +238,26 @@ watch(
   height: 100% !important;
   width: 100% !important;
   aspect-ratio: 1 / 1 !important;
-  background-color: var(--ion-color-primary);
-  color: var(--ion-color-primary-contrast);
-  border: none;
-  border-radius: 8px;
+  background-color: var(--widget-surface-color);
+  color: var(--widget-text-color);
+  border: 1px solid var(--widget-border-color);
+  border-radius: 16px;
   margin: 0;
   padding: 0;
+  box-shadow: 0 18px 28px color-mix(in srgb, var(--widget-text-color) 12%, transparent);
   -webkit-tap-highlight-color: transparent !important; /* Disable iOS tap highlight */
   -webkit-touch-callout: none; /* Disable callout */
   user-select: none; /* Disable text selection */
 }
 text {
-  font-weight: bold;
-  fill: var(--ion-color-primary-contrast);
+  font-weight: 600;
+  fill: var(--widget-text-color);
   alignment-baseline: middle;
   text-anchor: middle;
 }
 .title {
   font-size: 2.25em;
-  font-weight: bold;
-  padding: 0.35em;
-  padding-top: 0.6;
+  letter-spacing: 0.05em;
 }
 .metric {
   font-size: 6.75em;
@@ -266,6 +265,7 @@ text {
 .units {
   font-size: 1.75em;
   transform: translate(0px, 5px);
+  fill: var(--widget-muted-text-color);
 }
 
 .animable {

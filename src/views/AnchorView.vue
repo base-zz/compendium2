@@ -240,7 +240,7 @@
       </div>
     </ion-modal>
 
-    <div class="map-wrapper">
+    <div class="map-wrapper" :class="{ 'dark-mode': isDarkMode }">
       <AnchorInfoGrid
         class="anchor-info-grid"
         @anchor-dropped="handleAnchorDropped"
@@ -302,9 +302,9 @@ import {
 } from "@/stores/stateDataStore";
 import { usePreferencesStore } from "@/stores/preferences";
 import { UnitConversion } from "@/shared/unitConversion";
-// Alert creation is now handled server-side via the rule engine
 import { debounce } from "lodash-es";
 import { getComputedAnchorLocation } from "@/stores/stateDataStore";
+import { createAnchorDraggingAlert, createAisProximityAlert } from "@/utils/anchorAlerts";
 
 // Component imports
 import AnchorInfoGrid from "@/components/AnchorInfoGrid.vue";
@@ -393,6 +393,8 @@ const aisTargets = computed(() => {
   const result = Object.values(targetsObj);
   return result;
 });
+
+const isDarkMode = computed(() => preferences.value?.display?.darkMode || false);
 
 // Derived state
 const boatPosition = computed(() => navigationState.value?.position);
@@ -2278,12 +2280,12 @@ onUnmounted(() => {
   height: 56px; /* Match --size: 56px from .custom-fab-size */
   margin: 5px; /* Match margin from .custom-fab-size */
   border-radius: 50%;
-  background-color: rgba(0, 120, 215, 0.9); /* Blue background with slight transparency */
-  color: white;
+  background-color: var(--app-accent-color);
+  color: var(--app-accent-contrast-color);
   font-size: 28px;
   font-weight: bold;
   border: none;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 3px 8px color-mix(in srgb, var(--app-text-color) 18%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2293,13 +2295,13 @@ onUnmounted(() => {
 }
 
 .zoom-button:hover {
-  background-color: rgba(0, 140, 240, 1);
+  filter: brightness(1.08);
   transform: scale(1.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--app-text-color) 26%, transparent);
 }
 
 .zoom-button:active {
-  background-color: rgba(0, 100, 190, 1);
+  filter: brightness(0.92);
   transform: scale(0.95);
 }
 
@@ -2331,6 +2333,16 @@ ion-page.page-container {
   padding: 0;
   z-index: 0;
   overflow: hidden;
+  background: var(--app-background-color);
+  color: var(--app-text-color);
+}
+.map-wrapper {
+  background: var(--app-background-color);
+}
+
+.map-wrapper.dark-mode .openlayers-map :deep(.ol-layer canvas) {
+  filter: invert(0.85) hue-rotate(180deg) saturate(1.05) brightness(0.95);
+  transition: filter 0.25s ease;
 }
 /* Zoom buttons removed - using native OpenLayers pinch-to-zoom functionality */
 
@@ -2359,12 +2371,13 @@ ion-page.page-container {
   left: 12px;
   bottom: 12px;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
+  background: color-mix(in srgb, var(--app-surface-color) 90%, transparent);
+  color: var(--app-text-color);
   font-size: 12px;
   padding: 4px 8px;
   border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--app-border-color);
+  box-shadow: 0 2px 4px color-mix(in srgb, var(--app-text-color) 16%, transparent);
   line-height: 1.4;
 }
 
@@ -2403,8 +2416,8 @@ ion-page.page-container {
 .modal-content {
   padding: 20px;
   text-align: center;
-  background: #e6f7ff;
-  border: 3px dashed #1890ff;
+  background: var(--app-surface-color);
+  border: 1px solid var(--app-border-color);
   border-radius: 10px;
   max-width: 500px;
   margin: 10px auto;
@@ -2415,7 +2428,7 @@ ion-page.page-container {
 }
 
 .set-anchor-modal {
-  --background: #e6f3ff;
+  --background: var(--app-surface-color);
   --padding-top: 24px;
   --padding-bottom: 24px;
   --padding-start: 0px;
@@ -2435,7 +2448,7 @@ ion-page.page-container {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  background: #e6f3ff;
+  background: var(--app-surface-color);
 }
 
 .modal-body {
@@ -2453,8 +2466,8 @@ ion-page.page-container {
 }
 
 .set-anchor-footer {
-  --background: #ffffff;
-  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  --background: var(--app-surface-color);
+  border-top: 1px solid var(--app-border-color);
 }
 
 .modal-toolbar {
@@ -2462,7 +2475,7 @@ ion-page.page-container {
   --padding-end: 24px;
   --padding-top: 10px;
   --padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
-  --background: transparent;
+  --background: var(--app-surface-color);
 }
 
 .slider-label {
@@ -2533,7 +2546,7 @@ h3 {
   left: 0;
   width: 100vw;
   height: calc(100vh - 56px); /* Full height minus header */
-  background: rgba(0, 0, 0, 0.75);
+  background: color-mix(in srgb, var(--app-background-color) 25%, var(--app-text-color) 75%);
   z-index: 999;
   display: flex;
   align-items: center;
@@ -2549,7 +2562,7 @@ h3 {
   margin-bottom: 18px;
 }
 .location-modal-message {
-  color: white;
+  color: var(--app-accent-contrast-color);
   font-size: 1.25em;
   font-weight: 500;
   text-align: center;
@@ -2557,8 +2570,8 @@ h3 {
 
 .dismiss-location-button {
   margin-top: 20px;
-  color: white;
-  --color: white;
+  color: var(--app-accent-contrast-color);
+  --color: var(--app-accent-contrast-color);
 }
 
 .slider-value {
@@ -2576,12 +2589,12 @@ h3 {
   width: 100%;
   margin: 20px 0;
   padding: 16px;
-  background: rgba(24, 144, 255, 0.05);
+  background: var(--app-accent-soft-color);
   border-radius: 12px;
-  border-left: 4px solid var(--ion-color-primary);
+  border-left: 4px solid var(--app-accent-color);
   text-align: left;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(24, 144, 255, 0.15);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-text-color) 12%, transparent);
+  border: 1px solid var(--app-accent-soft-color);
 }
 
 .recommendation-header {
@@ -2590,19 +2603,19 @@ h3 {
   align-items: center;
   margin-bottom: 16px;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(24, 144, 255, 0.15);
+  border-bottom: 1px solid var(--app-accent-soft-color);
 
   span {
     font-size: 1.2em;
     font-weight: 600;
-    color: var(--ion-color-primary);
+    color: var(--app-accent-color);
   }
 }
 
 .recommendation-header span {
   font-size: 0.9em; /* Reduced from 1.1em */
   font-weight: 600;
-  color: var(--ion-color-primary);
+  color: var(--app-accent-color);
 }
 
 .recommendation-details {
@@ -2614,23 +2627,23 @@ h3 {
   justify-content: space-between;
   margin: 8px 0;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid var(--app-border-color);
 
   span:last-child {
     font-weight: 500;
-    color: #2c3e50;
+    color: var(--app-text-color);
   }
 
   &.highlight {
-    background-color: rgba(24, 144, 255, 0.05);
+    background-color: var(--app-accent-soft-color);
     margin: 12px -12px;
     padding: 10px 12px;
     border-radius: 8px;
-    border-left: 3px solid var(--ion-color-primary);
+    border-left: 3px solid var(--app-accent-color);
 
     span:last-child {
       font-weight: 600;
-      color: var(--ion-color-primary);
+      color: var(--app-accent-color);
     }
   }
 }
@@ -2639,7 +2652,7 @@ h3 {
   border-bottom: none;
   margin-top: 12px;
   padding-top: 8px;
-  border-top: 1px solid rgba(24, 144, 255, 0.2);
+  border-top: 1px solid var(--app-accent-soft-color);
   font-size: 1.1em;
 }
 
@@ -2648,16 +2661,16 @@ h3 {
   margin: 16px -8px 8px;
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-text-color) 10%, transparent);
+  border: 1px solid var(--app-border-color);
 }
 
 .ratio-row {
   display: flex;
   align-items: center;
   padding: 12px 16px;
-  background: white;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  background: var(--app-surface-color);
+  border-bottom: 1px solid var(--app-border-color);
   transition: all 0.2s ease;
 
   &:last-child {
@@ -2665,22 +2678,22 @@ h3 {
   }
 
   &.active {
-    background-color: rgba(24, 144, 255, 0.05);
-    border-left: 3px solid var(--ion-color-primary);
+    background-color: var(--app-accent-soft-color);
+    border-left: 3px solid var(--app-accent-color);
   }
 
   .ratio-label {
     flex: 1;
     font-size: 0.95em;
     font-weight: 500;
-    color: #2c3e50;
+    color: var(--app-text-color);
   }
 
   .ratio-value {
     margin: 0 12px;
     font-family: "Roboto Mono", monospace;
     font-weight: 600;
-    color: #1a73e8;
+    color: var(--app-accent-color);
     min-width: 60px;
     text-align: right;
   }
@@ -2699,12 +2712,13 @@ h3 {
 
     &:active {
       transform: scale(0.96);
+      --box-shadow: 0 1px 2px color-mix(in srgb, var(--app-text-color) 12%, transparent);
     }
   }
 
   &.active .ratio-button {
-    --background: var(--ion-color-primary);
-    --color: white;
+    --background: var(--app-accent-color);
+    --color: var(--app-accent-contrast-color);
   }
 }
 
@@ -2712,15 +2726,15 @@ h3 {
   margin-top: 12px;
   padding-top: 12px;
   font-size: 0.8em;
-  color: #666;
+  color: var(--app-muted-text-color);
   text-align: center;
-  border-top: 1px dashed rgba(0, 0, 0, 0.1);
+  border-top: 1px dashed var(--app-border-color);
   font-style: italic;
 }
 
 .recommendation-row.highlight {
   font-weight: 600;
-  color: var(--ion-color-primary);
+  color: var(--app-accent-color);
 }
 
 .apply-button {
@@ -2733,27 +2747,19 @@ h3 {
   font-size: 0.9em;
   font-weight: 600;
   --border-radius: 20px;
-  --box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --background: var(--app-accent-color);
+  --color: var(--app-accent-contrast-color);
+  --box-shadow: 0 2px 4px color-mix(in srgb, var(--app-text-color) 15%, transparent);
   transition: all 0.2s ease;
 }
 
 .apply-button:active {
   transform: scale(0.96);
-  --box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.suggestion-note {
-  font-size: 0.85em;
-  color: #666;
-  margin-top: 8px;
-  font-style: italic;
-  text-align: center;
-  padding-top: 8px;
-  border-top: 1px dashed rgba(0, 0, 0, 0.1);
+  --box-shadow: 0 1px 2px color-mix(in srgb, var(--app-text-color) 12%, transparent);
 }
 
 /* Modal background color */
 .enhanced-modal {
-  background-color: #e6f3ff;
+  background-color: color-mix(in srgb, var(--app-surface-color) 85%, var(--app-accent-soft-color) 15%);
 }
 </style>

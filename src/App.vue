@@ -31,6 +31,21 @@ useDirectPiniaSync();
 onMounted(() => {
   logger.info('App component mounted');
   
+  // Debug: Check if dark mode is applied
+  console.log('Body classList:', document.body.classList.toString());
+  console.log('Dark mode class present:', document.body.classList.contains('dark'));
+  
+  // Force dark mode check
+  const isDark = localStorage.getItem('userPreferences');
+  if (isDark) {
+    const prefs = JSON.parse(isDark);
+    console.log('Loaded preferences:', prefs);
+    if (prefs.display?.darkMode) {
+      console.log('Dark mode is enabled in preferences, adding class');
+      document.body.classList.add('dark');
+    }
+  }
+  
   // Initialize push notifications
   notificationService.initialize().catch(error => {
     logger.error('Failed to initialize push notifications', { 
@@ -65,7 +80,12 @@ ion-app {
   min-height: 100vh;
   overflow: hidden;
   position: relative;
-  background: #f8f9fa; /* Match your app's background color */
+  background: var(--app-background-color);
+  color: var(--app-text-color);
+}
+
+body.dark ion-app {
+  background: #111827 !important;
 }
 
 /* Smooth transitions for all elements */
@@ -80,10 +100,10 @@ ion-app {
 }
 
 h1 {
-  color: #343a40;
+  color: var(--app-text-color);
   margin-bottom: 1.5rem;
   font-size: 1.75rem;
-  border-bottom: 2px solid #e9ecef;
+  border-bottom: 2px solid color-mix(in srgb, var(--app-border-color) 70%, transparent);
   padding-bottom: 0.75rem;
 }
 
@@ -93,9 +113,10 @@ h1 {
   align-items: center;
   margin-bottom: 1.5rem;
   padding: 1rem;
-  background-color: #f8f9fa;
+  background-color: var(--app-surface-color);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  box-shadow: 0 18px 32px color-mix(in srgb, var(--app-text-color) 9%, transparent);
+  border: 1px solid var(--app-border-color);
 }
 
 .buttons {
@@ -109,20 +130,22 @@ h1 {
   align-items: center;
   justify-content: center;
   padding: 3rem;
-  background-color: #f8f9fa;
+  background-color: var(--app-surface-color);
   border-radius: 8px;
   margin-top: 2rem;
   text-align: center;
+  border: 1px solid var(--app-border-color);
+  box-shadow: 0 18px 32px color-mix(in srgb, var(--app-text-color) 8%, transparent);
 }
 
 .large-icon {
   font-size: 4rem;
-  color: #adb5bd;
+  color: var(--app-muted-text-color);
   margin-bottom: 1rem;
 }
 
 .hint {
-  color: #6c757d;
+  color: var(--app-muted-text-color);
   font-size: 0.875rem;
   margin-top: 0.5rem;
 }

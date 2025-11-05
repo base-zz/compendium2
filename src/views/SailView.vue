@@ -183,6 +183,8 @@ onUnmounted(() => {
 }
 
 ion-content {
+  --background: var(--app-background-color);
+  color: var(--app-text-color);
   height: 100%;
   width: 100%;
   margin: 0;
@@ -198,14 +200,18 @@ ion-content {
   grid-row-gap: 3px;
   height: 100%;
   position: relative;
+  background: var(--app-background-color);
 }
 
 .quad {
   position: relative;
   height: 100%;
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  color: white;
+  border: 1px solid var(--widget-border-color);
+  border-radius: 12px;
+  background: var(--widget-surface-color);
+  color: var(--widget-text-color);
+  box-shadow: 0 16px 28px color-mix(in srgb, var(--widget-text-color) 12%, transparent);
   padding: 0;
   margin: 0;
 }
@@ -226,8 +232,10 @@ ion-content {
   margin: 0 !important;
   max-width: 100% !important;
   max-height: 100% !important;
+  border-radius: 12px !important;
+  background-color: var(--widget-surface-color) !important;
+  color: var(--widget-text-color) !important;
   box-shadow: none !important;
-  background-color: transparent !important;
 }
 
 /* Force SVG to fill the container with proper aspect ratio */

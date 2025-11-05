@@ -330,8 +330,8 @@ watch(
   height: 100% !important;
   min-width: 100% !important;
   min-height: 100% !important;
-  background-color: var(--ion-color-primary);
-  color: var(--ion-color-primary-contrast);
+  background-color: var(--widget-surface-color);
+  color: var(--widget-text-color);
   border: none;
   border-radius: 8px;
   touch-action: manipulation;
@@ -341,7 +341,7 @@ watch(
 }
 
 .title {
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
   font-size: 24px;
   font-weight: 500;
   text-anchor: middle;
@@ -349,7 +349,7 @@ watch(
 }
 
 .units {
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-muted-text-color);
   font-size: 24px;
   font-weight: 400;
   text-anchor: end;
@@ -358,7 +358,7 @@ watch(
 }
 
 .metric {
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
   font-size: 80px;
   font-weight: 700;
   text-anchor: middle;

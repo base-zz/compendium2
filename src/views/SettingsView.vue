@@ -1,8 +1,8 @@
 <template>
-  <ion-page>
+  <ion-page class="settings-page">
     <generic-header title="Settings" />
-    <ion-content class="content-with-header">
-      <ion-list>
+    <ion-content class="content-with-header settings-content">
+      <ion-list class="settings-list">
         <ion-item button @click="logout" detail>
           <ion-icon :icon="logOut" slot="start"></ion-icon>
           <ion-label>Logout</ion-label>
@@ -16,6 +16,21 @@
         <ion-item button @click="() => router.push('/bluetooth')" detail>
           <ion-icon :icon="bluetooth" slot="start"></ion-icon>
           <ion-label>Bluetooth Management</ion-label>
+        </ion-item>
+
+        <ion-item button @click="() => router.push('/alert-rules')" detail>
+          <ion-icon :icon="notificationsOutline" slot="start"></ion-icon>
+          <ion-label>Alert Rules</ion-label>
+        </ion-item>
+
+        <ion-item lines="full">
+          <ion-icon :icon="moon" slot="start"></ion-icon>
+          <ion-label>Dark Mode</ion-label>
+          <ion-toggle
+            slot="end"
+            :checked="isDarkModeEnabled"
+            @ionChange="handleDarkModeToggle"
+          ></ion-toggle>
         </ion-item>
 
         <!-- <ion-item button @click="() => router.push('/theme')" detail>
@@ -55,15 +70,32 @@
 </template>
 
 <script setup>
-import { IonPage, IonContent, IonList, IonItem, IonLabel, IonIcon } from "@ionic/vue";
-import { personCircle, logOut, options, bluetooth } from "ionicons/icons";
+import { computed } from "vue";
+import { IonPage, IonContent, IonList, IonItem, IonLabel, IonIcon, IonToggle } from "@ionic/vue";
+import { personCircle, logOut, options, bluetooth, moon, notificationsOutline } from "ionicons/icons";
 import { useRouter } from "vue-router";
 import GenericHeader from "@/components/GenericHeader.vue";
 import UnitPreferencesEditor from "@/components/UnitPreferencesEditor.vue";
 import LoggingPreferences from "@/components/LoggingPreferences.vue";
 import ConnectivityComponent from "@/components/ConnectivityComponent.vue";
+import { usePreferencesStore } from "@/stores/preferences";
 
 const router = useRouter();
+const preferencesStore = usePreferencesStore();
+
+const isDarkModeEnabled = computed(() => {
+  const flag = preferencesStore?.darkMode;
+  return typeof flag === "boolean" ? flag : false;
+});
+
+const handleDarkModeToggle = (event) => {
+  const nextValue = Boolean(event?.detail?.checked);
+  if (typeof preferencesStore?.setDarkMode === "function") {
+    preferencesStore.setDarkMode(nextValue);
+  } else {
+    console.warn("setDarkMode is not defined on preferencesStore");
+  }
+};
 
 const logout = async () => {
   try {
@@ -82,4 +114,56 @@ const logout = async () => {
 };
 </script>
 
-<style scoped></style>
+<style scoped>
+.settings-page {
+  background: var(--app-background-color);
+  color: var(--app-text-color);
+}
+
+.settings-content {
+  --background: var(--app-background-color);
+  color: var(--app-text-color);
+}
+
+.settings-list {
+  background: transparent;
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+.settings-list :deep(ion-item) {
+  --background: var(--app-surface-color);
+  --color: var(--app-text-color);
+  --border-color: var(--app-border-color);
+  --inner-border-width: 0 0 1px 0;
+}
+
+.settings-list :deep(ion-item:last-of-type) {
+  --inner-border-width: 0;
+}
+
+.settings-list :deep(ion-label) {
+  color: inherit;
+}
+
+.settings-list :deep(ion-icon) {
+  color: var(--app-accent-color);
+}
+
+.settings-list :deep(ion-toggle) {
+  --handle-background: var(--app-surface-color);
+  --background: var(--app-border-color);
+  --handle-background-checked: var(--app-accent-contrast-color);
+  --background-checked: var(--app-accent-color);
+}
+
+.settings-list :deep(ion-button) {
+  --background: var(--app-accent-color);
+  --color: var(--app-accent-contrast-color);
+  --border-radius: 18px;
+}
+
+.settings-list :deep(connectivity-component) {
+  display: block;
+  margin: 12px 0 0;
+}
+</style>

@@ -1,8 +1,8 @@
 <template>
-  <IonPage>
+  <IonPage class="weather-page">
     <GenericHeader title="Weather" />
-    <IonContent>
-      <div class="ion-padding">
+    <IonContent class="weather-content">
+      <div class="ion-padding weather-wrapper">
         <WeatherComponent />
       </div>
     </IonContent>
@@ -16,5 +16,20 @@ import WeatherComponent from '@/components/WeatherComponent.vue';
 </script>
 
 <style scoped>
-/* Add any custom styles here if needed */
+.weather-page {
+  background: var(--app-background-color);
+  color: var(--app-text-color);
+}
+
+.weather-content {
+  --background: var(--app-background-color);
+  color: var(--app-text-color);
+}
+
+.weather-wrapper {
+  background: var(--app-surface-color);
+  border: 1px solid var(--app-border-color);
+  border-radius: 12px;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--app-text-color) 10%, transparent);
+}
 </style>

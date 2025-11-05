@@ -109,7 +109,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import {
   useStateDataStore,
@@ -132,7 +132,6 @@ const anchorState = computed(() => state.value.anchor || {});
 const navigationState = computed(() => state.value.navigation || {});
 const breadcrumbsRef = stateStore.breadcrumbs;
 const now = ref(Date.now());
-let clockTimer = null;
 let stopStateLogging = null;
 const initialHeadingOffset = ref(null);
 
@@ -151,9 +150,6 @@ const initialHeadingOffset = ref(null);
 // });
 
 onUnmounted(() => {
-  if (clockTimer) {
-    window.clearInterval(clockTimer);
-  }
   if (stopStateLogging) {
     stopStateLogging();
     stopStateLogging = null;
@@ -568,10 +564,10 @@ const criticalRadiusPx = CRITICAL_RADIUS;
   position: relative;
   width: 100%;
   height: 100%;
-  background-color: #000;
+  background-color: var(--widget-surface-color);
   border-radius: 16px;
   overflow: hidden;
-  color: #ffffff;
+  color: var(--widget-text-color);
   font-family: "Inter", "Segoe UI", sans-serif;
 }
 
@@ -582,7 +578,7 @@ const criticalRadiusPx = CRITICAL_RADIUS;
 }
 
 .canvas-background {
-  fill: #000;
+  fill: var(--widget-surface-color);
 }
 
 .critical-range {
@@ -592,7 +588,7 @@ const criticalRadiusPx = CRITICAL_RADIUS;
 }
 
 .rode-line {
-  stroke: rgba(255, 255, 255, 0.8);
+  stroke: var(--widget-text-color);
   stroke-width: 2;
   stroke-dasharray: 6 4;
 }
@@ -645,14 +641,14 @@ const criticalRadiusPx = CRITICAL_RADIUS;
 
 .corner .label {
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--widget-muted-text-color);
   font-weight: 600;
 }
 
 .corner .value {
   font-size: 16px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--widget-text-color);
 }
 
 .corner-top-left {

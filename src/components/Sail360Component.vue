@@ -450,8 +450,8 @@ onMounted(() => {
   height: 100% !important;
   width: 100% !important;
   aspect-ratio: 1 / 1 !important;
-  background-color: var(--ion-color-primary);
-  color: var(--ion-color-primary-contrast);
+  background-color: var(--widget-surface-color);
+  color: var(--widget-text-color);
   border: none;
   border-radius: 8px;
   margin: 0;
@@ -468,8 +468,8 @@ onMounted(() => {
 }
 
 .heading-panel {
-  fill: white;
-  stroke: black;
+  fill: var(--widget-surface-color);
+  stroke: var(--widget-text-color);
   stroke-width: 2px;
 }
 
@@ -480,7 +480,7 @@ text {
 }
 
 .heading {
-  fill: black;
+  fill: var(--widget-text-color);
   font-size: 31pt;
   font-weight: bold;
 }
@@ -490,19 +490,19 @@ text {
 }
 
 .wind-label {
-  fill: white;
+  fill: var(--widget-text-color);
   font-size: xx-large;
   font-weight: 900;
 }
 
 .comp-ring {
   fill: none;
-  stroke: white;
+  stroke: var(--widget-text-color);
   stroke-width: 40px;
 }
 
 .compass-label {
-  fill: black;
+  fill: var(--widget-text-color);
   font-size: large;
   font-weight: bold;
 }
@@ -512,7 +512,7 @@ text {
 }
 
 .tidal-speed {
-  fill: white;
+  fill: var(--widget-text-color);
   font-size: 64pt;
   font-weight: 700;
   opacity: 0.4;
@@ -520,7 +520,7 @@ text {
 
 .wind-angle {
   font-size: 70pt;
-  stroke: white;
+  stroke: var(--widget-text-color);
 }
 
 .true-wind-angle {
@@ -539,22 +539,23 @@ text {
 }
 
 .wind-angle-label {
-  fill: white;
+  fill: var(--widget-text-color);
   font-size: 20px;
   font-weight: bold;
 }
 
 .waypoint {
   fill: rgba(255, 0, 234, 1);
-  stroke: black;
+  stroke: var(--widget-text-color);
   stroke-width: 1px;
 }
 
 .sail-outline {
-  stroke: rgba(255, 255, 255, 0.5);
+  stroke: var(--widget-text-color);
   stroke-width: 10px;
   transform: translate(21%, 33%) scale(0.65);
   fill: none;
+  opacity: 0.5;
 }
 
 /* Fade transition is now handled by the parent component */

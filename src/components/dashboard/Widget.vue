@@ -70,8 +70,12 @@ import RuuviWidgetComponent from "../RuuviWidgetComponent.vue";
 import VictronBatteryMonitorWidget from "../VictronBatteryMonitorWidget.vue";
 import VictronElectricalWidget from "../VictronElectricalWidget.vue";
 import WindSpeedWidget from "../WindSpeedWidget.vue";
+import WindCompassArrowWidget from "../WindCompassArrowWidget.vue";
 import ClockWidget from "../ClockWidget.vue";
 import AnchorWidget from "../AnchorWidget.vue";
+import BoatingWeatherWidget from "../BoatingWeatherWidget.vue";
+import TempWindWidget from "../TempWindWidget.vue";
+import PressureTideWidget from "../PressureTideWidget.vue";
 
 const props = defineProps({
   widget: {
@@ -138,6 +142,8 @@ import PlaceholderWidget from './PlaceholderWidget.vue';
 const componentMap = {
   sail360: Sail360View,
   windspeed: WindSpeedWidget,
+  windcompassarrow: WindCompassArrowWidget,
+  windcompassrotating: WindCompassArrowWidget, // Fallback to arrow widget (removed rotating version)
   instrument: DashboardInstrumentComponent,
   tank: TankLevelComponent,
   battery: BatteryComponent,
@@ -146,6 +152,9 @@ const componentMap = {
   'victron-electrical': VictronElectricalWidget,
   clock: ClockWidget,
   anchor: AnchorWidget,
+  weather: BoatingWeatherWidget,
+  "temp-wind": TempWindWidget,
+  "pressure-tide": PressureTideWidget,
   placeholder: PlaceholderWidget,
 };
 
@@ -508,7 +517,7 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   height: 100%;
-  background: var(--ion-color-light);
+  background: var(--app-background-color);
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   transition: all 0.3s ease;
@@ -516,6 +525,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--widget-text-color);
 }
 
 .widget-container.editing {
@@ -529,6 +539,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: inherit;
 }
 
 .widget-inner-container {

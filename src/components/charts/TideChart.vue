@@ -3,7 +3,6 @@
     ref="chartContainer"
     class="tide-chart-container" 
     :style="{ height: `${height}px` }"
-    @click="handleClick"
     @mousemove="handleMouseMove"
     @mouseleave="handleMouseLeave"
     @touchstart="handleTouchStart"
@@ -18,7 +17,7 @@
       <template v-else>
         <svg :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" class="tide-svg">
           <!-- Background -->
-          <rect width="100%" height="100%" fill="#f5f7fa" />
+          <rect width="100%" height="100%" class="chart-background" />
           
           <!-- Grid lines -->
           <g v-for="(tick, index) in yTicks" :key="'y' + index">
@@ -35,7 +34,7 @@
               :y1="yScale(tick)" 
               :x2="props.padding.left" 
               :y2="yScale(tick)" 
-              stroke="#000"
+              stroke="currentColor"
               stroke-width="1.5"
             />
             <!-- Y-axis labels -->
@@ -43,10 +42,9 @@
               :x="props.padding.left - 10" 
               :y="yScale(tick) + 4" 
               font-size="12" 
-              text-anchor="end"
-              fill="#000"
               font-weight="500"
-              class="y-axis-label"
+              text-anchor="end"
+              class="axis-label y-axis-label"
             >
               {{ typeof tick === 'number' ? tick.toFixed(1) + 'm' : '--' }}
             </text>
@@ -58,8 +56,7 @@
             :y1="height - props.padding.bottom" 
             :x2="width - props.padding.right" 
             :y2="height - props.padding.bottom" 
-            stroke="#000"
-            stroke-width="2"
+            class="axis-line"
             stroke-linecap="square"
           />
           
@@ -71,11 +68,9 @@
               :y1="height - props.padding.bottom" 
               :x2="xScale(tick.time)" 
               :y2="height - props.padding.bottom + (tick.isMajor ? 12 : 8)" 
-              :stroke="tick.isMajor ? '#000' : '#999'"
+              :class="['axis-tick', tick.isMajor ? 'tick-major' : 'tick-minor']"
               :stroke-width="tick.isMajor ? '1.5' : '1.2'"
               :stroke-dasharray="tick.isMajor ? 'none' : '2,2'"
-              class="x-tick"
-              :class="{ 'major-tick': tick.isMajor, 'minor-tick': !tick.isMajor }"
             />
             <!-- X-axis labels (only for major ticks) -->
             <text 
@@ -84,9 +79,8 @@
               :y="height - props.padding.bottom + 24" 
               font-size="12" 
               text-anchor="middle"
-              fill="#000"
               font-weight="500"
-              class="x-axis-label"
+              class="axis-label x-axis-label"
             >
               {{ formatTime(tick.time) }}
             </text>
@@ -97,7 +91,7 @@
             v-if="tidePath"
             :d="tidePath" 
             fill="none" 
-            stroke="#4a90e2" 
+            class="tide-line"
             stroke-width="2" 
             stroke-linejoin="round"
           />
@@ -109,7 +103,7 @@
             y1="0" 
             :x2="currentTimeX" 
             :y2="height - props.padding.bottom" 
-            stroke="#ff6b6b" 
+            class="indicator-line"
             stroke-width="1.5"
             stroke-dasharray="4,2"
           />
@@ -119,7 +113,7 @@
             y="15" 
             font-size="10" 
             text-anchor="middle"
-            fill="#ff6b6b"
+            class="indicator-label"
             font-weight="bold"
           >
             Now
@@ -132,7 +126,6 @@
             y1="0" 
             :x2="cursorX" 
             :y2="height" 
-            stroke="#4a90e2" 
             stroke-width="1" 
             stroke-dasharray="4, 2"
             class="cursor-line"
@@ -142,7 +135,6 @@
               :x="cursorX + 5" 
               :y="40" 
               font-size="12" 
-              fill="#4a90e2"
               class="cursor-time-label"
             >
               {{ formatCursorTime(cursorTime) }}
@@ -152,7 +144,6 @@
               :x="cursorX + 5" 
               :y="55" 
               font-size="10" 
-              fill="#4a90e2"
               class="cursor-value-label"
             >
               {{ cursorValue.toFixed(2) }}m
@@ -165,7 +156,7 @@
             :cx="currentTimeX" 
             :cy="currentTideY" 
             r="4" 
-            fill="#ff6b6b"
+            class="indicator-dot"
           />
         </svg>
         
@@ -492,26 +483,11 @@ function handleMouseMove(event) {
       .domain([0, svgRect.width])
       .range([0, viewBox.width]);
     
-    // Create a scale to convert from viewBox to viewport coordinates
-    const viewBoxToViewport = scaleLinear()
-      .domain([0, viewBox.width])
-      .range([0, svgRect.width]);
-    
     // Get mouse position relative to SVG
     const mouseX = event.clientX - svgRect.left;
     
     // Convert to viewBox coordinates
     const viewBoxX = viewportToViewBox(mouseX);
-    
-    // Get the scale's range in viewBox coordinates
-    const scaleRange = xScale.value.range();
-    
-    // Log detailed position information
-    // console.log('--- Mouse Move ---');
-    // console.log('SVG rect:', { left: svgRect.left, width: svgRect.width });
-    // console.log('ViewBox:', { width: viewBox.width, height: viewBox.height });
-    // console.log('Mouse position (clientX, svgX, viewBoxX):', event.clientX, mouseX, viewBoxX);
-    // console.log('Scale range:', scaleRange);
     
     // Only update if within chart bounds
     if (mouseX >= 0 && mouseX <= svgRect.width) {
@@ -543,11 +519,6 @@ function handleMouseMove(event) {
           cursorValue.value = seaLevels.value[closestIndex];
         }
         
-        // Log scale information
-        // console.log('Scale domain:', xScale.value.domain().map(d => d.toString()));
-        // console.log('Computed cursor X (viewBox):', cursorX.value);
-        // console.log('Time value:', cursorTime.value);
-        // console.log('Y value:', cursorValue.value);
       } catch (e) {
         console.error('Error inverting scale:', e);
         isHovering.value = false;
@@ -564,20 +535,6 @@ function handleMouseLeave() {
   isHovering.value = false;
   cursorX.value = null;
   cursorTime.value = null;
-}
-
-// Handle click for debugging
-function handleClick(event) {
-  const svg = chartContainer.value.querySelector('svg');
-  const svgRect = svg.getBoundingClientRect();
-  const clickX = event.clientX - svgRect.left;
-  
-  // console.log('--- Click ---');
-  // console.log('Click position (clientX, svgX):', event.clientX, clickX);
-  // console.log('Current cursorX:', cursorX.value);
-  // console.log('Scale range:', xScale.value ? xScale.value.range() : 'Scale not ready');
-  // console.log('SVG width:', svgRect.width);
-  // console.log('Padding:', props.padding);
 }
 
 // Touch event handlers
@@ -655,12 +612,13 @@ onUnmounted(() => {
 <style scoped>
 .tide-chart {
   font-family: 'Arial', sans-serif;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  background: var(--app-surface-color);
+  border-radius: 14px;
+  border: 1px solid var(--app-border-color);
+  box-shadow: 0 18px 32px color-mix(in srgb, var(--app-text-color) 12%, transparent);
   padding: 16px;
   margin: 16px 0;
-  overflow: visible; /* Ensure nothing gets cut off */
+  overflow: visible;
 }
 
 .no-data {
@@ -668,7 +626,7 @@ onUnmounted(() => {
   justify-content: center;
   align-items: center;
   height: 300px; /* Match the chart height */
-  color: #666;
+  color: var(--app-muted-text-color);
   font-style: italic;
   font-size: 1.1em;
 }
@@ -677,6 +635,10 @@ onUnmounted(() => {
   display: block;
   max-width: 100%;
   height: auto;
+}
+
+.chart-background {
+  fill: color-mix(in srgb, var(--app-surface-color) 85%, var(--app-background-color) 15%);
 }
 
 .x-axis-label {
@@ -689,9 +651,51 @@ onUnmounted(() => {
 
 /* Style for grid lines */
 .grid-line {
-  stroke: #e0e6ed;
+  stroke: color-mix(in srgb, var(--app-border-color) 65%, transparent);
   stroke-width: 1;
   stroke-dasharray: 2,2;
+}
+
+.axis-line {
+  stroke: var(--app-muted-text-color);
+  stroke-width: 2;
+}
+
+.axis-tick {
+  stroke: var(--app-muted-text-color);
+}
+
+.tick-minor {
+  stroke: color-mix(in srgb, var(--app-muted-text-color) 60%, transparent);
+}
+
+.axis-label {
+  fill: var(--app-text-color);
+}
+
+.tide-line {
+  stroke: var(--app-accent-color);
+}
+
+.indicator-line {
+  stroke: color-mix(in srgb, var(--app-accent-color) 80%, var(--app-text-color) 20%);
+}
+
+.indicator-label {
+  fill: color-mix(in srgb, var(--app-accent-color) 90%, var(--app-text-color) 10%);
+}
+
+.cursor-line {
+  stroke: color-mix(in srgb, var(--app-accent-color) 70%, transparent);
+}
+
+.cursor-time-label,
+.cursor-value-label {
+  fill: color-mix(in srgb, var(--app-accent-color) 85%, var(--app-text-color) 15%);
+}
+
+.indicator-dot {
+  fill: color-mix(in srgb, var(--app-accent-color) 82%, var(--app-text-color) 18%);
 }
 
 .tide-stats {
@@ -699,8 +703,9 @@ onUnmounted(() => {
   justify-content: space-between;
   margin-top: 1rem;
   padding: 0.75rem;
-  background: #f8fafc;
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--app-surface-color) 80%, var(--app-background-color) 20%);
+  border-radius: 10px;
+  border: 1px solid var(--app-border-color);
 }
 
 .tide-stat {
@@ -711,14 +716,14 @@ onUnmounted(() => {
 .tide-stat .label {
   display: block;
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--app-muted-text-color);
   margin-bottom: 0.25rem;
 }
 
 .tide-stat .value {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--app-text-color);
 }
 
 @media (max-width: 768px) {
@@ -734,7 +739,7 @@ onUnmounted(() => {
     display: flex;
     justify-content: space-between;
     padding: 0.5rem 0.75rem;
-    background: rgba(255, 255, 255, 0.7);
+    background: color-mix(in srgb, var(--app-surface-color) 65%, var(--app-background-color) 35%);
     border-radius: 6px;
   }
   

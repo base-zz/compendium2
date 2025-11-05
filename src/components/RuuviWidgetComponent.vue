@@ -212,7 +212,7 @@ const isStale = computed(() => {
   align-items: center;
   padding: 0;
   margin: 0;
-  background-color: var(--ion-color-primary);
+  background-color: var(--widget-surface-color);
   border-radius: 8px;
   pointer-events: auto;
   touch-action: manipulation;
@@ -230,11 +230,11 @@ const isStale = computed(() => {
 }
 
 .background {
-  fill: var(--ion-color-primary);
+  fill: var(--widget-surface-color);
 }
 
 text {
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
   text-anchor: middle;
   dominant-baseline: middle;
 }
@@ -242,7 +242,7 @@ text {
 .title {
   font-size: 1.425em;
   font-weight: bold;
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-text-color);
 }
 
 .metric-large {
@@ -274,13 +274,13 @@ text {
 
 .metric-label {
   font-size: 1.14em;
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-muted-text-color);
   font-weight: 600;
 }
 
 .metric-label-small {
   font-size: 0.9em;
-  fill: var(--ion-color-primary-contrast);
+  fill: var(--widget-muted-text-color);
   font-weight: 600;
 }
 

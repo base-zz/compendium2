@@ -399,6 +399,7 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   touch-action: pan-y;
+  background: #111827 !important;
 }
 
 .slide-content {
@@ -408,6 +409,15 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   touch-action: pan-y;
+  background: #111827 !important;
+}
+
+:deep(.swiper) {
+  background: #111827 !important;
+}
+
+:deep(.swiper-slide) {
+  background: #111827 !important;
 }
 
 .dashboard-container {
@@ -415,19 +425,21 @@ onMounted(async () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: var(--ion-color-light);
+  background-color: #111827 !important;
+  color: var(--app-text-color);
 }
 
 .dashboard-header {
   padding: 8px 16px;
-  background-color: var(--ion-color-primary);
-  color: var(--ion-color-primary-contrast);
+  background-color: var(--app-surface-color);
+  color: var(--app-text-color);
+  border-bottom: 1px solid var(--app-border-color);
   z-index: 10;
 }
 
 .dashboard-name-input {
-  --color: var(--ion-color-primary-contrast);
-  --placeholder-color: var(--ion-color-primary-contrast);
+  --color: var(--app-text-color);
+  --placeholder-color: var(--app-muted-text-color);
   --placeholder-opacity: 0.7;
   font-weight: 500;
 }
@@ -436,6 +448,7 @@ onMounted(async () => {
   flex: 1;
   overflow: hidden;
   padding: 8px;
+  background: #111827 !important;
 }
 
 .page-indicator {
@@ -468,5 +481,14 @@ onMounted(async () => {
   justify-content: center;
   z-index: 1000;
   pointer-events: none;
+}
+
+ion-content.content-with-header {
+  --background: #111827 !important;
+  background: #111827 !important;
+}
+
+ion-content.content-with-header::part(background) {
+  background: #111827 !important;
 }
 </style>

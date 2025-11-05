@@ -57,9 +57,12 @@ export function createWidgetModel(widgetData = {}) {
       data: widgetData
     };
 
-    // Disable forced aspect ratio for wide-layout widgets like the anchor when not explicitly set
+    // Enforce square layout for widgets that should remain square by default
     const displayType = standardWidget.displayType || standardWidget.type;
-    if (
+    if (displayType === 'temp-wind') {
+      standardWidget.aspectRatio = 1;
+      standardWidget.maintainAspectRatio = true;
+    } else if (
       displayType === 'anchor' &&
       widgetData.maintainAspectRatio === undefined
     ) {
