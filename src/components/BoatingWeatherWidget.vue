@@ -1708,4 +1708,46 @@ function mapWindDirection(degrees) {
 .trend-neutral {
   color: #e5e7eb;
 }
+
+/* Responsive adjustments for small screens (iPhone) */
+@media (max-width: 430px) {
+  .compact-layout .temp-large {
+    font-size: 2.5em;
+  }
+  
+  .compact-layout .compact-condition-icon {
+    font-size: 1.8em;
+  }
+  
+  .compact-layout .metric-value {
+    font-size: 1em;
+  }
+  
+  .compact-layout .metric-label {
+    font-size: 0.65em;
+  }
+  
+  .compact-layout .metric-small {
+    font-size: 0.6em;
+  }
+  
+  .compact-layout .tide-value {
+    font-size: 1em;
+  }
+  
+  .compact-layout .tide-label {
+    font-size: 0.8em;
+  }
+}
+</style>
+
+<style>
+/* Dark mode icon overrides - convert colored emojis to white */
+body.dark .weather-widget .compact-condition-icon,
+body.dark .weather-widget .sun-icon,
+body.dark .compact-condition-icon,
+body.dark .sun-icon {
+  filter: grayscale(1) brightness(2) !important;
+  -webkit-filter: grayscale(1) brightness(2) !important;
+}
 </style>

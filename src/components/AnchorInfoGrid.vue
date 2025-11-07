@@ -364,7 +364,7 @@ const handleDropAnchor = () => {
 
 .metric-div.clickable {
   cursor: pointer;
-  color: var(--app-accent-color);
+  color: var(--app-text-color);
 }
 
 .larger {
@@ -603,5 +603,24 @@ const handleDropAnchor = () => {
   .drop-anchor-rect {
     height: 48px;
   }
+}
+</style>
+
+<style>
+/* Dark mode overrides for AnchorInfoGrid */
+body.dark .drop-anchor-label {
+  color: rgba(248, 250, 252, 0.85) !important;
+}
+
+body.dark .slider-value {
+  color: #f8fafc !important;
+}
+
+body.dark .drop-anchor-icon {
+  filter: brightness(0) invert(1) !important;
+}
+
+body.dark .metric-div.clickable {
+  color: rgba(248, 250, 252, 0.85) !important;
 }
 </style>

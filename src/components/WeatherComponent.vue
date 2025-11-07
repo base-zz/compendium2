@@ -745,3 +745,13 @@ onUnmounted(() => {
   }
 }
 </style>
+
+<style>
+/* Dark mode icon overrides */
+body.dark .weather-icon,
+body.dark .hour .icon,
+body.dark .day .weather-icon,
+body.dark .precip i {
+  color: #f8fafc !important;
+}
+</style>

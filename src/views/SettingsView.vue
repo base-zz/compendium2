@@ -167,3 +167,10 @@ const logout = async () => {
   margin: 12px 0 0;
 }
 </style>
+
+<style>
+/* Dark mode override for settings icons */
+body.dark .settings-list ion-icon {
+  color: #f8fafc !important;
+}
+</style>

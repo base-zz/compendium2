@@ -216,7 +216,6 @@ export const useStateDataStore = defineStore("stateData", () => {
 
   // Create a data logger that uses the 'data' log level
   const dataLogger = (message, ...args) => {
-    const logger = createLogger("state-data-store");
     logger.data(message, ...args);
   };
 
@@ -1408,6 +1407,11 @@ export const useStateDataStore = defineStore("stateData", () => {
         return;
       }
       console.log(`========== FULL STATE UPDATE RECEIVED (${evt.type}) ==========`);
+      dataLogger("Full state payload received", {
+        eventType: evt.type,
+        payload: evt.data,
+        timestamp: new Date().toISOString(),
+      });
       dataLogger("Applying full state update", {
         eventType: evt.type,
         dataKeys: Object.keys(evt.data || {}),

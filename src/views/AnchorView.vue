@@ -2763,3 +2763,37 @@ h3 {
   background-color: color-mix(in srgb, var(--app-surface-color) 85%, var(--app-accent-soft-color) 15%);
 }
 </style>
+
+<style>
+/* Dark mode overrides */
+body.dark .slider-value {
+  color: #f8fafc !important;
+}
+
+body.dark ion-fab-button[color="secondary"] {
+  --background: rgba(248, 250, 252, 0.85) !important;
+  --color: #1f2933 !important;
+  --background-activated: rgba(248, 250, 252, 0.7) !important;
+  --background-hover: rgba(248, 250, 252, 0.9) !important;
+}
+
+body.dark .modal-actions ion-button[color="primary"] {
+  --background: rgba(248, 250, 252, 0.85) !important;
+  --color: #1f2933 !important;
+  --background-activated: rgba(248, 250, 252, 0.7) !important;
+  --background-hover: rgba(248, 250, 252, 0.9) !important;
+}
+
+body.dark .zoom-button {
+  background-color: #1f2933 !important;
+  color: #f8fafc !important;
+}
+
+body.dark .zoom-button:hover {
+  background-color: #2d3748 !important;
+}
+
+body.dark .zoom-button:active {
+  background-color: #1a202c !important;
+}
+</style>

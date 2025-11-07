@@ -58,3 +58,7 @@ body.dark ion-content {
 body.dark ion-content::part(background) {
   background: #111827 !important;
 }
+
+body.dark ion-back-button {
+  --color: #f8fafc !important;
+}

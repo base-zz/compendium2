@@ -124,3 +124,11 @@ const openAlertDetail = async (alert) => {
   --background-rgb: var(--app-surface-color);
 }
 </style>
+
+<style>
+/* Dark mode override for Manage Rules button */
+body.dark .alerts-header ion-button {
+  --color: rgba(248, 250, 252, 0.85) !important;
+  --border-color: rgba(248, 250, 252, 0.85) !important;
+}
+</style>

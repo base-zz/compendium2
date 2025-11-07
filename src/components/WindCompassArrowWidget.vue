@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useStateDataStore } from "@/stores/stateDataStore";
 import { storeToRefs } from "pinia";
 
@@ -78,19 +78,10 @@ const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 
 // Use true wind data from navigation state
-const windData = computed(() => {
-  const wind = state.value?.navigation?.wind?.true || null;
-  console.log('[WindCompassArrow] Full wind data:', wind);
-  return wind;
-});
+const windData = computed(() => state.value?.navigation?.wind?.true || null);
 
 const speedData = computed(() => windData.value?.speed || null);
-const angleData = computed(() => {
-  // Use angle (same as WindSpeedWidget) not direction
-  const angle = windData.value?.angle || null;
-  console.log('[WindCompassArrow] Angle data:', angle);
-  return angle;
-});
+const angleData = computed(() => windData.value?.angle || null);
 
 const speedValue = computed(() => {
   const explicit = speedData.value?.value ?? props.widgetData?.value;
@@ -105,19 +96,14 @@ const units = computed(() => {
   return typeof suppliedUnits === "string" ? suppliedUnits : "";
 });
 
-const displayLabel = computed(() => {
-  // Check all possible label sources
-  const label = 
-    props.widgetData?.data?.label ||
-    props.widgetData?.data?.widgetTitle ||
-    props.widgetData?.widgetTitle ||
-    props.widgetData?.widgetName ||
-    props.widgetData?.label ||
-    "";
-  
-  console.log('[WindCompassArrow] displayLabel:', label, 'widgetData:', props.widgetData);
-  return label;
-});
+const displayLabel = computed(() =>
+  props.widgetData?.data?.label ||
+  props.widgetData?.data?.widgetTitle ||
+  props.widgetData?.widgetTitle ||
+  props.widgetData?.widgetName ||
+  props.widgetData?.label ||
+  ""
+);
 
 const angleValue = computed(() => {
   // Get direction value (degrees from north)
@@ -127,7 +113,6 @@ const angleValue = computed(() => {
 
 const formattedSpeed = computed(() => {
   const speed = speedValue.value;
-  console.log('[WindCompassArrow] speedValue:', speed);
   if (speed === null || speed === undefined) {
     return "--";
   }
@@ -146,11 +131,6 @@ const normalizedAngle = computed(() => {
   const raw = angleValue.value % 360;
   return raw >= 0 ? raw : raw + 360;
 });
-
-// Log computed values
-watch([formattedSpeed, units, normalizedAngle], ([speed, u, angle]) => {
-  console.log('[WindCompassArrow] Display:', { speed, units: u, angle });
-}, { immediate: true });
 
 // Arrow points outward from center, positioned on circumference
 const arrowPoints = computed(() => {

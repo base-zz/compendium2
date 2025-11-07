@@ -619,6 +619,7 @@ onUnmounted(() => {
   padding: 16px;
   margin: 16px 0;
   overflow: visible;
+  --tide-line-color: var(--app-accent-color);
 }
 
 .no-data {
@@ -674,7 +675,7 @@ onUnmounted(() => {
 }
 
 .tide-line {
-  stroke: var(--app-accent-color);
+  stroke: var(--tide-line-color);
 }
 
 .indicator-line {
@@ -696,6 +697,10 @@ onUnmounted(() => {
 
 .indicator-dot {
   fill: color-mix(in srgb, var(--app-accent-color) 82%, var(--app-text-color) 18%);
+}
+
+:global(body.dark) .tide-line {
+  stroke: #f8fafc !important;
 }
 
 .tide-stats {
@@ -776,5 +781,12 @@ onUnmounted(() => {
     max-width: 100%;
     height: auto;
   }
+}
+</style>
+
+<style>
+/* Unscoped dark mode override for tide line */
+body.dark .tide-line {
+  stroke: #f8fafc !important;
 }
 </style>

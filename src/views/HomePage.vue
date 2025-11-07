@@ -46,15 +46,15 @@
           </ion-button>
 
           <ion-button @click="router.push('/tides')" size="large" class="nav-button">
-            <ion-icon :icon="water" class="custom-icon"></ion-icon>
-          </ion-button>
-
-          <ion-button @click="router.push('/settings')" size="large" class="nav-button">
-            <ion-icon src="/img/cog.svg" class="custom-icon"></ion-icon>
+            <i class="fas fa-water custom-icon"></i>
           </ion-button>
 
           <ion-button @click="router.push('/bluetooth')" size="large" class="nav-button">
             <ion-icon :icon="bluetooth" class="custom-icon"></ion-icon>
+          </ion-button>
+
+          <ion-button @click="router.push('/settings')" size="large" class="nav-button">
+            <ion-icon src="/img/cog.svg" class="custom-icon"></ion-icon>
           </ion-button>
 
           <!-- <ion-button @click="router.push('/junk3')" size="large" class="nav-button">
@@ -79,7 +79,7 @@ import {
   IonMenuButton,
 } from "@ionic/vue";
 import { useRouter } from "vue-router";
-import { notifications, partlySunny, water, bluetooth } from "ionicons/icons";
+import { notifications, partlySunny, bluetooth } from "ionicons/icons";
 
 
 const router = useRouter();
