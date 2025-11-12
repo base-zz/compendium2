@@ -201,6 +201,35 @@ export class RelayConnectionBridge {
   }
 
   /**
+   * Update the relay server URL used for WebSocket connections.
+   * @param {string} newUrl - The new relay server URL
+   * @returns {string} - The effective relay server URL after update
+   */
+  setRelayServerUrl(newUrl) {
+    const trimmedUrl = typeof newUrl === "string" ? newUrl.trim() : "";
+
+    if (!trimmedUrl) {
+      this._log("WARN", "Attempted to set an empty relay server URL");
+      return this.config.relayServerUrl;
+    }
+
+    const secureUrl = this._ensureSecureWebSocketUrl(trimmedUrl);
+
+    if (this.config.relayServerUrl === secureUrl) {
+      this._log("DEBUG", "Relay server URL unchanged", { secureUrl });
+      return this.config.relayServerUrl;
+    }
+
+    this._log("INFO", "Updating relay server URL", {
+      previousUrl: this.config.relayServerUrl,
+      newUrl: secureUrl,
+    });
+
+    this.config.relayServerUrl = secureUrl;
+    return this.config.relayServerUrl;
+  }
+
+  /**
    * Helper method to get a human-readable meaning for WebSocket close codes
    * @private
    * @param {number} code - The WebSocket close code

@@ -39,13 +39,13 @@
       </swiper>
 
       <!-- Floating action buttons - made smaller -->
-      <ion-fab vertical="bottom" horizontal="start" slot="fixed">
+      <ion-fab vertical="bottom" horizontal="start" slot="fixed" :class="{ 'faded': fabsFaded }">
         <ion-fab-button id="add-dashboard-button" color="primary" @click="handleAddDashboardClick" size="small">
           <ion-icon :icon="addCircleOutline"></ion-icon>
         </ion-fab-button>
       </ion-fab>
 
-      <ion-fab vertical="bottom" horizontal="end" slot="fixed" v-if="dashboards.length > 0">
+      <ion-fab vertical="bottom" horizontal="end" slot="fixed" v-if="dashboards.length > 0" :class="{ 'faded': fabsFaded }">
         <ion-fab-button
           id="edit-dashboard-button"
           :color="isEditing ? 'success' : 'primary'"
@@ -57,7 +57,7 @@
       </ion-fab>
       
       <!-- Delete dashboard FAB - only visible in edit mode with more than one dashboard -->
-      <ion-fab vertical="bottom" horizontal="center" slot="fixed" v-if="isEditing && dashboards.length > 1">
+      <ion-fab vertical="bottom" horizontal="center" slot="fixed" v-if="isEditing && dashboards.length > 1" :class="{ 'faded': fabsFaded }">
         <ion-fab-button
           id="delete-dashboard-button"
           color="danger"
@@ -69,7 +69,7 @@
       </ion-fab>
 
       <!-- Add widget FAB - only visible in edit mode -->
-      <ion-fab vertical="top" horizontal="end" slot="fixed" v-if="isEditing && dashboards.length > 0">
+      <ion-fab vertical="top" horizontal="end" slot="fixed" v-if="isEditing && dashboards.length > 0" :class="{ 'faded': fabsFaded }">
         <ion-fab-button
           id="add-widget-button"
           color="secondary"
@@ -102,7 +102,7 @@ import LoadingContent from "@/components/LoadingContent.vue";
 import DirectPlacementGrid from '../components/dashboard/DirectPlacementGrid.vue';
 import AddWidgetModal from "@/components/dashboard/AddWidgetModal.vue";
 import { useDashboardStore } from "@/stores/dashboardStore";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { Swiper, SwiperSlide } from "swiper/vue";
 import { Pagination, Navigation } from "swiper/modules";
 import { addCircleOutline, addOutline, pencilOutline, checkmarkOutline, trashOutline } from "ionicons/icons";
@@ -136,6 +136,21 @@ const modules = [Pagination, Navigation];
 
 // Swiper reference
 const swiperRef = ref(null);
+
+// FAB fade state
+const fabsFaded = ref(false);
+let fadeTimeout = null;
+
+// Reset fade timer
+function resetFadeTimer() {
+  fabsFaded.value = false;
+  if (fadeTimeout) {
+    clearTimeout(fadeTimeout);
+  }
+  fadeTimeout = setTimeout(() => {
+    fabsFaded.value = true;
+  }, 3000); // Fade after 3 seconds
+}
 
 // Set swiper reference
 function setSwiperRef(swiper) {
@@ -391,6 +406,21 @@ onMounted(async () => {
   }
   
   loading.value = false;
+  
+  // Start fade timer
+  resetFadeTimer();
+  
+  // Reset fade timer on any touch/click
+  document.addEventListener('touchstart', resetFadeTimer);
+  document.addEventListener('click', resetFadeTimer);
+});
+
+onUnmounted(() => {
+  if (fadeTimeout) {
+    clearTimeout(fadeTimeout);
+  }
+  document.removeEventListener('touchstart', resetFadeTimer);
+  document.removeEventListener('click', resetFadeTimer);
 });
 </script>
 
@@ -399,7 +429,7 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   touch-action: pan-y;
-  background: #111827 !important;
+  background: var(--app-background-color) !important;
 }
 
 .slide-content {
@@ -409,15 +439,15 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   touch-action: pan-y;
-  background: #111827 !important;
+  background: var(--app-background-color) !important;
 }
 
 :deep(.swiper) {
-  background: #111827 !important;
+  background: var(--app-background-color) !important;
 }
 
 :deep(.swiper-slide) {
-  background: #111827 !important;
+  background: var(--app-background-color) !important;
 }
 
 .dashboard-container {
@@ -425,7 +455,7 @@ onMounted(async () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: #111827 !important;
+  background-color: var(--app-background-color) !important;
   color: var(--app-text-color);
 }
 
@@ -448,7 +478,7 @@ onMounted(async () => {
   flex: 1;
   overflow: hidden;
   padding: 8px;
-  background: #111827 !important;
+  background: var(--app-background-color) !important;
 }
 
 .page-indicator {
@@ -484,11 +514,24 @@ onMounted(async () => {
 }
 
 ion-content.content-with-header {
-  --background: #111827 !important;
-  background: #111827 !important;
+  --background: var(--app-background-color) !important;
+  background: var(--app-background-color) !important;
 }
 
 ion-content.content-with-header::part(background) {
-  background: #111827 !important;
+  background: var(--app-background-color) !important;
+}
+
+/* FAB fade effect */
+ion-fab {
+  transition: opacity 0.5s ease;
+}
+
+ion-fab.faded {
+  opacity: 0.3;
+}
+
+ion-fab.faded:hover {
+  opacity: 1;
 }
 </style>

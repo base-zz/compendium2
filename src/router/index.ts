@@ -273,8 +273,8 @@ const router = createRouter({
 
 // Boat connection guard
 router.beforeEach(async (to, from, next) => {
-  // Skip for auth pages and pairing page
-  if (!to.meta.requiresAuth || to.name === 'BoatPairing') {
+  // Skip for auth pages, pairing page, and Home page
+  if (!to.meta.requiresAuth || to.name === 'BoatPairing' || to.name === 'Home') {
     console.log('Router: Skipping auth check for route:', to.name);
     return next();
   }
@@ -341,9 +341,11 @@ router.beforeEach((to, from, next) => {
 // Navigation guard to enforce authentication and boat pairing
 router.beforeEach((to, from, next) => {
   const isAuthenticated = localStorage.getItem("isAuthenticated") === 'true';
+  console.log('[ROUTER] Navigation check:', { to: to.path, from: from.path, isAuthenticated });
   
   // Redirect to login if route requires auth and user is not authenticated
   if (to.meta.requiresAuth && !isAuthenticated) {
+    console.log('[ROUTER] Redirecting to login - not authenticated');
     return next({ path: "/login" });
   }
   
@@ -352,8 +354,8 @@ router.beforeEach((to, from, next) => {
     return next({ path: "/home" });
   }
   
-  // For authenticated routes, ensure we have a boat ID
-  if (isAuthenticated && to.meta.requiresAuth) {
+  // For authenticated routes, ensure we have a boat ID (except Home)
+  if (isAuthenticated && to.meta.requiresAuth && to.name !== 'Home') {
     const boatId = localStorage.getItem('activeBoatId');
     const boatIds = JSON.parse(localStorage.getItem('boatIds') || '[]');
     
@@ -372,7 +374,7 @@ router.beforeEach((to, from, next) => {
       return next();
     }
     
-    // If we still don't have a boat ID, redirect to boat pairing
+    // If we still don't have a boat ID, redirect to boat pairing (except for Home)
     if (!boatId) {
       console.warn('[ROUTER] No boat ID found, redirecting to boat pairing');
       return next({ name: 'BoatPairing' });

@@ -253,25 +253,41 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
     // Reset error state
     error.value = null;
     
+    let detectedBoat = null;
+    
     try {
-      // Try local connection first
-      const localBoatInfo = await tryLocalConnection();
+      // Check if we're on a direct connection (on the boat's WiFi)
+      // The relay bridge will be connected if we're on the boat
+      const isDirectlyConnected = connectionBridge.connectionState?.status === 'connected';
       
-      if (localBoatInfo) {
-        logger.info('Local boat found:', localBoatInfo);
+      if (isDirectlyConnected && boatId.value) {
+        // We're directly connected and have a boat ID
+        logger.info('Direct connection detected with boat ID:', boatId.value);
         connectionMode.value = 'local';
-        boatId.value = localBoatInfo.boatId;
-        localStorage.setItem('activeBoatId', boatId.value);
-        await registerWithVPS(boatId.value);
-      } else if (boatId.value) {
-        // Fall back to remote connection if we have a boat ID
-        logger.info('Using existing boat ID for remote connection:', boatId.value);
-        connectionMode.value = 'remote';
-        await connectToVPS(boatId.value);
+        connectionStatus.value = 'connected';
+        updateDirectConnectionStatus(true);
+        detectedBoat = { boatId: boatId.value, name: boatId.value };
       } else {
-        // No local boat and no saved boat ID
-        logger.info('No local boat found and no saved boat ID');
-        connectionStatus.value = 'disconnected';
+        // Try local connection via HTTP
+        const localBoatInfo = await tryLocalConnection();
+        
+        if (localBoatInfo) {
+          logger.info('Local boat found:', localBoatInfo);
+          connectionMode.value = 'local';
+          boatId.value = localBoatInfo.boatId;
+          localStorage.setItem('activeBoatId', boatId.value);
+          await registerWithVPS(boatId.value);
+          detectedBoat = localBoatInfo;
+        } else if (boatId.value) {
+          // Fall back to remote connection if we have a boat ID
+          logger.info('Using existing boat ID for remote connection:', boatId.value);
+          connectionMode.value = 'remote';
+          await connectToVPS(boatId.value);
+        } else {
+          // No local boat and no saved boat ID
+          logger.info('No local boat found and no saved boat ID');
+          connectionStatus.value = 'disconnected';
+        }
       }
     } catch (err) {
       logger.error('Error initializing boat connection:', err);
@@ -279,13 +295,13 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       connectionStatus.value = 'error';
     }
     
-    // Return cleanup function
-    return () => {
+    // Return boat info if detected, otherwise return cleanup function
+    return detectedBoat || (() => {
       clearInterval(checkVpsInterval);
       connectionBridge.off('boat-status', handleBoatStatus);
       connectionBridge.off('connected', handleConnected);
       connectionBridge.off('disconnected', handleDisconnected);
-    };
+    });
   }
 
   /**

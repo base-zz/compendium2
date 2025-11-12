@@ -2217,6 +2217,15 @@ onMounted(() => {
     // Add event listener for the anchor-dropped event
     window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
     logger.info("Map initialized and event listeners added");
+    
+    // Remove OpenLayers attribution element
+    setTimeout(() => {
+      const attribution = document.querySelector('#app > ion-app > div > div > div.map-attribution > div');
+      if (attribution) {
+        attribution.remove();
+        logger.info("Map attribution element removed");
+      }
+    }, 250);
   } catch (error) {
     logger.error("Error during component mount", {
       error: error.message,

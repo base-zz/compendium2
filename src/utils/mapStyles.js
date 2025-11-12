@@ -60,12 +60,12 @@ export const STYLES = {
   }),
   NORMAL_RANGE: new Style({
     stroke: new Stroke({
-      color: "rgba(33,150,243,0.2)", // Blue color with 0.2 opacity as requested
+      color: "rgba(76,175,80,0.6)", // Light green with 0.6 opacity
       width: 2,
       lineDash: [4, 4], // Dotted line pattern
     }),
     fill: new Fill({
-      color: "rgba(33,150,243,0.05)", // Very subtle fill
+      color: "rgba(76,175,80,0.1)", // Very subtle green fill
     }),
   }),
   BOAT_RANGE: new Style({

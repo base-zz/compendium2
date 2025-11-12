@@ -2,7 +2,7 @@
   <IonPage class="weather-page">
     <GenericHeader title="Weather" />
     <IonContent class="weather-content">
-      <div class="ion-padding weather-wrapper">
+      <div class="weather-wrapper">
         <WeatherComponent />
       </div>
     </IonContent>
@@ -27,9 +27,9 @@ import WeatherComponent from '@/components/WeatherComponent.vue';
 }
 
 .weather-wrapper {
-  background: var(--app-surface-color);
-  border: 1px solid var(--app-border-color);
-  border-radius: 12px;
-  box-shadow: 0 2px 6px color-mix(in srgb, var(--app-text-color) 10%, transparent);
+  width: 100%;
+  height: 100%;
+  padding: 0 8px;
+  box-sizing: border-box;
 }
 </style>

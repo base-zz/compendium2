@@ -614,12 +614,12 @@ onUnmounted(() => {
   font-family: 'Arial', sans-serif;
   background: var(--app-surface-color);
   border-radius: 14px;
-  border: 1px solid var(--app-border-color);
-  box-shadow: 0 18px 32px color-mix(in srgb, var(--app-text-color) 12%, transparent);
-  padding: 16px;
-  margin: 16px 0;
-  overflow: visible;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
   --tide-line-color: var(--app-accent-color);
+  width: 100%;
+  height: 100%;
 }
 
 .no-data {
