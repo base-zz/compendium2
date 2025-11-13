@@ -33,8 +33,9 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useBoatConnectionStore } from '../stores/boatConnection';
+import { createLogger } from '@/services/logger';
 import { 
   IonList, 
   IonListHeader, 
@@ -44,6 +45,7 @@ import {
 } from '@ionic/vue';
 
 const boatStore = useBoatConnectionStore();
+const logger = createLogger('connectivity-component');
 
 // Connection states
 const hasInternet = ref(navigator.onLine);
@@ -57,28 +59,9 @@ const checkInternet = () => {
 // Initialize connection when component mounts
 const initializeConnection = async () => {
   try {
-    // Debug log environment variables
-    console.log('Environment variables:', {
-      VITE_VPS_API_URL: import.meta.env.VITE_VPS_API_URL,
-      VITE_RELAY_SERVER_URL: import.meta.env.VITE_RELAY_SERVER_URL,
-      MODE: import.meta.env.MODE
-    });
-    
-    console.log('Boat store state before init:', {
-      connectionStatus: boatStore.connectionStatus,
-      connectionMode: boatStore.connectionMode,
-      boatId: boatStore.boatId
-    });
-    
     await boatStore.initializeConnection();
-    
-    console.log('Boat store state after init:', {
-      connectionStatus: boatStore.connectionStatus,
-      connectionMode: boatStore.connectionMode,
-      boatId: boatStore.boatId
-    });
   } catch (error) {
-    console.error('Failed to initialize connection:', error);
+    logger.error('Failed to initialize connection', { error });
   }
 };
 
@@ -102,19 +85,6 @@ const internetStatus = computed(() => {
     color: hasInternet.value ? 'success' : 'danger'
   };
 });
-
-// Debug connection state
-const debugConnectionState = computed(() => ({
-  directConnected: boatStore.directConnected,
-  connectionStatus: boatStore.connectionStatus,
-  vpsConnected: boatStore.vpsConnected,
-  connectionMode: boatStore.connectionMode
-}));
-
-// Log connection state changes
-watch(debugConnectionState, (newState) => {
-  console.log('Connection state changed:', JSON.stringify(newState, null, 2));
-}, { deep: true });
 
 const directConnectionStatus = computed(() => {
   // In local mode, use the connection status directly

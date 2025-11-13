@@ -44,7 +44,7 @@ const defaultPreferences = {
     // Log levels and remote toggle
     debug: false,
     data: false,   
-    info: true,
+    info: false,
     warn: true,
     error: true,
     remote: false,
@@ -53,10 +53,7 @@ const defaultPreferences = {
   }
 };
 
-console.log('Defining preferences store...');
-
 export const usePreferencesStore = defineStore('preferences', () => {
-  console.log('Preferences store setup function running...');
   // State
   const preferences = reactive(loadSavedPreferences());
   const rawPreferences = ref(clonePreferencesObject(preferences));
@@ -95,7 +92,6 @@ export const usePreferencesStore = defineStore('preferences', () => {
     return rawPreferences.value;
   }
 
-  console.log("LOADED PREFERENCES", preferences);
   applyDisplayPreferences();
   // Getters
   const useImperial = computed(() => preferences.units.useImperial);
@@ -315,41 +311,8 @@ export const usePreferencesStore = defineStore('preferences', () => {
   applyLoggingPreferences();
 
   async function loadPreferencesFromServer() {
-    if (isFetchingFromServer.value) {
-      return rawPreferences.value;
-    }
-
-    if (typeof fetch !== 'function') {
-      logger.warn('Fetch API unavailable, skipping preferences bootstrap');
-      return rawPreferences.value;
-    }
-
-    isFetchingFromServer.value = true;
-    try {
-      const response = await fetch('/api/v1/preferences', {
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to load preferences: ${response.status}`);
-      }
-
-      const payload = await response.json();
-      const payloadPreferences = payload?.preferences ?? payload;
-
-      if (payloadPreferences && typeof payloadPreferences === 'object') {
-        applyServerPreferences(payloadPreferences);
-      } else {
-        logger.warn('Bootstrap response did not contain preferences', payload);
-      }
-
-      return rawPreferences.value;
-    } catch (error) {
-      logger.error('Error fetching preferences from server', error);
-      return rawPreferences.value;
-    } finally {
-      isFetchingFromServer.value = false;
-    }
+    logger.info('Skipping server preferences bootstrap - no remote endpoint available');
+    return rawPreferences.value;
   }
 
   stateUpdateProvider.subscribe(handleProviderEvent);
@@ -372,13 +335,23 @@ export const usePreferencesStore = defineStore('preferences', () => {
       const savedPrefs = localStorage.getItem('userPreferences');
       if (savedPrefs) {
         logger.info('Found saved preferences');
-        return JSON.parse(savedPrefs);
+        const parsed = JSON.parse(savedPrefs);
+        if (parsed?.logging) {
+          parsed.logging.info = false;
+          parsed.logging.debug = false;
+          parsed.logging.data = false;
+        }
+        return parsed;
       }
       logger.info('No saved preferences found, using defaults');
       return JSON.parse(JSON.stringify(defaultPreferences));
     } catch (error) {
       logger.error('Error loading preferences from localStorage:', error);
-      return JSON.parse(JSON.stringify(defaultPreferences));
+      const fallback = JSON.parse(JSON.stringify(defaultPreferences));
+      fallback.logging.info = false;
+      fallback.logging.debug = false;
+      fallback.logging.data = false;
+      return fallback;
     }
   }
 
@@ -408,29 +381,6 @@ export const usePreferencesStore = defineStore('preferences', () => {
   }
 
   // Log the store methods being returned
-  const debugInfo = {
-    preferences: !!preferences,
-    useImperial: 'computed',
-    darkMode: 'computed',
-    loggingEnabled: 'computed',
-    availableLoggers: 'computed',
-    formatValue: typeof formatValue === 'function',
-    getFormattedValueDetails: typeof getFormattedValueDetails === 'function',
-    toggleUnits: typeof toggleUnits === 'function',
-    resetPreferences: typeof resetPreferences === 'function',
-    resetLoggingPreferences: typeof resetLoggingPreferences === 'function',
-    setLoggingPreference: typeof setLoggingPreference === 'function',
-    setRemoteLogging: typeof setRemoteLogging === 'function',
-    setDarkMode: typeof setDarkMode === 'function',
-    applyLoggingPreferences: typeof applyLoggingPreferences === 'function',
-    applyServerPreferences: typeof applyServerPreferences === 'function',
-    loadPreferencesFromServer: typeof loadPreferencesFromServer === 'function',
-    savePreferences: typeof savePreferences === 'function',
-    isFetchingFromServer: 'ref'
-  };
-  
-  console.log('Returning store with methods:', debugInfo);
-
   return {
     // State
     preferences,
@@ -458,9 +408,6 @@ export const usePreferencesStore = defineStore('preferences', () => {
     savePreferences, // Expose savePreferences as an action
   };
 });
-
-// Debug: Log store definition
-console.log('Preferences store defined with ID:', 'preferences');
 
 // Export the store definition only, let Pinia handle instantiation
 export default usePreferencesStore;

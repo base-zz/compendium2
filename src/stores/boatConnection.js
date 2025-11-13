@@ -64,8 +64,8 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
           // Set the first boat as active
           localStorage.setItem('activeBoatId', activeId);
         }
-      } catch (e) {
-        console.error('Error parsing boatIds from localStorage:', e);
+      } catch (error) {
+        logger.error('Error parsing boatIds from localStorage', { error });
       }
     }
     
@@ -91,8 +91,8 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
         boatIds.add(id);
         localStorage.setItem('boatIds', JSON.stringify([...boatIds]));
       }
-    } catch (e) {
-      console.error('Error updating boatIds:', e);
+    } catch (error) {
+      logger.error('Error updating boatIds', { error });
     }
   }
   
@@ -142,12 +142,27 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
    */
   async function checkVpsHealth() {
     if (!import.meta.env.VITE_VPS_API_URL) {
-      console.log('VPS API URL not configured, skipping health check');
+      logger.debug('VPS API URL not configured, skipping health check');
       return false;
     }
-    
+
+    const vpsUrl = import.meta.env.VITE_VPS_API_URL;
+
+    if (typeof window !== 'undefined') {
+      try {
+        const vpsHost = new URL(vpsUrl).hostname;
+        const currentHost = window.location.hostname;
+        if (currentHost.endsWith('.local') && vpsHost !== currentHost) {
+          logger.debug('Skipping VPS health check due to cross-origin dev host', { currentHost, vpsHost });
+          return false;
+        }
+      } catch (error) {
+        logger.warn('Unable to evaluate VPS health check host configuration', { error: error?.message });
+      }
+    }
+
     try {
-      const response = await fetch(`${import.meta.env.VITE_VPS_API_URL}/health`, {
+      const response = await fetch(`${vpsUrl}/health`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -157,10 +172,10 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       });
       
       const isHealthy = response.ok;
-      console.log(`VPS health check ${isHealthy ? 'succeeded' : 'failed'} with status ${response.status}`);
+      logger.debug(`VPS health check ${isHealthy ? 'succeeded' : 'failed'}`, { status: response.status });
       return isHealthy;
     } catch (/** @type {any} */ error) {
-      console.log('VPS health check failed:', error?.message || 'Unknown error');
+      logger.debug('VPS health check failed', { error: error?.message || 'Unknown error' });
       return false;
     }
   }
@@ -316,7 +331,7 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       const timeout = import.meta.env.VITE_DIRECT_BOAT_TIMEOUT;
       
       if (!host || !port || !path || !timeout) {
-        console.error('Missing required environment variables for direct boat connection', {
+        logger.error('Missing required environment variables for direct boat connection', {
           host,
           port,
           path,
@@ -328,11 +343,11 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
       // Construct the full URL using the environment variables
       const url = `http://${host}:${port}${path}`;
       
-      console.log(`Attempting direct boat connection to: ${url}`);
+      logger.debug('Attempting direct boat connection', { url });
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
-        console.error(`Request to ${url} timed out after ${timeout}ms`);
+        logger.warn('Direct boat connection request timed out', { url, timeout });
         controller.abort();
       }, Number(timeout));
       
@@ -349,20 +364,20 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
         });
         
         if (!response.ok) {
-          console.error(`Boat info request failed with status ${response.status}`);
+          logger.warn('Boat info request failed', { status: response.status });
           return null;
         }
         const data = await response.json();
-        console.log('Received boat info:', data);
+        logger.debug('Received boat info', data);
         return data;
       } catch (err) {
-        console.error('Error in boat info request:', err);
+        logger.error('Error in boat info request', { error: err });
         return null;
       } finally {
         clearTimeout(timeoutId);
       }
     } catch (err) {
-      console.error('Direct boat connection attempt failed:', err.message);
+      logger.error('Direct boat connection attempt failed', { error: err?.message || err });
       return null;
     }
   }
@@ -375,13 +390,13 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
   async function registerWithVPS(boatId) {
     // Skip VPS registration if we're in development or the VPS URL is not set
     if (import.meta.env.DEV || !import.meta.env.VITE_VPS_API_URL) {
-      console.log('Skipping VPS registration in development or missing VPS URL');
+      logger.debug('Skipping VPS registration in development or missing VPS URL');
       return;
     }
     
     try {
       const vpsUrl = `${import.meta.env.VITE_VPS_API_URL}/api/boats/register`;
-      console.log('Registering with VPS at:', vpsUrl);
+      logger.info('Registering with VPS', { url: vpsUrl });
       
       const response = await fetch(vpsUrl, {
         method: 'POST',
@@ -393,10 +408,10 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
         throw new Error(`VPS registration failed with status: ${response.status}`);
       }
       
-      console.log('Successfully registered with VPS');
+      logger.info('Successfully registered with VPS');
     } catch (err) {
       // Only log as debug to avoid cluttering the console in development
-      console.log('VPS registration failed (may be offline or not configured):', err.message);
+      logger.debug('VPS registration failed (may be offline or not configured)', { error: err?.message || err });
       // Continue anyway - this is non-critical
     }
   }

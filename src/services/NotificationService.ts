@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import mitt, { type Emitter } from 'mitt';
 import { useRouter } from 'vue-router';
 import type { Router } from 'vue-router';
+import { createLogger } from './logger';
 
 type NotificationData = {
   type: string;
@@ -21,6 +22,7 @@ export class NotificationService {
   private notificationCallbacks: NotificationCallback[] = [];
   private emitter: Emitter<{ tokenChanged: string }> = mitt();
   private router: Router | null = null;
+  private logger = createLogger('notification-service') as any;
   
   // Track notifications
   public notifications = ref<NotificationData[]>([]);
@@ -51,7 +53,7 @@ export class NotificationService {
     const isWeb = !(window as any).Capacitor || (window as any).Capacitor.getPlatform() === 'web';
     
     if (isWeb) {
-      console.log('Push notifications not available in web environment');
+      this.logger.debug('Push notifications not available in web environment');
       this.isInitialized = true; // Mark as initialized to prevent repeated attempts
       return;
     }
@@ -64,10 +66,10 @@ export class NotificationService {
         await PushNotifications.register();
         this.setupListeners();
         this.isInitialized = true;
-        console.log('Push notifications initialized');
+        this.logger.debug('Push notifications initialized');
       }
     } catch (error) {
-      console.error('Error initializing push notifications:', error);
+      this.logger.error('Error initializing push notifications', { error });
       // Mark as initialized even if there's an error to prevent repeated error logs
       this.isInitialized = true;
     }
@@ -91,7 +93,7 @@ export class NotificationService {
   private setupListeners() {
     // Handle token refresh
     PushNotifications.addListener('registration', (token) => {
-      console.log('Push registration success, token:', token.value);
+      this.logger.debug('Push registration success', { token: token.value });
       localStorage.setItem('pushToken', token.value);
       this.emitter.emit('tokenChanged', token.value);
     });
@@ -100,13 +102,13 @@ export class NotificationService {
     PushNotifications.addListener('pushNotificationReceived', (notification: PushNotification) => {
       const data = notification.data as NotificationData;
       this.notifications.value.push(data);
-      console.log('Push notification received:', data);
+      this.logger.debug('Push notification received', data);
     });
 
     // Handle notification taps
     PushNotifications.addListener('pushNotificationActionPerformed', (action: PushNotificationActionPerformed) => {
       const data = action.notification.data as NotificationData;
-      console.log('Push notification action performed:', data);
+      this.logger.debug('Push notification action performed', data);
       
       // Notify all registered callbacks
       this.notificationCallbacks.forEach(callback => callback(data));
@@ -142,7 +144,7 @@ export class NotificationService {
 
   private navigateToAlert(data: NotificationData) {
     if (!this.router) {
-      console.warn('Router not initialized');
+      this.logger.warn('Router not initialized');
       return;
     }
 
@@ -176,7 +178,7 @@ export class NotificationService {
         }
       }
     } catch (error) {
-      console.error('Error handling deep link:', error);
+      this.logger.error('Error handling deep link', { error });
     }
   }
 
@@ -197,7 +199,7 @@ export class NotificationService {
           notification.close();
         };
       } catch (error) {
-        console.error('Error showing local notification:', error);
+        this.logger.error('Error showing local notification', { error });
       }
     }
   }
@@ -214,7 +216,7 @@ export class NotificationService {
     
     if (isWebEnvironment) {
       // Push notifications not supported in web environment
-      console.log('[NotificationService] Web environment detected - push notifications not supported');
+      this.logger.debug('Web environment detected - push notifications not supported');
       return null;
     }
 
@@ -227,7 +229,7 @@ export class NotificationService {
         return token;
       }
     } catch (error) {
-      console.warn('Could not get push token:', error);
+      // Ignore push token errors when permissions or plugins are unavailable
     }
     return null;
   }

@@ -14,7 +14,7 @@ import { useDirectPiniaSync } from '@/services/useDirectPiniaSync';
 import { createLogger } from '@/services/logger';
 import { notificationService } from '@/services/NotificationService';
 
-const logger = createLogger('App');
+const logger = createLogger('App') as any;
 logger.info('Initializing application...');
 
 // Initialize state data store
@@ -31,17 +31,11 @@ useDirectPiniaSync();
 onMounted(() => {
   logger.info('App component mounted');
   
-  // Debug: Check if dark mode is applied
-  console.log('Body classList:', document.body.classList.toString());
-  console.log('Dark mode class present:', document.body.classList.contains('dark'));
-  
   // Force dark mode check
   const isDark = localStorage.getItem('userPreferences');
   if (isDark) {
     const prefs = JSON.parse(isDark);
-    console.log('Loaded preferences:', prefs);
     if (prefs.display?.darkMode) {
-      console.log('Dark mode is enabled in preferences, adding class');
       document.body.classList.add('dark');
     }
   }

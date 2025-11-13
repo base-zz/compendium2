@@ -1406,7 +1406,6 @@ export const useStateDataStore = defineStore("stateData", () => {
         logger.debug("[StateDataStore] Received full update with no data");
         return;
       }
-      console.log(`========== FULL STATE UPDATE RECEIVED (${evt.type}) ==========`);
       dataLogger("Full state payload received", {
         eventType: evt.type,
         payload: evt.data,

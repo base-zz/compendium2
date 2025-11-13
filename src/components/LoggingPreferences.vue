@@ -69,7 +69,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { bug } from 'ionicons/icons';
-import { usePreferencesStore, type PreferencesStore } from '@/stores/preferences';
+import { usePreferencesStore } from '@/stores/preferences';
 import {
   IonLabel,
   IonList,

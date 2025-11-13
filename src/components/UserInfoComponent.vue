@@ -109,7 +109,7 @@
 </template>
 
 <script setup>
-import { reactive } from "vue";
+import { reactive, computed } from "vue";
 import { useRouter } from "vue-router";
 import {
   IonButton,
@@ -129,7 +129,13 @@ import { logInOutline, logOutOutline } from "ionicons/icons";
 const router = useRouter();
 
 // Authentication state
- 
+const isLoggedIn = computed(() => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return localStorage.getItem('isAuthenticated') === 'true';
+});
+
 const props = defineProps({
   mode: {
     type: String,

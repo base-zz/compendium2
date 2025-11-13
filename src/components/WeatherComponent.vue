@@ -24,7 +24,7 @@
       </div>
     </div>
     
-    <div class="hourly-forecast">
+    <div class="hourly-forecast" v-if="hourlyForecast.length > 0">
       <div 
         v-for="(hour, index) in hourlyForecast" 
         :key="index"
@@ -35,6 +35,7 @@
         <div class="temp">{{ hour.temp }}°</div>
       </div>
     </div>
+    <div v-else class="no-hourly-data">No hourly forecast available</div>
     
     <div class="daily-forecast">
       <div 
@@ -95,6 +96,7 @@
 import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue';
 import { useStateDataStore } from '@/stores/stateDataStore';
 import { storeToRefs } from 'pinia';
+import { createLogger } from '@/services/logger';
 
 // Component doesn't need any props for now
 // Props are defined but not used to maintain component API compatibility
@@ -102,9 +104,11 @@ import { storeToRefs } from 'pinia';
 const stateDataStore = useStateDataStore();
 const { environment, state } = storeToRefs(stateDataStore);
 
+const logger = createLogger('weather-component');
+
 // Simple debug logging
 const log = (label, data) => {
-  console.log(`[Weather] ${label}:`, data);
+  logger.debug(`Weather ${label}`, data);
 };
 
 // Log initial state
@@ -145,12 +149,24 @@ const currentWeather = computed(() => {
 const hourlyForecast = computed(() => {
   try {
     const forecast = currentForecast.value;
-    if (!forecast?.hourly?.time?.length) return [];
+    
+    // Log the full forecast data structure
+    console.log('=== WEATHER FORECAST DATA ===');
+    console.log('Full forecast object:', JSON.stringify(forecast, null, 2));
+    console.log('Hourly data exists:', !!forecast?.hourly);
+    console.log('Hourly time array length:', forecast?.hourly?.time?.length || 0);
+    console.log('Hourly temperature_2m:', forecast?.hourly?.temperature_2m);
+    console.log('Hourly weather_code:', forecast?.hourly?.weather_code);
+    
+    if (!forecast?.hourly?.time?.length) {
+      console.log('No hourly forecast data available');
+      return [];
+    }
     
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
     
-    return forecast.hourly.time
+    const mapped = forecast.hourly.time
       .map((time, index) => ({
         time,
         timeString: new Date(time).toLocaleTimeString('en-US', { 
@@ -166,12 +182,18 @@ const hourlyForecast = computed(() => {
         windDirection: getWindDirection(forecast.hourly.wind_direction_10m?.[index])
       }))
       .filter(hour => new Date(hour.time) > oneHourAgo) // Only keep future hours
+      .slice(0, 24) // Show next 24 hours
       .map(hour => ({
         ...hour,
         time: hour.timeString // Use the formatted time string for display
       }));
+    
+    console.log('Hourly forecast after processing:', mapped.length, 'hours');
+    console.log('First 3 hours:', mapped.slice(0, 3));
+    
+    return mapped;
   } catch (error) {
-    console.error('Error processing hourly forecast:', error);
+    logger.error('Error processing hourly forecast', { error });
     return [];
   }
 });
@@ -216,7 +238,7 @@ const dailyForecast = computed(() => {
     
     return processDailyForecast(forecast.daily);
   } catch (error) {
-    console.error('Error processing daily forecast:', error);
+    logger.error('Error processing daily forecast', { error });
     return [];
   }
 });
@@ -246,7 +268,7 @@ async function updateLocationName(lat, lon) {
       locationDetails.value = details.filter(Boolean).join(', ');
     }
   } catch (error) {
-    console.error('Error getting location name:', error);
+    logger.error('Error getting location name', { error });
     locationName.value = 'Current Location';
     locationDetails.value = '';
   }
@@ -378,23 +400,23 @@ async function updateWeatherData() {
     });
     
     // Debug log the weather data
-    console.log('Weather data received:', {
+    logger.debug('Weather data received', {
       metadata: currentForecast.value.metadata,
       currentWeather: weather
     });
 
     // Update location name from metadata coordinates if available
     if (currentForecast.value.metadata?.latitude && currentForecast.value.metadata?.longitude) {
-      console.log('Updating location with coordinates from metadata:', 
-        currentForecast.value.metadata.latitude, 
-        currentForecast.value.metadata.longitude
-      );
+      logger.debug('Updating location with coordinates from metadata', {
+        latitude: currentForecast.value.metadata.latitude,
+        longitude: currentForecast.value.metadata.longitude
+      });
       await updateLocationName(
         currentForecast.value.metadata.latitude, 
         currentForecast.value.metadata.longitude
       );
     } else {
-      console.log('No coordinates available in metadata');
+      logger.debug('No coordinates available in metadata');
       locationName.value = 'Current Location';
       locationDetails.value = '';
     }
@@ -402,7 +424,7 @@ async function updateWeatherData() {
     // Update high/low and UV index from daily forecast
     if (dailyForecast.value.length > 0) {
       const today = dailyForecast.value[0];
-      console.log("TODAY FORECAST", today);
+      logger.debug('Today forecast', today);
       highTemp.value = today.high;
       lowTemp.value = today.low;
       uvIndex.value = today.uvIndexMax ?? 0;
@@ -442,7 +464,7 @@ async function updateWeatherData() {
       lastUpdated: lastUpdated.value
     });
   } catch (error) {
-    console.error('Error updating weather data:', error);
+    logger.error('Error updating weather data', { error });
   }
 }
 
@@ -491,11 +513,11 @@ onMounted(() => {
       try {
         updateWeatherData();
       } catch (error) {
-        console.error('Error in scheduled weather update:', error);
+        logger.error('Error in scheduled weather update', { error });
       }
     }, 5 * 60 * 1000);
   } catch (error) {
-    console.error('Error initializing weather component:', error);
+    logger.error('Error initializing weather component', { error });
   }
 });
 
@@ -589,13 +611,25 @@ onUnmounted(() => {
   color: var(--app-muted-text-color);
 }
 
+.no-hourly-data {
+  padding: 1rem;
+  text-align: center;
+  color: var(--app-muted-text-color);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
 .hourly-forecast {
   display: flex;
   overflow-x: auto;
   gap: 1.25rem;
-  padding: 0.5rem 0;
-  margin: 0.25rem 0 0.75rem;
+  padding: 1rem;
+  margin: 0.5rem 0 1rem;
+  min-height: 100px;
   scrollbar-width: none;
+  background: color-mix(in srgb, var(--app-surface-color) 50%, var(--app-background-color) 50%);
+  border-radius: 12px;
+  border: 1px solid var(--app-border-color);
 }
 
 .hourly-forecast::-webkit-scrollbar {
@@ -616,13 +650,30 @@ onUnmounted(() => {
 }
 
 .hour .icon {
-  font-size: 1.25rem;
-  color: var(--app-accent-color);
+  font-size: 1.25rem !important;
+  color: var(--app-accent-color) !important;
+  min-height: 1.5rem;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.hour .icon i {
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 .hour .temp {
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 0.9rem !important;
+  font-weight: 600 !important;
+  color: var(--app-text-color) !important;
+  min-height: 1.2rem;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
 }
 
 .daily-forecast {

@@ -706,8 +706,9 @@ onUnmounted(() => {
 .tide-stats {
   display: flex;
   justify-content: space-between;
-  margin-top: 1rem;
-  padding: 0.75rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding: 0;
   background: color-mix(in srgb, var(--app-surface-color) 80%, var(--app-background-color) 20%);
   border-radius: 10px;
   border: 1px solid var(--app-border-color);
@@ -715,35 +716,37 @@ onUnmounted(() => {
 
 .tide-stat {
   text-align: center;
-  padding: 0.25rem 0.5rem;
+  padding: 0;
 }
 
 .tide-stat .label {
   display: block;
   font-size: 0.75rem;
   color: var(--app-muted-text-color);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0;
+  line-height: 0.9;
 }
 
 .tide-stat .value {
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--app-text-color);
+  line-height: 1;
 }
 
 @media (max-width: 768px) {
   .tide-stats {
     flex-direction: column;
-    gap: 0.75rem;
-    margin: 1rem 0.75rem 0.5rem 0.75rem;
-    padding: 1rem;
+    gap: 0.5rem;
+    margin: 0.5rem 0.75rem 0 0.75rem;
+    padding: 0.5rem;
   }
   
   .tide-stat {
     text-align: left;
     display: flex;
     justify-content: space-between;
-    padding: 0.5rem 0.75rem;
+    padding: 0.25rem 0.5rem;
     background: color-mix(in srgb, var(--app-surface-color) 65%, var(--app-background-color) 35%);
     border-radius: 6px;
   }

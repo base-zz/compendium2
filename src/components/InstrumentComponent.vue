@@ -183,14 +183,6 @@ onMounted(() => {
     checkFontSize(titleRef.value);
   }
   setTimeout(() => {
-    // Debug props received
-    console.log('InstrumentComponent mounted with props:', {
-      dataSource: props.dataSource,
-      decimalPlaces: props.decimalPlaces,
-      showThousandsSeparator: props.showThousandsSeparator
-    });
-    console.log('Current formatted value:', formattedValue.value);
-    
     emit("mounted");
   }, 100);
 });

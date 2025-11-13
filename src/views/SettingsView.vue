@@ -49,10 +49,10 @@
         </ion-item> -->
 
         <!-- Unit Preferences -->
-        <ion-item>
+        <!-- <ion-item>
           <ion-icon :icon="options" slot="start"></ion-icon>
           <ion-label>Unit Preferences</ion-label>
-        </ion-item>
+        </ion-item> -->
         <unit-preferences-editor />
         
         <!-- Logging Preferences -->

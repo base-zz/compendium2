@@ -10,23 +10,14 @@ const logger = createLogger('smart-connection');
 const CHECK_INTERVAL_MS = 60000; // Check connection status once per minute
 const NOTIFICATION_DURATION = 3000; // Show connection mode notification for 3 seconds
 
-// Get the appropriate WebSocket URL based on environment - same logic as DirectConnectionAdapter
-const getWebSocketUrl = () => {
-  // In development or if explicitly set in .env.local
-  if (import.meta.env.VITE_DIRECT_WS_URL) {
-    return import.meta.env.VITE_DIRECT_WS_URL;
-  }
-  
-  // For production (mobile app), use the current hostname with the standard port
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.hostname;
-  const port = 3009; // Standard port for direct WebSocket server
-  
-  return `${protocol}//${host}:${port}`;
-};
+// Require explicit WebSocket URL from environment (same behavior as DirectConnectionAdapter)
+const DIRECT_WS_URL = import.meta.env.VITE_DIRECT_WS_URL;
 
-// Use the same URL determination logic as DirectConnectionAdapter
-const DIRECT_WS_URL = getWebSocketUrl();
+if (!DIRECT_WS_URL) {
+  throw new Error(
+    'VITE_DIRECT_WS_URL environment variable is required for SmartConnectionManager'
+  );
+}
 
 // Track the current connection mode
 let currentMode = null;

@@ -46,7 +46,37 @@ const localBoatId = ref(null);
 const detectedBoatName = ref('');
 
 // Get local API URL from environment variables
-const LOCAL_API_URL = import.meta.env.VITE_LOCAL_API_URL || 'http://192.168.68.56:3009';
+const LOCAL_API_URL = import.meta.env.VITE_LOCAL_API_URL;
+
+if (!LOCAL_API_URL) {
+  console.error(
+    '[LOGIN] Missing VITE_LOCAL_API_URL environment value. Local API attempts will be skipped.'
+  );
+}
+
+const RAW_CLIENT_DEBUG =
+  import.meta.env.VITE_CLIENT_DEBUG ?? import.meta.env.CLIENT_DEBUG;
+
+if (RAW_CLIENT_DEBUG === undefined) {
+  console.warn(
+    '[LOGIN] CLIENT_DEBUG flag not set; verbose login logging will remain disabled.'
+  );
+}
+
+const CLIENT_DEBUG_ENABLED =
+  RAW_CLIENT_DEBUG !== undefined && `${RAW_CLIENT_DEBUG}`.toLowerCase() === 'true';
+
+const debugLog = (...args) => {
+  if (CLIENT_DEBUG_ENABLED) {
+    console.log(...args);
+  }
+};
+
+const debugWarn = (...args) => {
+  if (CLIENT_DEBUG_ENABLED) {
+    console.warn(...args);
+  }
+};
 const DEMO_USERNAME = 'demo@compendiumnav.com';
 const DEMO_LOGIN_URL = 'https://compendiumnav-demo.com/relay/api/login';
 const DEMO_RELAY_URL = 'wss://compendiumnav-demo.com/relay';
@@ -64,7 +94,7 @@ onMounted(async () => {
       detectedBoatName.value = boat.name || boat.boatId;
     }
   } catch (err) {
-    console.warn('Local boat detection failed:', err);
+    debugWarn('Local boat detection failed:', err);
   }
 });
 
@@ -84,7 +114,7 @@ async function handleLogin() {
     ...(localBoatId.value && { localBoatId: localBoatId.value })
   };
   
-  console.log(`[LOGIN] Attempting login with payload:`, { username: payload.username, password: '******' });
+  debugLog(`[LOGIN] Attempting login with payload:`, { username: payload.username, password: '******' });
   const normalizedUsername = typeof payload.username === 'string' ? payload.username.trim().toLowerCase() : '';
   const isDemoUser = normalizedUsername === DEMO_USERNAME;
 
@@ -96,10 +126,12 @@ async function handleLogin() {
         { name: 'Key-Based Login', url: `https://compendiumnav.com/api/user-login` },
         { name: 'VPS API (HTTPS)', url: `https://compendiumnav.com/api/login` },
         { name: 'VPS API (HTTP)', url: `http://compendiumnav.com/api/login` },
-        { name: 'Local API', url: `${LOCAL_API_URL}/api/login` }
+        ...(LOCAL_API_URL
+          ? [{ name: 'Local API', url: `${LOCAL_API_URL}/api/login` }]
+          : [])
       ];
   
-  console.log(`[LOGIN] Will try ${endpoints.length} different API endpoints`);
+  debugLog(`[LOGIN] Will try ${endpoints.length} different API endpoints`);
   
   let response = null;
   let lastError = null;
@@ -108,7 +140,7 @@ async function handleLogin() {
     // Try each endpoint until one succeeds
     for (const endpoint of endpoints) {
       try {
-        console.log(`[LOGIN] Attempting login with ${endpoint.name}: ${endpoint.url}`);
+        debugLog(`[LOGIN] Attempting login with ${endpoint.name}: ${endpoint.url}`);
         
         // Add timeout to prevent hanging requests
         response = await axios.post(endpoint.url, payload, {
@@ -118,19 +150,19 @@ async function handleLogin() {
           }
         });
         
-        console.log(`[LOGIN] Success with ${endpoint.name}:`, response.status);
+        debugLog(`[LOGIN] Success with ${endpoint.name}:`, response.status);
         break; // Exit the loop if successful
       } catch (err) {
         // Log detailed error information
-        console.log(`[LOGIN] Failed with ${endpoint.name}: ${err.message}`);
+        debugLog(`[LOGIN] Failed with ${endpoint.name}: ${err.message}`);
         
         if (err.response) {
           // The server responded with an error status
-          console.log(`[LOGIN] Server responded with status: ${err.response.status}`);
-          console.log(`[LOGIN] Response data:`, err.response.data);
+          debugLog(`[LOGIN] Server responded with status: ${err.response.status}`);
+          debugLog(`[LOGIN] Response data:`, err.response.data);
         } else if (err.request) {
           // The request was made but no response was received
-          console.log(`[LOGIN] No response received from server`);
+          debugLog(`[LOGIN] No response received from server`);
         }
         
         lastError = err;
@@ -145,15 +177,15 @@ async function handleLogin() {
     
     // Process the response
     if (response && response.data && response.data.success) {
-      console.log('[LOGIN] Login successful, processing response');
+      debugLog('[LOGIN] Login successful, processing response');
       relayConnectionBridge.setRelayServerUrl(isDemoUser ? DEMO_RELAY_URL : PRODUCTION_RELAY_URL);
-      console.log('[LOGIN] Response payload:', response.data);
+      debugLog('[LOGIN] Response payload:', response.data);
       
       // Set authentication flag for key-based authentication
       localStorage.setItem('isAuthenticated', 'true');
       
       // Auto-pair local boat if detected
-      console.log('[LOGIN] Setting up boat IDs from server response...');
+      debugLog('[LOGIN] Setting up boat IDs from server response...');
       
       // Ensure local boat ID is used when available
       let boatIds = [];
@@ -173,26 +205,26 @@ async function handleLogin() {
       if (preferredBoatId) {
         boatIds = [preferredBoatId, ...boatIds.filter(id => id !== preferredBoatId)];
         boatConnectionStore.setActiveBoatId(preferredBoatId);
-        console.log('[LOGIN] Using boat ID:', preferredBoatId, isDirectConnected ? '(direct connection)' : '(local detection)');
+        debugLog('[LOGIN] Using boat ID:', preferredBoatId, isDirectConnected ? '(direct connection)' : '(local detection)');
         
         // Register boat with VPS to associate it with the user
         try {
-          console.log('[LOGIN] Registering boat with VPS...');
+          debugLog('[LOGIN] Registering boat with VPS...');
           await boatConnectionStore.registerWithVPS(preferredBoatId);
-          console.log('[LOGIN] Boat registered with VPS successfully');
+          debugLog('[LOGIN] Boat registered with VPS successfully');
         } catch (err) {
-          console.warn('[LOGIN] Failed to register boat with VPS:', err);
+          debugWarn('[LOGIN] Failed to register boat with VPS:', err);
           // Continue anyway - this is non-critical
         }
       } else if (boatIds.length > 0) {
         boatConnectionStore.setActiveBoatId(boatIds[0]);
-        console.log('[LOGIN] Using first server boat ID:', boatIds[0]);
+        debugLog('[LOGIN] Using first server boat ID:', boatIds[0]);
       }
       
       localStorage.setItem('boatIds', JSON.stringify(boatIds));
 
       // Redirect to home after login - use router.push only, not window.location
-      console.log('[LOGIN] Redirecting to home page');
+      debugLog('[LOGIN] Redirecting to home page');
       router.push('/home');
     } else if (response && response.data) {
       error.value = response.data.error || 'Login failed. Please check your credentials.';

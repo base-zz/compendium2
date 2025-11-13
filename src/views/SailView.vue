@@ -52,9 +52,6 @@ const sogData = computed(() => ({ ...navigationState.value?.speed?.sog }));
 const trueWindSpeedData = computed(() => ({ ...navigationState.value?.wind?.true?.speed }));
 const apparentWindSpeedData = computed(() => ({ ...navigationState.value?.wind?.apparent?.speed }));
 
-console.log("stateStore", stateStore );
-console.log("navigationState", navigationState.value);
-
 const topLeft = ref(null);
 const topRight = ref(null);
 const bottomLeft = ref(null);

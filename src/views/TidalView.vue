@@ -117,18 +117,19 @@ function getDirectionName(degrees) {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
   padding: 0;
   box-sizing: border-box;
 }
 
 .tide-chart-container {
-  flex: 1 1 50%;
+  flex: 0 0 auto;
   width: 100%;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0.5rem 0;
 }
 
 .tide-chart {
@@ -137,7 +138,7 @@ function getDirectionName(degrees) {
 }
 
 .marine-conditions {
-  flex: 1 1 50%;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -147,14 +148,14 @@ function getDirectionName(degrees) {
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--app-text-color);
-  margin: 0 0 12px 0;
+  margin: 0 0 6px 0;
 }
 
 .conditions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
-  flex: 1;
+  flex: 0 0 auto;
   overflow-y: auto;
 }
 
@@ -162,10 +163,10 @@ function getDirectionName(degrees) {
   background: var(--app-surface-color);
   border: 1px solid var(--app-border-color);
   border-radius: 12px;
-  padding: 12px;
+  padding: 8px;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px;
   box-shadow: 0 2px 6px color-mix(in srgb, var(--app-text-color) 10%, transparent);
 }
 

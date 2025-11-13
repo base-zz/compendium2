@@ -29,34 +29,19 @@ app.use(pinia);
 // Import the preferences store
 import { usePreferencesStore } from '@/stores/preferences'; // No .ts extension
 
-// Create a function to initialize the store after Pinia is set up
+// Initialize preferences store after Pinia is set up
 const initializeStores = () => {
-  const preferencesStore = usePreferencesStore();
-  
-  if (import.meta.env.DEV) {
-    console.log('Preferences store initialized:', {
-      store: preferencesStore,
-      methods: Object.getOwnPropertyNames(Object.getPrototypeOf(preferencesStore)),
-      hasSavePreferences: typeof preferencesStore.savePreferences === 'function'
-    });
-  }
-  
-  return { preferencesStore };
+  usePreferencesStore(); // Auto-initializes on first access
 };
 
 // Create the logger early
-const logger = createLogger('main');
+const logger = createLogger('main') as any;
 
 // Initialize stores after Pinia is set up
 const initApp = async () => {
   try {
     // Initialize stores
-    const { preferencesStore } = initializeStores();
-    
-    // Wait for store to initialize if needed
-    if (preferencesStore.init) {
-      await preferencesStore.init();
-    }
+    initializeStores();
     
     // Setup other plugins
     app.use(router);
@@ -64,7 +49,7 @@ const initApp = async () => {
     
     // Log app initialization
     logger.info('===== Application Initialization =====');
-    logger.info(`Environment: ${import.meta.env.MODE || 'development'}`);
+    logger.info(`Environment: ${(import.meta as any).env?.MODE || 'development'}`);
     logger.info('Starting connection management system...');
 
     // Initialize the smart connection manager

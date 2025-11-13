@@ -10,6 +10,7 @@ declare global {
 }
 
 import { useBoatConnectionStore } from "@/stores/boatConnection";
+import { createLogger } from "@/services/logger";
 import AnchorView from "@/views/AnchorView.vue";
 import SplashScreen from "@/views/SplashScreen.vue";
 import Settings from "@/views/SettingsView.vue";
@@ -259,7 +260,7 @@ const routes = [
 ];
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHistory((import.meta as any).env?.BASE_URL),
   routes,
   // Add page transition animations
   scrollBehavior(to, from, savedPosition) {
@@ -271,16 +272,17 @@ const router = createRouter({
   },
 });
 
+const routerLogger = createLogger('router') as any;
+
 // Boat connection guard
 router.beforeEach(async (to, from, next) => {
   // Skip for auth pages, pairing page, and Home page
   if (!to.meta.requiresAuth || to.name === 'BoatPairing' || to.name === 'Home') {
-    console.log('Router: Skipping auth check for route:', to.name);
     return next();
   }
 
   const boatStore = useBoatConnectionStore();
-  console.log('Router: Checking boat connection status:', {
+  routerLogger.debug('Checking boat connection status', {
     route: to.name,
     boatId: boatStore.boatId,
     connectionStatus: boatStore.connectionStatus,
@@ -290,21 +292,21 @@ router.beforeEach(async (to, from, next) => {
   
   // If we have a boat ID, allow navigation and try to connect in the background
   if (boatStore.boatId) {
-    console.log('Router: Boat ID found, allowing navigation');
-    
+    routerLogger.debug('Boat ID found, allowing navigation', { boatId: boatStore.boatId });
+
     // Try to connect in the background if not connected
     if (boatStore.connectionStatus !== 'connected') {
-      console.log('Router: Attempting to connect in background');
+      routerLogger.debug('Attempting background boat connection');
       boatStore.initializeConnection().catch(error => {
-        console.error('Background connection attempt failed:', error);
+        routerLogger.error('Background connection attempt failed', { error });
       });
     }
-    
+
     return next();
   }
   
   // No boat ID found, go to pairing
-  console.log('Router: No boat ID found, redirecting to pairing');
+  routerLogger.debug('No boat ID found, redirecting to pairing');
   return next({ name: 'BoatPairing' });
 });
 
@@ -341,14 +343,13 @@ router.beforeEach((to, from, next) => {
 // Navigation guard to enforce authentication and boat pairing
 router.beforeEach((to, from, next) => {
   const isAuthenticated = localStorage.getItem("isAuthenticated") === 'true';
-  console.log('[ROUTER] Navigation check:', { to: to.path, from: from.path, isAuthenticated });
-  
+
   // Redirect to login if route requires auth and user is not authenticated
   if (to.meta.requiresAuth && !isAuthenticated) {
-    console.log('[ROUTER] Redirecting to login - not authenticated');
+    routerLogger.debug('Redirecting to login - not authenticated', { to: to.path });
     return next({ path: "/login" });
   }
-  
+
   // Redirect to home if user is already authenticated and trying to access login
   if ((to.path === "/login" || to.name === "Login") && isAuthenticated) {
     return next({ path: "/home" });
@@ -363,20 +364,22 @@ router.beforeEach((to, from, next) => {
     if (!boatId && boatIds.length > 0) {
       const firstBoatId = boatIds[0];
       localStorage.setItem('activeBoatId', firstBoatId);
-      console.log('[ROUTER] Set active boat ID:', firstBoatId);
-      
+      routerLogger.debug('Set active boat ID', { boatId: firstBoatId });
+
       // Trigger client key registration if we have a connection bridge
       if (window.relayConnectionBridge) {
-        console.log('[ROUTER] Triggering client key registration after navigation');
-        window.relayConnectionBridge._registerClientKey().catch(console.error);
+        routerLogger.debug('Triggering client key registration after navigation');
+        window.relayConnectionBridge._registerClientKey().catch((error) => {
+          routerLogger.error('Client key registration failed', { error });
+        });
       }
-      
+
       return next();
     }
-    
+
     // If we still don't have a boat ID, redirect to boat pairing (except for Home)
     if (!boatId) {
-      console.warn('[ROUTER] No boat ID found, redirecting to boat pairing');
+      routerLogger.warn('No boat ID found, redirecting to boat pairing');
       return next({ name: 'BoatPairing' });
     }
   }

@@ -27,6 +27,12 @@ const getServerUrl = () => {
 
 // Process the log queue
 const processQueue = async () => {
+  if (!isRemoteLoggingEnabled()) {
+    logQueue = [];
+    retryCount = 0;
+    return;
+  }
+
   if (isSending || logQueue.length === 0) return;
   
   isSending = true;
@@ -126,6 +132,10 @@ export const remoteLogger = {
     };
     
     // Add to remote queue if we're online
+    if (!isRemoteLoggingEnabled()) {
+      return;
+    }
+
     if (navigator.onLine) {
       logQueue.push(logEntry);
       
@@ -148,6 +158,12 @@ export const remoteLogger = {
   init() {
     if (!flushInterval) {
       flushInterval = setInterval(() => {
+        if (!isRemoteLoggingEnabled()) {
+          logQueue = [];
+          retryCount = 0;
+          return;
+        }
+
         if (navigator.onLine && logQueue.length > 0) {
           processQueue();
         }
@@ -171,4 +187,18 @@ export const remoteLogger = {
 // Initialize the logger when this module is loaded
 if (typeof window !== 'undefined') {
   remoteLogger.init();
+}
+
+function isRemoteLoggingEnabled() {
+  try {
+    const rawPreferences = localStorage.getItem('userPreferences');
+    if (!rawPreferences) {
+      return false;
+    }
+
+    const parsed = JSON.parse(rawPreferences);
+    return Boolean(parsed?.logging?.remote);
+  } catch {
+    return false;
+  }
 }

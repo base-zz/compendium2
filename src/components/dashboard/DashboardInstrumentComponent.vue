@@ -58,7 +58,6 @@ const measureContainer = () => {
       width: size,
       height: size
     };
-    console.log('Measured widget parent container:', containerSize.value);
     nextTick(() => resizeTitle());
   } else {
     // Fallback if we can't find the widget-container
@@ -67,7 +66,6 @@ const measureContainer = () => {
       width: rect.width,
       height: rect.height
     };
-    console.log('Fallback container size:', containerSize.value);
     nextTick(() => resizeTitle());
   }
 };
@@ -160,7 +158,6 @@ const formattedValue = computed(() => {
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     // Join back with decimal part if it exists
     formatted = parts.join('.');
-    console.log(`Added thousands separators: ${formatted}`);
   }
 
   return formatted;

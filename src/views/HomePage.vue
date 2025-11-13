@@ -1,14 +1,6 @@
 <template>
   <ion-page>
-    <ion-header class="ion-no-border">
-      <ion-toolbar>
-        <ion-title>Home</ion-title>
-        <ion-buttons slot="end">
-          <ion-menu-button size="large" class="menu-icon"></ion-menu-button>
-        </ion-buttons>
-      </ion-toolbar>
-    </ion-header>
-    <ion-content :fullscreen="true" class="content-with-header home-content">
+    <ion-content :fullscreen="true" class="home-content">
       <div class="home-inner">
         <div class="logo-container">
           <div class="company-name">
@@ -69,14 +61,9 @@
 <script setup>
 import {
   IonPage,
-  IonHeader,
   IonContent,
   IonButton,
-  IonTitle,
   IonIcon,
-  IonToolbar,
-  IonButtons,
-  IonMenuButton,
 } from "@ionic/vue";
 import { useRouter } from "vue-router";
 import { notifications, partlySunny, bluetooth } from "ionicons/icons";
@@ -145,54 +132,11 @@ ion-toolbar {
 
 /* iOS specific styles */
 @supports (-webkit-touch-callout: none) {
-  ion-header {
-    height: auto !important;
-    padding-top: env(safe-area-inset-top) !important;
-  }
-
-  ion-toolbar {
-    --min-height: 44px !important;
-    min-height: 44px !important;
-    --padding-top: 0 !important;
-    --padding-bottom: 0 !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-  }
-
-  ion-title {
-    font-size: 17px !important;
-    --padding-start: 0 !important;
-    --padding-end: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-  }
-
-  ion-menu-button {
-    font-size: 24px !important;
-    width: 24px !important;
-    height: 24px !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
-  .home-content {
-    --padding-top: env(safe-area-inset-top) !important;
-    --padding-bottom: env(safe-area-inset-bottom) !important;
-    --padding-start: env(safe-area-inset-left) !important;
-    --padding-end: env(safe-area-inset-right) !important;
-  }
-
-  #container {
-    padding-top: env(safe-area-inset-top);
+  .home-inner {
+    padding-top: max(env(safe-area-inset-top), 20px);
     padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  .ios-fitness-content {
-    --background: var(--ion-background-color, #ffffff) !important;
-  }
-
-  ion-content.ios-fitness-content::part(background) {
-    background: var(--ion-background-color, #ffffff) !important;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 }
 
@@ -526,7 +470,14 @@ ion-menu-button {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  --padding-top: 3rem;
+}
+
+.home-inner {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
 .custom-icon svg {
