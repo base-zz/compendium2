@@ -1,39 +1,32 @@
 <template>
   <div class="pressure-tide-widget">
     <section class="metric-section pressure-block" aria-label="Barometric pressure">
-      <div class="section-header">
-        <span class="metric-label">Pressure</span>
-        <span class="metric-value">{{ pressureDisplay }}</span>
+      <span class="metric-label">PRESSURE</span>
+
+      <div class="metric-primary">
+        <span class="metric-value metric-value--pressure">{{ pressureValueOnly }}</span>
+        <span v-if="pressureUnitLabel" class="metric-unit metric-unit--pressure">{{ pressureUnitLabel }}</span>
       </div>
-      <span class="metric-sub" :class="trendCategoryClass">{{ pressureTrendCombined }}</span>
-      <div v-if="pressureSparkline.length" class="sparkline-frame">
-        <SparklineChart
-          :data="pressureSparkline"
-          :stroke-color="trendColor"
-          :stroke-width="2"
-          :width="sparklineWidth"
-          :height="sparklineHeight"
-          gradient-id="pressure-mini"
-        />
-      </div>
+
+      <span class="metric-sub advisory" :class="trendCategoryClass">{{ pressureTrendCombined }}</span>
     </section>
 
+    <div class="section-divider" role="presentation"></div>
+
     <section class="metric-section tide-block" aria-label="Tide levels">
-      <div class="section-header">
-        <span class="metric-label">Tide</span>
-        <span class="metric-value">{{ tideDisplay || "--" }}</span>
+      <span class="metric-label">TIDE</span>
+
+      <div class="metric-primary metric-primary--tide">
+        <span class="metric-value metric-value--tide">{{ tidePrimaryValue }}</span>
+        <span v-if="tidePrimaryUnit" class="metric-unit metric-unit--tide">{{ tidePrimaryUnit }}</span>
+        <span class="metric-trend-arrow" :style="tideArrowStyle" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false" class="arrow-icon">
+            <path d="M12 4l6 8h-4v8h-4v-8H6z" />
+          </svg>
+        </span>
       </div>
-      <span v-if="tideNextHighDisplay" class="metric-sub">Next high {{ tideNextHighDisplay }}</span>
-      <div v-if="tideSparkline.length" class="sparkline-frame">
-        <SparklineChart
-          :data="tideSparkline"
-          stroke-color="#93c5fd"
-          :stroke-width="2"
-          :width="sparklineWidth"
-          :height="sparklineHeight"
-          gradient-id="tide-mini"
-        />
-      </div>
+
+      <span v-if="tideSecondaryLabel" class="metric-sub">{{ tideSecondaryLabel }}</span>
     </section>
   </div>
 </template>
@@ -43,7 +36,6 @@ import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useStateDataStore } from "@/stores/stateDataStore";
 import { UnitConversion } from "@/shared/unitConversion";
-import SparklineChart from "@/components/charts/SparklineChart.vue";
 
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
@@ -100,15 +92,24 @@ const pressureSparkline = computed(() => {
   return values.map((value) => convertPressure(value));
 });
 
-const pressureDisplay = computed(() => {
+const pressureUnitLabel = computed(() => {
+  if (pressureUnit.value === "inHg") {
+    return "inHg";
+  }
+  if (pressureUnit.value === "hPa") {
+    return "hPa";
+  }
+  return "mb";
+});
+
+const pressureValueOnly = computed(() => {
   const pressure = getPressure();
   if (pressure === null) {
     return "--";
   }
   const converted = convertPressure(pressure);
-  const unitLabel = pressureUnit.value === "inHg" ? "inHg" : "mb";
-  const decimals = unitLabel === "inHg" ? 2 : 0;
-  return `${converted.toFixed(decimals)} ${unitLabel}`;
+  const decimals = pressureUnit.value === "inHg" ? 2 : 0;
+  return converted.toFixed(decimals);
 });
 
 const pressureTrend = computed(() => {
@@ -150,25 +151,28 @@ const trendCategoryClass = computed(() => {
   return "trend-neutral";
 });
 
-const trendColor = computed(() => {
-  if (trendCategoryClass.value === "trend-negative") return "#f87171";
-  if (trendCategoryClass.value === "trend-positive") return "#34d399";
-  return "#e5e7eb";
-});
-
-const tideDisplay = computed(() => {
+const tidePrimary = computed(() => {
   const info = tideInfo.value;
   if (info.hasTide && typeof info.currentLevel === "number") {
     const preferredUnit = distanceUnit.value;
     const convertedHeight = convertLevelToPreferredUnit(info.currentLevel, preferredUnit);
     const unitLabel = preferredUnit === "ft" ? "ft" : "m";
     const trendText = (info.trend || "steady").toLowerCase();
-    const trendSymbol = trendToSymbol(trendText);
+    const trendSymbol = info.trendSymbol || trendToSymbol(trendText);
+    const trendWord = formatTrendWord(trendText);
+    const slopeValue = info.slopeValue ?? 0;
+    const rotationDeg = rotationFromSlope(slopeValue);
     if (typeof convertedHeight === "number") {
-      if (trendSymbol) {
-        return `${roundValue(convertedHeight)} ${unitLabel} ${trendSymbol}`;
-      }
-      return `${roundValue(convertedHeight)} ${unitLabel} ${trendText}`;
+      const primaryValue = String(roundValue(convertedHeight));
+      const resolvedArrow = trendSymbol || wordToSymbol(trendWord) || "→";
+      return {
+        value: primaryValue,
+        unit: unitLabel,
+        arrowSymbol: resolvedArrow,
+        rotationDeg,
+        slopeValue,
+        secondaryDetail: trendWord || ""
+      };
     }
   }
 
@@ -178,12 +182,26 @@ const tideDisplay = computed(() => {
     const preferredUnit = distanceUnit.value;
     const converted = preferredUnit === "ft" ? UnitConversion.mToFt(fallbackWave) : fallbackWave;
     const unitLabel = preferredUnit === "ft" ? "ft" : "m";
-    if (period !== null) {
-      return `${roundValue(converted)} ${unitLabel} @ ${Math.round(period)}s`;
-    }
-    return `${roundValue(converted)} ${unitLabel}`;
+    const detail = period !== null ? `@ ${Math.round(period)}s` : "";
+    const rotationDeg = rotationFromSlope(0);
+    return {
+      value: String(roundValue(converted)),
+      unit: unitLabel,
+      arrowSymbol: "→",
+      rotationDeg,
+      slopeValue: 0,
+      secondaryDetail: detail
+    };
   }
-  return "";
+  const rotationDeg = rotationFromSlope(0);
+  return {
+    value: "--",
+    unit: "",
+    arrowSymbol: "→",
+    rotationDeg,
+    slopeValue: 0,
+    secondaryDetail: ""
+  };
 });
 
 const tideNextHighDisplay = computed(() => {
@@ -208,24 +226,19 @@ const tideNextHighDisplay = computed(() => {
   return heightText || sanitizedTime || "";
 });
 
-const tideSparkline = computed(() => {
-  const series = extractTideSeries(tides.value);
-  if (series.length < 2) {
-    return [];
-  }
-  const preferredUnit = distanceUnit.value;
-  const recent = series.slice(-18);
-  const converted = recent
-    .map((entry) => convertLevelToPreferredUnit(entry.value, preferredUnit))
-    .filter((value) => typeof value === "number" && Number.isFinite(value));
-  if (converted.length < 2) {
-    return [];
-  }
-  return converted;
-});
+const tidePrimaryValue = computed(() => tidePrimary.value.value);
+const tidePrimaryUnit = computed(() => tidePrimary.value.unit);
 
-const sparklineWidth = 220;
-const sparklineHeight = 46;
+const tideArrowStyle = computed(() => ({
+  transform: `rotate(${tidePrimary.value.rotationDeg ?? 0}deg)`,
+}));
+
+const tideSecondaryLabel = computed(() => {
+  if (tideNextHighDisplay.value) {
+    return `Next high ${tideNextHighDisplay.value}`;
+  }
+  return tidePrimary.value.secondaryDetail;
+});
 
 function extractPressureHistory() {
   const historyArray = history.value?.pressure || history.value?.pressureHistory;
@@ -308,6 +321,15 @@ function buildTideInfo(tideSource) {
     firstAfterNow?.value,
   );
 
+  const computedSymbol = trendToSymbol(computedTrend);
+  const directSymbol = trendToSymbol(directTrend);
+  const slope = slopeFromLevels(series);
+  const slopeSymbol = symbolFromSlope(slope);
+  let trendSymbol = computedSymbol || directSymbol || slopeSymbol || "→";
+
+  if (!trendSymbol && computedTrend) {
+    trendSymbol = trendToSymbol(computedTrend);
+  }
   const nextEvent = findNextExtremeEvent(series, nowMs);
   const nextHighEvent = findNextHighEvent(series, nowMs);
 
@@ -315,6 +337,9 @@ function buildTideInfo(tideSource) {
     hasTide: typeof currentLevel === "number" || series.length > 0,
     currentLevel,
     trend: computedTrend || directTrend,
+    trendSymbol,
+    slopeValue: slope,
+    rotationDeg: rotationFromSlope(slope),
     nextEvent,
     nextHighEvent,
   };
@@ -461,6 +486,50 @@ function computeTrendLabel(currentLevel, previousValue, nextValue) {
   }
 
   return "steady";
+}
+
+function slopeFromLevels(series) {
+  if (!Array.isArray(series) || series.length < 2) {
+    return 0;
+  }
+
+  const sample = series.slice(-6);
+  const n = sample.length;
+  if (n < 2) {
+    return 0;
+  }
+
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumXX = 0;
+
+  sample.forEach((entry, index) => {
+    const x = index;
+    const y = entry.value;
+    sumX += x;
+    sumY += y;
+    sumXY += x * y;
+    sumXX += x * x;
+  });
+
+  const denominator = n * sumXX - sumX * sumX;
+  if (denominator === 0) {
+    return 0;
+  }
+
+  return (n * sumXY - sumX * sumY) / denominator;
+}
+
+function symbolFromSlope(slope) {
+  const threshold = 0.01;
+  if (slope > threshold) {
+    return "↑";
+  }
+  if (slope < -threshold) {
+    return "↓";
+  }
+  return "→";
 }
 
 function findLastBefore(series, timestamp) {
@@ -630,16 +699,84 @@ function trendToSymbol(trend) {
     return "";
   }
   const normalized = trend.toLowerCase();
-  if (normalized.includes("rise")) {
+  if (
+    normalized.includes("rise") ||
+    normalized.includes("incoming") ||
+    normalized.includes("flood") ||
+    normalized.includes("inbound") ||
+    normalized.includes("up")
+  ) {
     return "↑";
   }
-  if (normalized.includes("fall")) {
+  if (
+    normalized.includes("fall") ||
+    normalized.includes("outgoing") ||
+    normalized.includes("ebb") ||
+    normalized.includes("dropping") ||
+    normalized.includes("down")
+  ) {
     return "↓";
   }
-  if (normalized.includes("steady") || normalized.includes("stable") || normalized.includes("hold")) {
+  if (
+    normalized.includes("steady") ||
+    normalized.includes("stable") ||
+    normalized.includes("hold") ||
+    normalized.includes("slack") ||
+    normalized.includes("flat")
+  ) {
+    return "→";
+  }
+  return wordToSymbol(trend);
+}
+
+function wordToSymbol(word) {
+  if (typeof word !== "string" || !word) {
+    return "";
+  }
+  const normalized = word.toLowerCase();
+  if (normalized.startsWith("rise") || normalized.startsWith("incom") || normalized.startsWith("flood")) {
+    return "↑";
+  }
+  if (normalized.startsWith("fall") || normalized.startsWith("outgo") || normalized.startsWith("ebb")) {
+    return "↓";
+  }
+  if (
+    normalized.startsWith("steady") ||
+    normalized.startsWith("stable") ||
+    normalized.startsWith("hold") ||
+    normalized.startsWith("flat") ||
+    normalized.startsWith("slack")
+  ) {
     return "→";
   }
   return "";
+}
+
+function rotationFromSlope(slope) {
+  const angle = Math.atan(slope) * (180 / Math.PI);
+  const raw = 90 - angle;
+  return clamp(raw, 0, 180);
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function formatTrendWord(trend) {
+  if (typeof trend !== "string" || !trend) {
+    return "";
+  }
+  const normalized = trend.toLowerCase();
+  if (normalized.includes("rise")) {
+    return "Rising";
+  }
+  if (normalized.includes("fall")) {
+    return "Falling";
+  }
+  if (normalized.includes("steady") || normalized.includes("stable") || normalized.includes("hold")) {
+    return "Steady";
+  }
+  return trend.charAt(0).toUpperCase() + trend.slice(1);
 }
 
 function firstNumber(candidates) {
@@ -687,8 +824,8 @@ function toDate(value) {
 .pressure-tide-widget {
   display: flex;
   flex-direction: column;
-  gap: 1.1rem;
-  padding: 1.1rem;
+  gap: 0.8rem;
+  padding: 1rem 0.95rem;
   background: var(--widget-surface-color);
   border-radius: 14px;
   color: var(--widget-text-color);
@@ -699,50 +836,74 @@ function toDate(value) {
 .metric-section {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.9rem 1rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
   background: var(--widget-surface-elevated-color);
   border-radius: 12px;
   min-height: 0;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.75rem;
+  text-align: center;
 }
 
 .metric-label {
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--widget-muted-text-color);
 }
 
+.metric-primary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.metric-primary--tide {
+  gap: 0.45rem;
+}
+
 .metric-value {
-  font-size: 1.5rem;
+  font-size: clamp(1.9rem, 3.4vw, 2.6rem);
   font-weight: 700;
   line-height: 1;
   color: var(--widget-text-color);
 }
 
+.metric-unit {
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--widget-muted-text-color);
+  letter-spacing: 0.02em;
+}
+
+.metric-trend-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--widget-muted-text-color);
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.metric-trend-arrow .arrow-icon {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+  transition: transform 0.2s ease;
+}
+
 .metric-sub {
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   color: var(--widget-muted-text-color);
   line-height: 1.25;
 }
 
-.sparkline-frame {
-  width: 100%;
-  height: 48px;
-}
-
-.sparkline-frame :deep(svg),
-.sparkline-frame :deep(canvas) {
-  width: 100% !important;
-  height: 100% !important;
+.section-divider {
+  align-self: center;
+  width: 90%;
+  height: 1px;
+  background: color-mix(in srgb, var(--widget-muted-text-color) 35%, transparent);
 }
 
 .trend-positive {
@@ -759,12 +920,13 @@ function toDate(value) {
 
 @media (max-width: 420px) {
   .pressure-tide-widget {
-    padding: 0.95rem;
-    gap: 0.95rem;
+    padding: 0.85rem;
+    gap: 0.7rem;
   }
 
   .metric-section {
-    padding: 0.8rem 0.85rem;
+    padding: 0.75rem 0.85rem;
+    gap: 0.45rem;
   }
 }
 </style>

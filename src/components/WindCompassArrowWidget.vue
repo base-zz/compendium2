@@ -134,18 +134,18 @@ const normalizedAngle = computed(() => {
 
 // Arrow points outward from center, positioned on circumference
 const arrowPoints = computed(() => {
-  const tipRadius = radius - 4;   // Tip is on the circumference
-  const baseRadius = radius - 28; // Base is closer to center
+  const tipRadius = radius - 4; // tip rides near circumference
+  const baseRadius = radius - 28;
   const halfWidth = 10;
-  const tipY = -(tipRadius);  // Tip points outward
-  const baseY = -(baseRadius); // Base toward center
+  const tipY = -tipRadius;
+  const baseY = -baseRadius;
   return `0,${tipY} ${-halfWidth},${baseY} ${halfWidth},${baseY}`;
 });
 
 const arrowStyle = computed(() => ({
-  fill: "#ffffff",
-  stroke: "rgba(0, 0, 0, 0.5)",
-  strokeWidth: 1.5,
+  fill: "#f87171",
+  stroke: "rgba(185, 28, 28, 0.6)",
+  strokeWidth: 1.4,
   transition: "fill 0.2s ease, stroke 0.2s ease",
 }));
 

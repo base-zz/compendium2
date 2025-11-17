@@ -284,11 +284,18 @@ const widgetColor = computed(() => {
   return props.widgetData.color || '#007bff'
 })
 
-
 const displayValue = computed(() => {
-  return batteryValue.value !== null && batteryValue.value !== undefined
-    ? batteryValue.value
-    : "--"
+  const value = batteryValue.value
+  if (value === null || value === undefined) {
+    return "--"
+  }
+
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return "--"
+  }
+
+  return Math.round(numeric)
 })
 
 const displayVoltage = computed(() => {
@@ -553,7 +560,7 @@ text {
 }
 
 .metric.smaller-font {
-  font-size: 5.5em; /* Slightly smaller font for 3-digit numbers */
+  font-size: 5em; /* Slightly smaller font for 3-digit numbers */
 }
 
 .metric2 {

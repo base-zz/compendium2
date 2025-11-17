@@ -7,11 +7,6 @@ import { getDataSourceById } from '@/shared/widgetDataConfig.js';
  * @returns {Object} - A standardized widget object
  */
 export function createWidgetModel(widgetData = {}) {
-    console.log('createWidgetModel input:', JSON.stringify(widgetData, null, 2));
-    
-    // Ensure dataSource is explicitly logged
-    console.log('Input dataSource:', widgetData.dataSource);
-    
     const standardWidget = {
       // Unique identifier
       id: widgetData.id || `widget-${Date.now()}`,
@@ -91,9 +86,6 @@ export function createWidgetModel(widgetData = {}) {
         standardWidget.width = 100 * aspectRatio;
       }
     }
-    
-    console.log('createWidgetModel output:', JSON.stringify(standardWidget, null, 2));
-    console.log('Output dataSource:', standardWidget.dataSource);
     
     return standardWidget;
   }

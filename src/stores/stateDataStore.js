@@ -1855,10 +1855,6 @@ export const useStateDataStore = defineStore("stateData", () => {
    * @param {Object} forecastData - The forecast data to update
    */
   function updateForecastData(forecastData) {
-    console.log('[StateDataStore] updateForecastData called with:', { 
-      dataKeys: forecastData ? Object.keys(forecastData) : 'no data' 
-    });
-    
     if (!forecastData) {
       logger.warn('Received updateForecastData call with no data');
       return;
@@ -1870,12 +1866,6 @@ export const useStateDataStore = defineStore("stateData", () => {
       
       // Update the forecast state with the new data
       state.forecast = { ...state.forecast, ...forecastData };
-      
-      // Log successful update
-      dataLogger('Updated forecast data via updateForecastData', { 
-        keys: Object.keys(forecastData),
-        timestamp: new Date().toISOString()
-      });
     } catch (error) {
       logger.error('Error in updateForecastData:', error.message || error);
     }

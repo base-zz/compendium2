@@ -30,7 +30,6 @@ const emit = defineEmits(['add-widget']);
 
 // Function to emit add-widget event with area information
 const addWidget = () => {
-  console.log('PlaceholderWidget - addWidget called with area:', props.area);
   emit('add-widget', props.area);
 };
 

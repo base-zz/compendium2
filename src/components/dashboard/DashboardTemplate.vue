@@ -205,6 +205,39 @@ h3 {
   grid-column: 1 / span 3;
 }
 
+.template-8 .preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 2fr;
+  gap: 4px;
+}
+
+.template-8 .preview-area:nth-last-child(1) {
+  grid-column: 1 / span 3;
+}
+
+.template-9 .preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 3fr;
+  gap: 4px;
+}
+
+.template-9 .preview-area:nth-last-child(1) {
+  grid-column: 1 / span 3;
+}
+
+.template-10 .preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-rows: 1fr 2fr;
+  gap: 4px;
+}
+
+.template-10 .preview-area:nth-last-child(1) {
+  grid-column: 1 / span 4;
+}
+
 .preview-area {
   background: #e0e0e0;
   border-radius: 2px;

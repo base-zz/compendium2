@@ -193,6 +193,85 @@
   grid-area: bottom;
 }
 
+/* Template 8 - Anchor Watch (Compact) */
+.template-grid-8 {
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 2fr;
+  grid-template-areas:
+    "topLeft topCenter topRight"
+    "bottom bottom bottom";
+}
+
+.template-grid-8 .area-topLeft {
+  grid-area: topLeft;
+}
+
+.template-grid-8 .area-topCenter {
+  grid-area: topCenter;
+}
+
+.template-grid-8 .area-topRight {
+  grid-area: topRight;
+}
+
+.template-grid-8 .area-bottom {
+  grid-area: bottom;
+}
+
+/* Template 9 - Anchor Watch (Map Focus) */
+.template-grid-9 {
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 3fr;
+  grid-template-areas:
+    "topLeft topCenter topRight"
+    "bottom bottom bottom";
+}
+
+.template-grid-9 .area-topLeft {
+  grid-area: topLeft;
+}
+
+.template-grid-9 .area-topCenter {
+  grid-area: topCenter;
+}
+
+.template-grid-9 .area-topRight {
+  grid-area: topRight;
+}
+
+.template-grid-9 .area-bottom {
+  grid-area: bottom;
+}
+
+/* Template 10 - Anchor Watch (Wide Row) */
+.template-grid-10 {
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-rows: 1fr 2fr;
+  grid-template-areas:
+    "topLeft topCenterLeft topCenterRight topRight"
+    "bottom bottom bottom bottom";
+}
+
+.template-grid-10 .area-topLeft {
+  grid-area: topLeft;
+}
+
+.template-grid-10 .area-topCenterLeft {
+  grid-area: topCenterLeft;
+}
+
+.template-grid-10 .area-topCenterRight {
+  grid-area: topCenterRight;
+}
+
+.template-grid-10 .area-topRight {
+  grid-area: topRight;
+}
+
+.template-grid-10 .area-bottom {
+  grid-area: bottom;
+}
+
 /* Template areas */
 .template-area {
   position: relative;

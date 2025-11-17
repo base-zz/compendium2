@@ -106,14 +106,8 @@ const { environment, state } = storeToRefs(stateDataStore);
 
 const logger = createLogger('weather-component');
 
-// Simple debug logging
-const log = (label, data) => {
-  logger.debug(`Weather ${label}`, data);
-};
-
-// Log initial state
-log('Initial environment', environment?.value);
-log('Initial state', state?.value);
+// Simple debug logging (disabled)
+const log = () => {};
 
 // Ensure state is properly initialized
 const initialized = ref(false);
@@ -136,7 +130,6 @@ const currentForecast = computed(() => {
       } 
     };
   }
-  log('Forecast data:', state.value.forecast);
   return state.value.forecast;
 });
 
@@ -150,16 +143,7 @@ const hourlyForecast = computed(() => {
   try {
     const forecast = currentForecast.value;
     
-    // Log the full forecast data structure
-    console.log('=== WEATHER FORECAST DATA ===');
-    console.log('Full forecast object:', JSON.stringify(forecast, null, 2));
-    console.log('Hourly data exists:', !!forecast?.hourly);
-    console.log('Hourly time array length:', forecast?.hourly?.time?.length || 0);
-    console.log('Hourly temperature_2m:', forecast?.hourly?.temperature_2m);
-    console.log('Hourly weather_code:', forecast?.hourly?.weather_code);
-    
     if (!forecast?.hourly?.time?.length) {
-      console.log('No hourly forecast data available');
       return [];
     }
     
@@ -187,10 +171,6 @@ const hourlyForecast = computed(() => {
         ...hour,
         time: hour.timeString // Use the formatted time string for display
       }));
-    
-    console.log('Hourly forecast after processing:', mapped.length, 'hours');
-    console.log('First 3 hours:', mapped.slice(0, 3));
-    
     return mapped;
   } catch (error) {
     logger.error('Error processing hourly forecast', { error });
@@ -460,7 +440,7 @@ async function updateWeatherData() {
       humidity: humidity.value,
       wind: `${windSpeed.value} ${windUnit.value} ${windDirection.value}`,
       pressure: `${pressure.value} hPa`,
-      location: location.value,
+      location: locationName.value,
       lastUpdated: lastUpdated.value
     });
   } catch (error) {

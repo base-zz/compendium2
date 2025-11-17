@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compendium Nav Support</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="icon" type="image/png" href="/public/favicon.png" />
+</head>
+<body>
+  <div class="page">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">CN</div>
+        <span>Compendium Nav</span>
+      </div>
+      <nav>
+        <a href="./index.html">Home</a>
+        <a href="./support.html">Support</a>
+        <a href="./privacy.html">Privacy</a>
+        <a href="mailto:info@compendiumnav.com">Contact</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <h1>Support & Resources</h1>
+      <p>
+        Need help connecting to your onboard server or interpreting dashboards? This page covers the essentials and how to get in touch with our team.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>Frequently Asked Questions</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>How do I connect to my boat server?</h3>
+          <p>Install the Compendium Nav server package on your onboard Raspberry Pi or preferred device. Once paired, the mobile app discovers the server on the local network and maintains the link automatically.</p>
+        </article>
+        <article class="card">
+          <h3>What platforms are supported?</h3>
+          <p>Compendium Nav runs on iPhone, iPad, and modern desktop browsers. The onboard relay supports standard marine data sources, including Signal K and Bluetooth sensors.</p>
+        </article>
+        <article class="card">
+          <h3>Is my data stored in the cloud?</h3>
+          <p>No. Operational data remains on your boat server. When you access the app away from your boat, the VPS relays data securely without persisting it.</p>
+        </article>
+        <article class="card">
+          <h3>Can I customize dashboards?</h3>
+          <p>Yes. The app lets you arrange widgets for tides, anchor watch, weather, and custom instrument panels to match your workflow.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Contact</h2>
+      <p class="support-cta">
+        Email <a href="mailto:info@compendiumnav.com">info@compendiumnav.com</a> for account questions, onboarding help, or incident support. We typically reply within one business day.
+      </p>
+    </section>
+
+    <footer>
+      <span>&copy; <span id="year"></span> Compendium Nav. All rights reserved.</span>
+      <ul>
+        <li><a href="./index.html">Home</a></li>
+        <li><a href="./support.html">Support</a></li>
+        <li><a href="./privacy.html">Privacy Policy</a></li>
+      </ul>
+    </footer>
+  </div>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

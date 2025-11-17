@@ -218,7 +218,6 @@ class DirectConnectionAdapter {
         return;
       }
       if (msg.type === "weather:update") {
-        console.log(`========== EMITTING WEATHER:UPDATE EVENT ==========`);
         try {
           // Extract the weather data, handling different possible structures
           let weatherData;
@@ -226,16 +225,13 @@ class DirectConnectionAdapter {
           // Check if we have a nested structure where msg.data contains the actual weather data
           if (msg.data && typeof msg.data === 'object') {
             weatherData = msg.data;
-            console.log("Using nested data structure for weather update");
           } else {
             // Fallback to using the message itself as the data
             weatherData = msg;
-            console.log("Using message as data for weather update");
           }
           
           // Remove any type property from the data to avoid confusion
           if (weatherData.type) {
-            console.log("Removing type property from weather data");
             // Create a clean copy without the type property
             const cleanData = { ...weatherData };
             delete cleanData.type;

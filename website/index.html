@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compendium Nav</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="icon" type="image/x-icon" href="./img/favicon_io/favicon.ico" />
+  <meta name="description" content="Compendium Nav brings real-time weather, tides, anchor watch, and onboard sensor data together for modern sailors." />
+</head>
+<body>
+  <div class="page">
+    <header>
+      <div class="brand">
+        <img src="./img/compendium_logo.png" alt="Compendium Nav logo" class="brand-image" />
+        <div class="brand-copy">
+          <span class="brand-title">Compendium Nav</span>
+          <span class="brand-tagline">Marine intelligence, unified.</span>
+        </div>
+      </div>
+      <nav>
+        <a href="./index.html">Home</a>
+        <a href="./support.html">Support</a>
+        <a href="./privacy.html">Privacy</a>
+        <a href="mailto:info@compendiumnav.com">Contact</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <h1>Marine operations, unified.</h1>
+      <p>
+        Compendium Nav connects to your onboard server to deliver live weather, tide intelligence, anchor monitoring, and Bluetooth sensor insights in one intuitive dashboard—no matter where you are.
+      </p>
+      <img src="./img/compendium_logo.png" alt="Compendium Nav emblem" class="hero-logo" />
+      <div class="hero-actions">
+        <a class="store-button apple" href="#">
+          <img src="./img/apple.svg" alt="Apple icon" class="store-icon" />
+          <span class="store-text">
+            <span class="store-small">Soon on</span>
+            <span class="store-large">App Store</span>
+          </span>
+        </a>
+        <a class="store-button google" href="#">
+          <img src="./img/google-play.svg" alt="Google Play icon" class="store-icon" />
+          <span class="store-text">
+            <span class="store-small">Soon on</span>
+            <span class="store-large">Google Play</span>
+          </span>
+        </a>
+        <a class="button-secondary" href="#">Launch Web App</a>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Everything you need to stay ahead on the water</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>Anchor Awareness</h3>
+          <p>Monitor rode, position, AIS targets, and drag trends in real time while receiving alerts when something changes unexpectedly.</p>
+        </article>
+        <article class="card">
+          <h3>Data Fusion</h3>
+          <p>Combine data from disparate systems into one unified view, including NMEA2000, Bluetooth, LoRa, Zigbey, and Z-Wave. Let Compendium Nav surface critical metrics automatically across all your devices.</p>
+        </article>
+        <article class="card">
+          <h3>Dashboards</h3>
+          <p>Design custom dashboards and group data by situation—at anchor, in the marina, or underway—or by systems like electrical, wind, tanks, and navigation.</p>
+        </article>        
+        <article class="card">
+          <h3>Remote Connectivity</h3>
+          <p>Whether you are on deck or shoreside, Compendium Nav securely relays data through our private server.</p>
+        </article>
+        <!-- <article class="card">
+          <h3>Weather & Tides</h3>
+          <p>Track hourly forecasts, tide windows, and sun cycles tailored to your vessel's position with elegant, glanceable visuals.</p>
+        </article> -->        
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>How Compendium Nav works</h2>
+      <ul class="list">
+        <li><strong>Onboard server:</strong> A trusted device (Raspberry Pi or similar) collects Signal K, sensor, and weather feeds.</li>
+        <li><strong>Secure relay:</strong> When off-vessel, encrypted traffic routes through our VPS for conveniencenever for storage.</li>
+        <li><strong>Unified app:</strong> iOS and web dashboards present information with consistent layouts for quick decisions.</li>
+      </ul>
+      <p class="support-cta">Need a guided setup? Email <a href="mailto:info@compendiumnav.com">info@compendiumnav.com</a>.</p>
+    </section>
+
+    <footer>
+      <span>&copy; <span id="year"></span> Compendium Nav. All rights reserved.</span>
+      <ul>
+        <li><a href="./support.html">Support</a></li>
+        <li><a href="./privacy.html">Privacy Policy</a></li>
+        <li><a href="mailto:info@compendiumnav.com">Contact</a></li>
+      </ul>
+    </footer>
+  </div>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

@@ -142,6 +142,7 @@ function getDirectionName(degrees) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding-top: 6px;
 }
 
 .section-title {
@@ -149,6 +150,7 @@ function getDirectionName(degrees) {
   font-weight: 600;
   color: var(--app-text-color);
   margin: 0 0 6px 0;
+  padding-left: 8px;
 }
 
 .conditions-grid {
@@ -157,15 +159,16 @@ function getDirectionName(degrees) {
   gap: 12px;
   flex: 0 0 auto;
   overflow-y: auto;
+  padding-left: 8px;
 }
 
 .condition-card {
   background: var(--app-surface-color);
   border: 1px solid var(--app-border-color);
   border-radius: 12px;
-  padding: 8px;
+  padding: 8px 8px 8px 12px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   box-shadow: 0 2px 6px color-mix(in srgb, var(--app-text-color) 10%, transparent);
 }
@@ -173,6 +176,7 @@ function getDirectionName(degrees) {
 .condition-icon {
   font-size: 1.8rem;
   line-height: 1;
+  padding-right: 4px; 
 }
 
 .condition-content {

@@ -8,8 +8,6 @@
       viewBox="0 0 300 300"
       preserveAspectRatio="xMidYMid meet"
     >
-      <!-- Background -->
-      <rect class="background" x="0" y="0" width="300" height="300" rx="8" />
       
       <!-- Title -->
       <text class="title" x="150" y="30">
@@ -212,7 +210,7 @@ const isStale = computed(() => {
   align-items: center;
   padding: 0;
   margin: 0;
-  background-color: var(--widget-surface-color);
+  background-color: transparent;
   border-radius: 8px;
   pointer-events: auto;
   touch-action: manipulation;
@@ -222,6 +220,12 @@ const isStale = computed(() => {
 }
 
 .ruuvi-component {
+  height: 100% !important;
+  width: 100% !important;
+  aspect-ratio: 1 / 1 !important;
+  background-color: var(--widget-surface-color);
+  color: var(--widget-text-color);
+  border-radius: 8px;
   pointer-events: none;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent !important;

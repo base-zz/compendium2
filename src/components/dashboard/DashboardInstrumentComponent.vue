@@ -340,7 +340,7 @@ watch(
 .title {
   fill: var(--widget-text-color);
   font-size: 24px;
-  font-weight: 500;
+  font-weight: bold;
   text-anchor: middle;
   dominant-baseline: middle;
 }

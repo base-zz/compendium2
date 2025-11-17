@@ -252,9 +252,6 @@ const props = defineProps({
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 
-// Log the area prop for debugging
-console.log('AddWidgetModal - area prop:', props.area);
-
 // Form data
 const displayType = ref(props.editMode ? props.widgetType : '');
 const dataSource = ref(props.editMode && props.widgetData.dataSource ? props.widgetData.dataSource : '');
@@ -273,13 +270,6 @@ const decimalPlaces = ref(props.editMode ?
 const showThousandsSeparator = ref(props.editMode ? 
   (props.widgetData.showThousandsSeparator || 
    props.widgetData.data?.showThousandsSeparator || false) : false);
-
-// Log formatting options for debugging
-console.log('Initializing number formatting options:', {
-  decimalPlaces: decimalPlaces.value,
-  showThousandsSeparator: showThousandsSeparator.value,
-  widgetData: props.widgetData
-});
 
 // Color picker
 const showColorPicker = ref(false);
@@ -307,21 +297,15 @@ const colorOptions = [
 
 // Get data sources from configuration file
 const instrumentDataSources = computed(() => {
-  // Debug the data sources
-  console.log('Getting instrument data sources');
   const sources = getDataSourcesByType('instrument');
-  console.log('Raw sources from config:', sources);
-  
+
   // Transform data sources to the format expected by the select component
-  const mappedSources = sources.map(source => ({
+  return sources.map(source => ({
     category: source.category,
     value: source.id,
     label: source.displayLabel,
     description: source.description
   }));
-  
-  console.log('Mapped sources for dropdown:', mappedSources);
-  return mappedSources;
 });
 
 const windSpeedDataSources = computed(() =>
@@ -333,15 +317,6 @@ const windSpeedDataSources = computed(() =>
   }))
 );
 
-// Tank types from configuration file
-const tankTypes = computed(() => {
-  // Transform tank data sources to the format expected by the select component
-  return getDataSourcesByType('tank').map(source => ({
-    value: source.id,
-    label: source.displayLabel
-  }));
-});
-
 // Computed property to get available data sources based on widget type
 const availableDataSources = computed(() => {
   if (!displayType.value) {
@@ -349,12 +324,10 @@ const availableDataSources = computed(() => {
   }
   
   if (displayType.value === 'instrument') {
-    console.log('Instrument data sources:', instrumentDataSources.value);
     return instrumentDataSources.value;
   } else if (displayType.value === 'windspeed') {
     return windSpeedDataSources.value;
   } else if (displayType.value === 'tank') {
-    console.log('Tank data sources:', tankTypes.value);
     return getDataSourcesByType('tank').map(source => ({
       value: source.id,
       label: source.displayLabel || source.label,
@@ -375,7 +348,6 @@ const availableDataSources = computed(() => {
   } else if (displayType.value === 'ruuvi') {
     // Get Bluetooth devices from state and filter for Ruuvi sensors only
     const devices = state.value.bluetooth?.devices || {};
-    console.log('Ruuvi - All Bluetooth devices:', devices);
     const ruuviDevices = Object.entries(devices)
       .filter(([, device]) => device.manufacturerId === 1177 || device.sensorData?.format === 'ruuvi/rawv2')
       .map(([id, device]) => ({
@@ -383,14 +355,12 @@ const availableDataSources = computed(() => {
         label: device.name || device.localName || id,
         description: `Ruuvi sensor: ${device.name || id}`
       }));
-    console.log('Ruuvi - Filtered Ruuvi devices:', ruuviDevices);
     return ruuviDevices;
   } else if (displayType.value === 'victron-battery-monitor') {
     // Get Bluetooth devices from state and filter for Victron battery monitors only
     const devices = state.value.bluetooth?.devices || {};
     const selectedDevices = state.value.bluetooth?.selectedDevices || {};
     const allDevices = { ...devices, ...selectedDevices };
-    console.log('Victron - All Bluetooth devices:', allDevices);
     const victronDevices = Object.entries(allDevices)
       .filter(([, device]) => device.manufacturerId === 737 && device.sensorData?.deviceType === 'battery_monitor')
       .map(([id, device]) => ({
@@ -398,11 +368,8 @@ const availableDataSources = computed(() => {
         label: device.metadata?.userLabel || device.name || device.localName || id,
         description: `Victron Battery Monitor: ${device.metadata?.userLabel || device.name || id}`
       }));
-    console.log('Victron - Filtered Victron battery monitors:', victronDevices);
     return victronDevices;
   }
-  
-  console.log('No data sources available for type:', displayType.value);
   return [];
 });
 
@@ -424,10 +391,10 @@ watch(displayType, (newType) => {
     dataSource.value = '';
     maintainSquareRatio.value = true;
     if (!widgetTitle.value) {
-      widgetTitle.value = 'Clock';
+      widgetTitle.value = 'Time';
     }
     if (!widgetName.value) {
-      widgetName.value = 'Clock';
+      widgetName.value = 'Time';
     }
   } else if (newType === 'anchor') {
     dataSource.value = '';
@@ -498,15 +465,12 @@ watch(displayType, (newType) => {
 
 // Function to update the widget title based on the selected data source
 const updateTitleFromDataSource = () => {
-  console.log('Manual update triggered');
   updateWidgetTitleFromDataSource();
 };
 
 // Actual function to update the title based on data source
 const updateWidgetTitleFromDataSource = () => {
   const selectedValue = dataSource.value;
-  console.log('Updating title based on data source:', selectedValue);
-  
   if (selectedValue) {
     // Find the selected data source from the available options
     const selectedSource = availableDataSources.value.find(s => s.value === selectedValue);
@@ -515,14 +479,12 @@ const updateWidgetTitleFromDataSource = () => {
       // Update widget title and name based on the selected source
       widgetTitle.value = selectedSource.description || selectedSource.label;
       widgetName.value = selectedSource.label;
-      console.log('Updated widget title to:', widgetTitle.value);
     } else {
       // Try to get the source from the widget data configuration
       const configSource = getDataSourceById(selectedValue);
       if (configSource) {
         widgetTitle.value = configSource.description || configSource.displayLabel || configSource.label;
         widgetName.value = configSource.label;
-        console.log('Updated widget title from config to:', widgetTitle.value);
       }
     }
   }
@@ -530,7 +492,6 @@ const updateWidgetTitleFromDataSource = () => {
 
 // Watch for dataSource changes to update the title
 watch(dataSource, () => {
-  console.log('Data source changed via watch to:', dataSource.value);
   updateWidgetTitleFromDataSource();
 });
 
@@ -596,8 +557,6 @@ async function saveWidget() {
     },
   };
 
-  console.log('Saving direct widget data:', directWidget);
-
   // Dismiss modal with the direct widget data
   modalController.dismiss(directWidget, 'confirm');
 }
@@ -605,15 +564,9 @@ async function saveWidget() {
 // Initialize form data from props if in edit mode
 onMounted(() => {
   if (props.editMode && props.widgetData) {
-    console.log('Edit mode - Widget data:', props.widgetData);
-    console.log('Edit mode - Widget type:', props.widgetType);
-    
     // Set form values from widget data
     displayType.value = props.widgetType || props.widgetData.displayType || '';
-    console.log('Edit mode - Display type set to:', displayType.value);
-    
     dataSource.value = props.widgetData.dataSource || '';
-    console.log('Edit mode - Data source set to:', dataSource.value);
     
     graphType.value = props.widgetData.graphType || 'line';
     // tankType is no longer used, we use dataSource directly for tanks

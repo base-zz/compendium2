@@ -172,11 +172,20 @@ const caretStyle = computed(() => ({
 
 const caretPoints = computed(() => {
   const tipRadius = radius - 6;
-  const baseRadius = radius - 32;
-  const halfWidth = 8;
-  const tipY = -(tipRadius);
-  const baseY = -(baseRadius);
-  return `0,${tipY} ${-halfWidth},${baseY} ${halfWidth},${baseY}`;
+  const shoulderRadius = radius - 28;
+  const tailRadius = radius - 46;
+  const shoulderHalfWidth = 11;
+  const tailHalfWidth = 4;
+
+  const points = [
+    [0, -tipRadius],
+    [-shoulderHalfWidth, -shoulderRadius],
+    [-tailHalfWidth, -tailRadius],
+    [tailHalfWidth, -tailRadius],
+    [shoulderHalfWidth, -shoulderRadius],
+  ];
+
+  return points.map(([x, y]) => `${x},${y}`).join(" ");
 });
 
 const caretTransitionReady = ref(false);
@@ -249,7 +258,7 @@ const caretGroupStyle = computed(() => {
 .label-text {
   fill: var(--widget-text-color);
   font-size: 22px;
-  font-weight: 600;
+  font-weight: bold;
   text-anchor: middle;
   dominant-baseline: middle;
 }

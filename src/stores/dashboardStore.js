@@ -342,10 +342,8 @@ export const useDashboardStore = defineStore("dashboards", () => {
    * @returns {Promise<void>}
    */
   const addWidget = async (dashboardIndex, widget) => {
-    console.log('dashboardStore - addWidget called with dashboardIndex:', dashboardIndex, 'widget:', widget);
     await init();
     if (dashboardIndex > -1 && dashboards.value[dashboardIndex]) {
-      console.log('Dashboard before adding widget:', JSON.parse(JSON.stringify(dashboards.value[dashboardIndex])));
       // Create a standardized widget using our model
       const standardWidget = createWidgetModel({
         ...widget,
@@ -370,16 +368,7 @@ export const useDashboardStore = defineStore("dashboards", () => {
       dashboards.value[dashboardIndex].widgets.push(standardWidget);
       
       // Add the widget to the layout array
-      console.log('Adding widget to layout array with ID:', standardWidget.id);
       dashboards.value[dashboardIndex].layout.push(standardWidget);
-      
-      // Log the state before saving
-      console.log('Before saving:', {
-        widgetsCount: dashboards.value[dashboardIndex].widgets.length,
-        layoutCount: dashboards.value[dashboardIndex].layout.length,
-        lastWidget: dashboards.value[dashboardIndex].widgets[dashboards.value[dashboardIndex].widgets.length - 1],
-        lastLayoutItem: dashboards.value[dashboardIndex].layout[dashboards.value[dashboardIndex].layout.length - 1]
-      });
       
       // Save to storage
       try {
@@ -408,23 +397,15 @@ export const useDashboardStore = defineStore("dashboards", () => {
    * @returns {Promise<void>}
    */
   const updateWidget = async (dashboardIndex, widgetId, updatedWidget) => {
-    console.log('Updating widget:', { dashboardIndex, widgetId, updatedWidget });
     await init();
     if (dashboardIndex > -1 && dashboards.value[dashboardIndex]) {
-      // Log dashboard state for debugging
-      console.log('Current dashboard state:', JSON.parse(JSON.stringify(dashboards.value[dashboardIndex])));
-      console.log('Dashboard layout:', JSON.parse(JSON.stringify(dashboards.value[dashboardIndex].layout || [])));
-      console.log('Dashboard widgets:', JSON.parse(JSON.stringify(dashboards.value[dashboardIndex].widgets || [])));
-      
       // Find the widget in the layout using the original widget ID
       const layoutArray = dashboards.value[dashboardIndex].layout || [];
       const widgetIndex = layoutArray.findIndex(w => w.id === widgetId);
-      console.log(`Looking for widget with ID ${widgetId} in layout, found at index: ${widgetIndex}`);
       
       if (widgetIndex > -1) {
         // Get the existing widget
         const existingWidget = layoutArray[widgetIndex];
-        console.log('Existing widget:', existingWidget);
         
         // Create a standardized widget with updated configuration
         // Ensure we preserve the area property from the existing widget
@@ -685,6 +666,83 @@ export const useDashboardStore = defineStore("dashboards", () => {
           'bottom bottom bottom'
         ]
       }
+    },
+    {
+      id: 8,
+      name: 'Anchor Watch (Compact)',
+      deviceTypes: ['tablet'],
+      areas: [
+        'topLeft',
+        'topCenter',
+        'topRight',
+        'bottom'
+      ],
+      layout: {
+        topLeft: { x: 0, y: 0, width: 32, height: 30 },
+        topCenter: { x: 34, y: 0, width: 32, height: 30 },
+        topRight: { x: 68, y: 0, width: 32, height: 30 },
+        bottom: { x: 0, y: 34, width: 100, height: 66 }
+      },
+      gridTemplate: {
+        columns: '1fr 1fr 1fr',
+        rows: '1fr 2fr',
+        areas: [
+          'topLeft topCenter topRight',
+          'bottom bottom bottom'
+        ]
+      }
+    },
+    {
+      id: 9,
+      name: 'Anchor Watch (Map Focus)',
+      deviceTypes: ['tablet'],
+      areas: [
+        'topLeft',
+        'topCenter',
+        'topRight',
+        'bottom'
+      ],
+      layout: {
+        topLeft: { x: 0, y: 0, width: 32, height: 24 },
+        topCenter: { x: 34, y: 0, width: 32, height: 24 },
+        topRight: { x: 68, y: 0, width: 32, height: 24 },
+        bottom: { x: 0, y: 28, width: 100, height: 72 }
+      },
+      gridTemplate: {
+        columns: '1fr 1fr 1fr',
+        rows: '1fr 3fr',
+        areas: [
+          'topLeft topCenter topRight',
+          'bottom bottom bottom'
+        ]
+      }
+    },
+    {
+      id: 10,
+      name: 'Anchor Watch (Wide Row)',
+      deviceTypes: ['tablet'],
+      areas: [
+        'topLeft',
+        'topCenterLeft',
+        'topCenterRight',
+        'topRight',
+        'bottom'
+      ],
+      layout: {
+        topLeft: { x: 0, y: 0, width: 24, height: 30 },
+        topCenterLeft: { x: 25, y: 0, width: 24, height: 30 },
+        topCenterRight: { x: 50, y: 0, width: 24, height: 30 },
+        topRight: { x: 75, y: 0, width: 24, height: 30 },
+        bottom: { x: 0, y: 34, width: 100, height: 66 }
+      },
+      gridTemplate: {
+        columns: '1fr 1fr 1fr 1fr',
+        rows: '1fr 2fr',
+        areas: [
+          'topLeft topCenterLeft topCenterRight topRight',
+          'bottom bottom bottom bottom'
+        ]
+      }
     }
   ];
 
@@ -723,7 +781,6 @@ export const useDashboardStore = defineStore("dashboards", () => {
 
   // Update widgets array for a dashboard
   const updateWidgets = async (dashboardIndex, widgets) => {
-    console.log('Updating widgets for dashboard:', dashboardIndex, 'with widgets:', widgets);
     await init();
     
     if (dashboardIndex > -1 && dashboards.value[dashboardIndex]) {
@@ -742,7 +799,6 @@ export const useDashboardStore = defineStore("dashboards", () => {
           value: JSON.stringify(cleanDashboards)
         });
         dashboards.value = cleanDashboards;
-        console.log('Successfully updated widgets in local storage');
       } catch (error) {
         console.error('Error saving dashboards to preferences:', error);
       }

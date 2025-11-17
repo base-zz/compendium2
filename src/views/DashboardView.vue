@@ -1,5 +1,5 @@
 <template>
-  <ion-page>
+  <ion-page :class="pageClasses">
     <generic-header title="Dashboard" />
     <ion-content class="content-with-header">
       <loading-content v-if="loading">loading</loading-content>
@@ -103,6 +103,7 @@ import DirectPlacementGrid from '../components/dashboard/DirectPlacementGrid.vue
 import AddWidgetModal from "@/components/dashboard/AddWidgetModal.vue";
 import { useDashboardStore } from "@/stores/dashboardStore";
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { Capacitor } from "@capacitor/core";
 import { Swiper, SwiperSlide } from "swiper/vue";
 import { Pagination, Navigation } from "swiper/modules";
 import { addCircleOutline, addOutline, pencilOutline, checkmarkOutline, trashOutline } from "ionicons/icons";
@@ -141,6 +142,12 @@ const swiperRef = ref(null);
 const fabsFaded = ref(false);
 let fadeTimeout = null;
 
+const isBrowserTablet = ref(false);
+
+const pageClasses = computed(() => ({
+  "browser-tablet": isBrowserTablet.value
+}));
+
 // Reset fade timer
 function resetFadeTimer() {
   fabsFaded.value = false;
@@ -151,6 +158,35 @@ function resetFadeTimer() {
     fabsFaded.value = true;
   }, 3000); // Fade after 3 seconds
 }
+
+const evaluateBrowserTablet = () => {
+  if (typeof window === "undefined") {
+    isBrowserTablet.value = false;
+    return;
+  }
+
+  let platform = "web";
+  if (typeof Capacitor !== "undefined" && typeof Capacitor.getPlatform === "function") {
+    platform = Capacitor.getPlatform();
+  }
+
+  let isNative = false;
+  if (typeof Capacitor !== "undefined" && typeof Capacitor.isNativePlatform === "function") {
+    isNative = Capacitor.isNativePlatform();
+  } else {
+    isNative = platform !== "web";
+  }
+
+  const hasCoarsePointer = typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false;
+  const minDimension = Math.min(window.innerWidth, window.innerHeight);
+  const isTabletSized = minDimension >= 600;
+
+  const runningInBrowser = !isNative || platform === "web";
+
+  isBrowserTablet.value = runningInBrowser && hasCoarsePointer && isTabletSized;
+};
 
 // Set swiper reference
 function setSwiperRef(swiper) {
@@ -165,17 +201,13 @@ function onSlideChange(e) {
 }
 
 // Handle layout updates
-function onLayoutUpdated(layout) {
-  console.log("Layout updated:", layout);
-}
+function onLayoutUpdated(layout) {}
 
 // This function has been replaced by handleAddWidgetClick
 // which now handles both direct add and area-specific widget addition
 
 // Handle widget removed
 function onWidgetRemoved(widget) {
-  console.log("Widget removed:", widget);
-  
   // Get the current dashboard's widgets
   const dashboard = dashboardStore.getDashboard(selectedDashboardIndex.value);
   if (!dashboard) return;
@@ -194,14 +226,11 @@ function onWidgetRemoved(widget) {
     
     // Update the dashboard store
     dashboardStore.updateWidgets(selectedDashboardIndex.value, widgets);
-    console.log("Widget successfully removed from dashboard");
   }
 }
 
 // Handle widget edited
 async function onWidgetEdited(widget) {
-  console.log("Widget edited:", widget);
-  
   // Open the AddWidgetModal in edit mode with the widget data
   const modal = await modalController.create({
     component: AddWidgetModal,
@@ -219,32 +248,17 @@ async function onWidgetEdited(widget) {
   const { data, role } = await modal.onDidDismiss();
   
   if (role === 'confirm' && data) {
-    console.log('Widget updated:', data);
-    console.log('Widget ID being updated:', widget.id);
-    
     // Log current dashboard state before update
     const currentDashboard = dashboardStore.getDashboard(selectedDashboardIndex.value);
-    console.log('Current dashboard before update:', currentDashboard);
-    console.log('Current dashboard layout:', currentDashboard?.layout || []);
-    console.log('Current dashboard widgets:', currentDashboard?.widgets || []);
-    console.log('Widget IDs in layout:', currentDashboard?.layout?.map(w => w.id) || []);
     
     // Update the widget in the dashboard
     dashboardStore.updateWidget(selectedDashboardIndex.value, widget.id, data);
-    
-    // Log dashboard state after update
-    setTimeout(() => {
-      const updatedDashboard = dashboardStore.getDashboard(selectedDashboardIndex.value);
-      console.log('Dashboard after update:', updatedDashboard);
-      console.log('Updated widget IDs in layout:', updatedDashboard?.layout?.map(w => w.id) || []);
-    }, 500);
   }
 }
 
 // Toggle edit mode
 function toggleEditMode() {
   isEditing.value = !isEditing.value;
-  console.log('DashboardView - Edit mode toggled to:', isEditing.value);
 }
 
 // Add a new dashboard
@@ -289,8 +303,6 @@ function handleDeleteDashboardClick() {
 
 // Add a new widget to the current dashboard
 async function handleAddWidgetClick(area = null) {
-  console.log('DashboardView - handleAddWidgetClick called with area:', area, typeof area);
-  
   // Extract the area string if it's an object
   let areaString = area;
   if (typeof area === 'object' && area !== null && 'area' in area) {
@@ -321,8 +333,6 @@ async function handleAddWidgetClick(area = null) {
       const templateId = currentDashboard.template;
       const template = dashboardStore.getTemplateById(templateId);
       
-      console.log(`Template for area ${area}:`, template);
-      
       // Extract area string if it's an object
       let areaString = area;
       if (typeof area === 'object' && area !== null && 'area' in area) {
@@ -332,7 +342,6 @@ async function handleAddWidgetClick(area = null) {
       // If we still have the old layout format, use it for backward compatibility
       if (template && template.layout && template.layout[areaString]) {
         position = template.layout[areaString];
-        console.log(`Using position from template for area ${areaString}:`, position);
       }
     }
     
@@ -345,12 +354,7 @@ async function handleAddWidgetClick(area = null) {
       width: position.width,
       height: position.height
     };
-    
-    // Log the complete widget data for debugging
-    console.log('Complete widget data being added to dashboard:', newWidget);
-    
-    console.log('Adding new widget to dashboard:', newWidget);
-    
+
     try {
       // Add widget to current dashboard
       await dashboardStore.addWidget(selectedDashboardIndex.value, newWidget);
@@ -371,7 +375,6 @@ async function handleAddWidgetClick(area = null) {
 async function createDefaultDashboard() {
   try {
     await dashboardStore.newDashboard("Dashboard 1");
-    console.log("Created default dashboard");
     return true;
   } catch (error) {
     console.error("Error creating default dashboard:", error);
@@ -413,6 +416,13 @@ onMounted(async () => {
   // Reset fade timer on any touch/click
   document.addEventListener('touchstart', resetFadeTimer);
   document.addEventListener('click', resetFadeTimer);
+
+  evaluateBrowserTablet();
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', evaluateBrowserTablet);
+    window.addEventListener('orientationchange', evaluateBrowserTablet);
+  }
 });
 
 onUnmounted(() => {
@@ -421,6 +431,11 @@ onUnmounted(() => {
   }
   document.removeEventListener('touchstart', resetFadeTimer);
   document.removeEventListener('click', resetFadeTimer);
+
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', evaluateBrowserTablet);
+    window.removeEventListener('orientationchange', evaluateBrowserTablet);
+  }
 });
 </script>
 
@@ -516,6 +531,7 @@ onUnmounted(() => {
 ion-content.content-with-header {
   --background: var(--app-background-color) !important;
   background: var(--app-background-color) !important;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 80px);
 }
 
 ion-content.content-with-header::part(background) {
@@ -527,11 +543,31 @@ ion-fab {
   transition: opacity 0.5s ease;
 }
 
+ion-fab[vertical="bottom"] {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 80px);
+}
+
 ion-fab.faded {
   opacity: 0.3;
 }
 
 ion-fab.faded:hover {
   opacity: 1;
+}
+
+.floating-container {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 128px);
+}
+
+.browser-tablet ion-content.content-with-header {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 128px);
+}
+
+.browser-tablet ion-fab[vertical="bottom"] {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 128px);
+}
+
+.browser-tablet .floating-container {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 176px);
 }
 </style>
