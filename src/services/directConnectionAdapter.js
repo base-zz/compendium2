@@ -1,5 +1,6 @@
 // directConnectionAdapter.js
 import mitt from 'mitt';
+import { Capacitor } from '@capacitor/core';
 
 import { stateUpdateProvider } from "./stateUpdateProvider.js";
 import { createLogger } from "./logger.js";
@@ -10,12 +11,18 @@ import {
 
 const logger = createLogger("direct-connection");
 
-// Get the WebSocket URL from environment variables
+// Get the WebSocket URL from environment variables with optional Android override
 const getWebSocketUrl = () => {
-  if (!import.meta.env.VITE_DIRECT_WS_URL) {
+  const platform = Capacitor?.getPlatform?.() ?? 'web';
+  const androidUrl = import.meta.env.VITE_DIRECT_WS_URL_ANDROID;
+  const baseUrl = import.meta.env.VITE_DIRECT_WS_URL;
+
+  const url = platform === 'android' && androidUrl ? androidUrl : baseUrl;
+
+  if (!url) {
     throw new Error('VITE_DIRECT_WS_URL environment variable is required');
   }
-  const url = import.meta.env.VITE_DIRECT_WS_URL;
+
   logger.info(`Using WebSocket URL: ${url}`);
   return url;
 };
@@ -215,6 +222,13 @@ class DirectConnectionAdapter {
       }
       if (msg.type === "boat-status") {
         this.emit('boat-status', { boatId: msg.boatId, status: msg.status, timestamp: msg.timestamp });
+        return;
+      }
+      if (msg.type === "anchor:reset:ack") {
+        logger.info('[DIRECT-ADAPTER] Received anchor:reset:ack', msg);
+        // Command-level acknowledgement only; anchor state will be updated
+        // via subsequent state:patch/state:full-update messages.
+        this.emit('anchor:reset:ack', msg);
         return;
       }
       if (msg.type === "weather:update") {

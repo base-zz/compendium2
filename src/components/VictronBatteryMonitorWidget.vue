@@ -100,12 +100,7 @@ const deviceData = computed(() => {
                    props.data?.dataSource || 
                    props.data?.deviceId
   
-  console.log('Victron widget - deviceId:', deviceId)
-  console.log('Victron widget - widgetData:', props.widgetData)
-  console.log('Victron widget - data:', props.data)
-  
   if (!deviceId) {
-    console.log('Victron widget - No deviceId found')
     return null
   }
   
@@ -113,18 +108,15 @@ const deviceData = computed(() => {
   const allDevices = stateStore.state.bluetooth?.devices || {}
   const selectedDevices = stateStore.state.bluetooth?.selectedDevices || {}
   
-  console.log('Victron widget - All devices:', allDevices)
-  console.log('Victron widget - Selected devices:', selectedDevices)
-  
   const device = selectedDevices[deviceId] || allDevices[deviceId] || null
-  console.log('Victron widget - Found device:', device)
   
   return device
 })
 
 // Device label
 const deviceLabel = computed(() => {
-  return props.widgetData?.label || 
+  return props.widgetData?.widgetTitle ||
+         props.widgetData?.label || 
          props.data?.label ||
          deviceData.value?.metadata?.userLabel || 
          deviceData.value?.name || 

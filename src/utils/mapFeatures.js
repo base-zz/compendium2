@@ -32,6 +32,14 @@ export const useMapFeatures = (vectorSource) => {
     features.value[type] = feature;
     perfStats.updates++;
     perfStats.lastUpdate = new Date();
+
+    // Temporary debug logging for boat feature behavior
+    if (type === 'boat') {
+      try {
+        const all = vectorSource.getFeatures().filter(f => f.get('type') === 'boat');
+        // Boat feature count can be inspected via vectorSource if needed; console logging removed.
+      } catch (e) {}
+    }
   };
 
   const updateFeatureGroup = (type, featuresData, defaultStyle) => {
@@ -73,8 +81,8 @@ export const useMapFeatures = (vectorSource) => {
     featuresToRemove.forEach(feature => {
       vectorSource.removeFeature(feature);
     });
-    
-    // console.log(`Cleared ${featuresToRemove.length} features of type: ${type}`);
+
+    // Temporary debug logging for boat feature behavior has been removed.
   };
 
   const clearAll = () => {

@@ -11,6 +11,7 @@ import { stateData as canonicalStateData } from "@/stateData.js";
 import { stateUpdateProvider } from "../services/stateUpdateProvider";
 
 import { BASE_ALERT_DATUM } from "@/shared/alertDatum.js";
+import { ALERT_RULE_OPERATORS } from "@/shared/alertRuleModel.js";
 
 
 import {
@@ -19,7 +20,6 @@ import {
   UNIT_TYPES,
   UNIT_PRESETS,
 } from "@/shared/unitPreferences";
-import { createStateDataModel } from "@/shared/stateDataModel.js";
 import { UnitConversion } from "@/shared/unitConversion";
 import { createLogger } from "../services/logger";
 import { generateUuid } from "@/utils/uuid.js";
@@ -271,12 +271,9 @@ export const useStateDataStore = defineStore("stateData", () => {
         dataLogger("Preserving bluetooth data - not included in server update");
         updatedState.bluetooth = currentBluetooth;
       } else if (currentBluetooth && newBluetooth) {
-        dataLogger("Merging bluetooth data from server with existing client data");
-        updatedState.bluetooth = {
-          ...newBluetooth,
-          devices: currentBluetooth.devices || {},
-          selectedDevices: currentBluetooth.selectedDevices || {},
-        };
+        // Let the server-provided bluetooth state win when it is present
+        dataLogger("Replacing bluetooth data with server-provided state");
+        updatedState.bluetooth = newBluetooth;
       }
 
       dataLogger(`Updating ${Object.keys(updatedState).length} keys, preserving others`);
@@ -294,6 +291,7 @@ export const useStateDataStore = defineStore("stateData", () => {
         if (!state.navigation) state.navigation = {};
         state.navigation.position = { ...updatedState.navigation.position };
         state.position = state.navigation.position;
+        // Navigation position updates are now handled silently; any debug logging has been removed.
         delete updatedState.navigation.position;
       }
 
@@ -390,11 +388,11 @@ export const useStateDataStore = defineStore("stateData", () => {
         ...data,
         boatId,
         timestamp: Date.now(),
-        ...options
+        ...options,
       };
 
       // Send using stateUpdateProvider, which routes to the correct adapter
-      await stateUpdateProvider.sendCommand('state', messageType, message);
+      await stateUpdateProvider.sendCommand("state", messageType, message);
       dataLogger(`Sent ${messageType} to server for boat ${boatId}`);
       return true;
     } catch (error) {
@@ -424,18 +422,16 @@ export const useStateDataStore = defineStore("stateData", () => {
     }
   }
 
-  const cancelAnchor = () => {
-    // Get the default anchor state from the state data model
-    const defaultState = createStateDataModel();
-
-    // Create the new anchor state and make it reactive
-    const newAnchor = reactive(defaultState.anchor);
-
-    // Update the state with the new anchor
-    state.anchor = newAnchor;
-
-    // Send update to server
-    sendMessageToServer("anchor:update", state.anchor);
+  const cancelAnchor = async () => {
+    try {
+      // Request an anchor reset from the server. The server will reset its
+      // internal anchor model and broadcast the updated /anchor state back
+      // via state:patch/state:full-update. We do not send a full anchor
+      // payload here and we do not mutate local anchor state directly.
+      await stateUpdateProvider.sendCommand("state", "anchor:reset", {});
+    } catch (error) {
+      logger.error("Failed to send anchor:reset command", error);
+    }
   };
 
   // --- Alerts Logic ---
@@ -963,229 +959,196 @@ export const useStateDataStore = defineStore("stateData", () => {
     return rule;
   }
 
-  // Evaluate if a rule condition is met
+  // Evaluate if a rule condition is met using the same operator semantics
+  // as the AlertRuleEditor. This works directly with rule.operator,
+  // rule.threshold, and rule.secondaryThreshold.
   function evaluateRule(rule, currentValue) {
-    if (!rule.enabled) return false;
+    if (!rule || !rule.enabled) return false;
 
-    const { operator, threshold } = rule.condition;
-
-    switch (operator) {
-      case "gt":
-        return currentValue > threshold;
-      case "gte":
-        return currentValue >= threshold;
-      case "lt":
-        return currentValue < threshold;
-      case "lte":
-        return currentValue <= threshold;
-      case "eq":
-        return currentValue === threshold;
-      case "neq":
-        return currentValue !== threshold;
-      default:
-        return false;
+    if (currentValue === null || currentValue === undefined) {
+      return false;
     }
+
+    const operator = rule.operator;
+    const threshold = rule.threshold;
+    const secondary = rule.secondaryThreshold;
+
+    const opEquals =
+      operator === ALERT_RULE_OPERATORS.EQUALS || operator === "EQUALS";
+    const opNotEquals =
+      operator === ALERT_RULE_OPERATORS.NOT_EQUALS || operator === "NOT_EQUALS";
+    const opLt =
+      operator === ALERT_RULE_OPERATORS.LESS_THAN || operator === "LESS_THAN";
+    const opLte =
+      operator === ALERT_RULE_OPERATORS.LESS_THAN_EQUALS ||
+      operator === "LESS_THAN_EQUALS";
+    const opGt =
+      operator === ALERT_RULE_OPERATORS.GREATER_THAN ||
+      operator === "GREATER_THAN";
+    const opGte =
+      operator === ALERT_RULE_OPERATORS.GREATER_THAN_EQUALS ||
+      operator === "GREATER_THAN_EQUALS";
+    const opBetween =
+      operator === ALERT_RULE_OPERATORS.BETWEEN || operator === "BETWEEN";
+    const opNotBetween =
+      operator === ALERT_RULE_OPERATORS.NOT_BETWEEN ||
+      operator === "NOT_BETWEEN";
+    const opContains = operator === "CONTAINS";
+    const opNotContains = operator === "NOT_CONTAINS";
+
+    if (opEquals) {
+      return currentValue === threshold;
+    }
+
+    if (opNotEquals) {
+      return currentValue !== threshold;
+    }
+
+    if (opLt) {
+      return Number(currentValue) < Number(threshold);
+    }
+
+    if (opLte) {
+      return Number(currentValue) <= Number(threshold);
+    }
+
+    if (opGt) {
+      return Number(currentValue) > Number(threshold);
+    }
+
+    if (opGte) {
+      return Number(currentValue) >= Number(threshold);
+    }
+
+    if (opBetween) {
+      if (
+        threshold === null ||
+        threshold === undefined ||
+        secondary === null ||
+        secondary === undefined
+      ) {
+        return false;
+      }
+      const low = Number(threshold);
+      const high = Number(secondary);
+      const value = Number(currentValue);
+      return value >= Math.min(low, high) && value <= Math.max(low, high);
+    }
+
+    if (opNotBetween) {
+      if (
+        threshold === null ||
+        threshold === undefined ||
+        secondary === null ||
+        secondary === undefined
+      ) {
+        return false;
+      }
+      const low = Number(threshold);
+      const high = Number(secondary);
+      const value = Number(currentValue);
+      return value < Math.min(low, high) || value > Math.max(low, high);
+    }
+
+    if (opContains) {
+      return String(currentValue).includes(String(threshold ?? ""));
+    }
+
+    if (opNotContains) {
+      return !String(currentValue).includes(String(threshold ?? ""));
+    }
+
+    return false;
   }
 
   // Process alert rules for a specific data path
-  function processAlertRules(dataPath, currentValue) {
+  function processAlertRules() {
+    // Legacy function retained for backward compatibility.
+    // Alert rules are now evaluated generically via a deep watcher on state.
+    return;
+  }
+
+  // Resolve a dot-path like "navigation.depth.belowKeel" against the state tree
+  // and return a simple value (unwrapping objects with a .value field when present).
+  function getValueForPath(root, path) {
+    if (!root || !path) {
+      return { hasValue: false, value: null };
+    }
+
+    const parts = String(path).split(".");
+    let node = root;
+
+    for (const part of parts) {
+      if (!node || typeof node !== "object" || !(part in node)) {
+        return { hasValue: false, value: null };
+      }
+      node = node[part];
+    }
+
+    let value = node;
+    if (value && typeof value === "object" && "value" in value) {
+      value = value.value;
+    }
+
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return { hasValue: false, value: null };
+    }
+
+    return { hasValue: true, value };
+  }
+
+  // Evaluate all alert rules against the new state, only triggering when the
+  // underlying value for a rule's source path has actually changed.
+  function evaluateAllAlertRules(newState, oldState) {
     if (!alertRules.value || alertRules.value.length === 0) return;
 
-    // Find rules that match the data path
-    const matchingRules = alertRules.value.filter(
-      (rule) => rule.condition && rule.condition.dataPath === dataPath
-    );
+    alertRules.value.forEach((rule) => {
+      if (!rule || !rule.enabled || !rule.source) return;
 
-    if (matchingRules.length === 0) return;
+      const { hasValue: hasNew, value: newValue } = getValueForPath(
+        newState,
+        rule.source
+      );
+      const { hasValue: hasOld, value: oldValue } = getValueForPath(
+        oldState || {},
+        rule.source
+      );
 
-    // Process each matching rule
-    matchingRules.forEach((rule) => {
-      const isConditionMet = evaluateRule(rule, currentValue);
+      if (!hasNew) return;
 
-      if (isConditionMet) {
-        // Create an alert if the condition is met
-        const alert = {
-          id: `alert_${Date.now()}`,
-          ruleId: rule.id,
-          message: rule.message || `Alert: ${dataPath} condition met`,
-          severity: rule.severity || "warning",
-          timestamp: new Date().toISOString(),
-          data: {
-            path: dataPath,
-            value: currentValue,
-            threshold: rule.condition.threshold,
-            operator: rule.condition.operator,
-          },
-        };
+      // Only consider rules when the underlying value actually changed
+      if (hasOld && newValue === oldValue) return;
 
-        addAlert(alert);
-      }
+      const isConditionMet = evaluateRule(rule, newValue);
+      if (!isConditionMet) return;
+
+      const alert = {
+        id: `alert_${Date.now()}`,
+        ruleId: rule.id,
+        message: rule.message || `Alert: ${rule.source} condition met`,
+        severity: rule.alertLevel || rule.severity || "WARNING",
+        timestamp: new Date().toISOString(),
+        data: {
+          path: rule.source,
+          value: newValue,
+          threshold: rule.threshold,
+          secondaryThreshold: rule.secondaryThreshold,
+          operator: rule.operator,
+        },
+      };
+
+      addAlert(alert);
     });
   }
 
-  // Watch for navigation data changes to evaluate alert rules
+  // Watch the entire state object deeply and evaluate all alert rules
+  // whenever any part of the state changes. This aligns alert rule
+  // evaluation with how anchor-related alerts respond to state updates.
   watch(
-    () => state.navigation,
-    (newVal, oldVal) => {
-      // Only process if we have alert rules
-      if (alertRules.value.length === 0) return;
-
-      // Check depth rules
-      if (newVal?.depth?.belowKeel?.value !== oldVal?.depth?.belowKeel?.value) {
-        processAlertRules(
-          "navigation.depth.belowKeel",
-          newVal?.depth?.belowKeel?.value
-        );
-      }
-
-      // Check speed rules
-      if (newVal?.speed?.sog?.value !== oldVal?.speed?.sog?.value) {
-        processAlertRules(
-          "navigation.position.speed",
-          newVal?.speed?.sog?.value
-        );
-      }
-
-      // Check speed through water rules
-      if (newVal?.speed?.stw?.value !== oldVal?.speed?.stw?.value) {
-        processAlertRules(
-          "navigation.speedThroughWater",
-          newVal?.speed?.stw?.value
-        );
-      }
-    },
-    { deep: true }
-  );
-
-  // Watch for environment data changes
-  watch(
-    () => state.environment,
-    (newVal, oldVal) => {
-      // Only process if we have alert rules
-      if (alertRules.value.length === 0) return;
-
-      // Check wind speed rules
-      if (
-        newVal?.wind?.apparent?.speed?.value !==
-        oldVal?.wind?.apparent?.speed?.value
-      ) {
-        processAlertRules(
-          "environment.wind.speedApparent",
-          newVal?.wind?.apparent?.speed?.value
-        );
-      }
-
-      if (
-        newVal?.wind?.true?.speed?.value !== oldVal?.wind?.true?.speed?.value
-      ) {
-        processAlertRules(
-          "environment.wind.speedTrue",
-          newVal?.wind?.true?.speed?.value
-        );
-      }
-
-      // Check temperature rules
-      if (
-        newVal?.weather?.temperature?.air?.value !==
-        oldVal?.weather?.temperature?.air?.value
-      ) {
-        processAlertRules(
-          "environment.outside.temperature",
-          newVal?.weather?.temperature?.air?.value
-        );
-      }
-    },
-    { deep: true }
-  );
-
-  // Watch for electrical data changes
-  watch(
-    () => state.vessel?.systems?.electrical,
-    (newVal, oldVal) => {
-      // Only process if we have alert rules
-      if (alertRules.value.length === 0) return;
-
-      // Check battery voltage
-      if (
-        newVal?.batteries?.voltage?.value !== oldVal?.batteries?.voltage?.value
-      ) {
-        processAlertRules(
-          "electrical.batteries.voltage",
-          newVal?.batteries?.voltage?.value
-        );
-      }
-
-      // Check battery capacity
-      if (
-        newVal?.batteries?.capacity?.value !==
-        oldVal?.batteries?.capacity?.value
-      ) {
-        processAlertRules(
-          "electrical.batteries.capacity",
-          newVal?.batteries?.capacity?.value
-        );
-      }
-    },
-    { deep: true }
-  );
-
-  // Watch for tank data changes
-  watch(
-    () => state.vessel?.tanks,
-    (newVal, oldVal) => {
-      // Only process if we have alert rules
-      if (alertRules.value.length === 0) return;
-
-      // Check fuel tank level
-      if (newVal?.fuel?.level?.value !== oldVal?.fuel?.level?.value) {
-        processAlertRules("tanks.fuel.level", newVal?.fuel?.level?.value);
-      }
-
-      // Check fresh water tank level
-      if (
-        newVal?.freshWater?.level?.value !== oldVal?.freshWater?.level?.value
-      ) {
-        processAlertRules(
-          "tanks.freshWater.level",
-          newVal?.freshWater?.level?.value
-        );
-      }
-
-      // Check waste water tank level
-      if (
-        newVal?.wasteWater?.level?.value !== oldVal?.wasteWater?.level?.value
-      ) {
-        processAlertRules(
-          "tanks.wasteWater.level",
-          newVal?.wasteWater?.level?.value
-        );
-      }
-    },
-    { deep: true }
-  );
-
-  // Watch for engine data changes
-  watch(
-    () => state.vessel?.propulsion?.engine,
-    (newVal, oldVal) => {
-      // Only process if we have alert rules
-      if (alertRules.value.length === 0) return;
-
-      // Check engine temperature
-      if (newVal?.temperature?.value !== oldVal?.temperature?.value) {
-        processAlertRules(
-          "propulsion.engine.temperature",
-          newVal?.temperature?.value
-        );
-      }
-
-      // Check oil pressure
-      if (newVal?.oilPressure?.value !== oldVal?.oilPressure?.value) {
-        processAlertRules(
-          "propulsion.engine.oilPressure",
-          newVal?.oilPressure?.value
-        );
-      }
+    () => state,
+    (newState, oldState) => {
+      if (!alertRules.value || alertRules.value.length === 0) return;
+      evaluateAllAlertRules(newState, oldState || {});
     },
     { deep: true }
   );
@@ -1194,6 +1157,63 @@ export const useStateDataStore = defineStore("stateData", () => {
   const pendingAlertCount = computed(
     () => state.alerts.processingQueue?.length || 0
   );
+
+  // Evaluate a single rule immediately against the current store state and,
+  // if the condition is met, create an alert. This is primarily used when a
+  // rule is first created or updated so the user can immediately see the
+  // effect of a rule whose condition is already true.
+  function evaluateRuleNow(rule) {
+    if (!rule || !rule.enabled || !rule.source) return null;
+
+    const { hasValue, value } = getValueForPath(state, rule.source);
+
+    console.log("[ALERT][evaluateRuleNow]", {
+      ruleId: rule.id,
+      name: rule.name,
+      source: rule.source,
+      hasValue,
+      value,
+      operator: rule.operator,
+      threshold: rule.threshold,
+      secondaryThreshold: rule.secondaryThreshold,
+    });
+
+    if (!hasValue) return null;
+
+    const isConditionMet = evaluateRule(rule, value);
+
+    console.log("[ALERT][evaluateRuleNow] condition result", {
+      ruleId: rule.id,
+      isConditionMet,
+    });
+
+    if (!isConditionMet) return null;
+
+    const alert = {
+      id: `alert_${Date.now()}`,
+      ruleId: rule.id,
+      message: rule.message || `Alert: ${rule.source} condition met`,
+      severity: rule.alertLevel || rule.severity || "WARNING",
+      timestamp: new Date().toISOString(),
+      data: {
+        path: rule.source,
+        value,
+        threshold: rule.threshold,
+        secondaryThreshold: rule.secondaryThreshold,
+        operator: rule.operator,
+      },
+    };
+
+    const added = addAlert(alert);
+
+    console.log("[ALERT][evaluateRuleNow] alert added", {
+      ruleId: rule.id,
+      alertId: added?.id,
+      activeCount: state.alerts?.active?.length,
+    });
+
+    return added;
+  }
 
   // --- Relay/Connection Logic ---
   function switchDataSource(mode) {
@@ -1950,6 +1970,7 @@ export const useStateDataStore = defineStore("stateData", () => {
     deleteAlertRule,
     toggleAlertRule,
     evaluateRule,
+    evaluateRuleNow,
     processAlertRules,
 
     // Unit Preferences Management

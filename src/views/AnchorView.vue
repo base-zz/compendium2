@@ -197,15 +197,35 @@
     <IonModal :is-open="showCancelDialog" @didDismiss="showCancelDialog = false">
       <div class="modal-content">
         <h3>Cancel Anchor</h3>
-        <p>Are you sure you want to cancel the anchor?</p>
-        <div class="modal-actions">
-          <IonButton color="danger" @click="handleCancelAnchor">Yes, Cancel</IonButton>
-          <IonButton @click="showCancelDialog = false">No</IonButton>
+
+        <!-- Primary action card: retrieve/cancel anchor -->
+        <div
+          style="margin-top: 8px; padding: 12px 10px; border-radius: 10px; border: 1px solid var(--app-border-color); display: flex; flex-direction: column; gap: 8px;"
+        >
+          <p style="margin: 0; font-size: 0.9em;">
+            Are you sure you want to cancel the anchor and clear all anchor-related data?
+          </p>
+          <div class="modal-actions" style="margin-top: 6px;">
+            <IonButton color="danger" @click="handleCancelAnchor">Yes, Cancel</IonButton>
+            <IonButton @click="showCancelDialog = false">No</IonButton>
+          </div>
         </div>
-        <div class="modal-actions" style="margin-top: 18px">
-          <IonButton color="secondary" @click="showUpdateDropConfirm = true">
+
+        <!-- Secondary action card: reset anchor here -->
+        <div
+          style="margin-top: 16px; padding: 12px 10px; border-radius: 10px; border: 1px solid var(--app-border-color); display: flex; flex-direction: column; gap: 8px;"
+        >
+          <p style="margin: 0; font-size: 0.9em;">
             Update Anchor to Current Position
-          </IonButton>
+          </p>
+          <p style="font-size: 0.85em; opacity: 0.8; margin: 0;">
+            Treat the anchor's current position as the new anchor drop location. Rode length and alarm radius stay the same.
+          </p>
+          <div class="modal-actions" style="margin-top: 6px;">
+            <IonButton color="secondary" @click="showUpdateDropConfirm = true">
+              Use Current Position
+            </IonButton>
+          </div>
         </div>
       </div>
     </IonModal>
@@ -217,8 +237,8 @@
       <div class="modal-content">
         <h3>Update Anchor Drop Location</h3>
         <p>
-          Are you sure you want to update the anchor drop location to the current
-          position?
+          Treat the anchor's current position as the new anchor drop location.
+          Rode length and alarm radius stay the same.
         </p>
         <div class="modal-actions">
           <IonButton color="primary" @click="confirmUpdateDropLocation"
@@ -228,17 +248,6 @@
         </div>
       </div>
     </IonModal>
-    <!-- Cancel Anchor Dialog -->
-    <ion-modal :is-open="showCancelDialog" @didDismiss="showCancelDialog = false">
-      <div class="modal-content">
-        <h3>Confirm Anchor Retrieval</h3>
-        <p>This will clear all anchor-related data. Continue?</p>
-        <div class="modal-button-group">
-          <ion-button @click="showCancelDialog = false" fill="clear">Cancel</ion-button>
-          <ion-button @click="handleCancelAnchor" color="danger">Retrieve</ion-button>
-        </div>
-      </div>
-    </ion-modal>
 
     <div class="map-wrapper" :class="{ 'dark-mode': isDarkMode }">
       <AnchorInfoGrid
@@ -325,6 +334,7 @@ import {
   IonIcon,
   IonFooter,
   IonToolbar,
+  toastController,
 } from "@ionic/vue";
 import { chevronUpOutline } from "ionicons/icons";
 
@@ -352,6 +362,8 @@ import { useMapTools } from "@/utils/mapUtils.js";
 import { useMapFeatures } from "@/utils/mapFeatures";
 import { STYLES, createStyle } from "@/utils/mapStyles";
 import { useMapPersist } from "@/utils/mapPersist";
+import { relayConnectionBridge } from "@/relay/client/RelayConnectionBridge.js";
+import { directConnectionAdapter } from "@/services/directConnectionAdapter.js";
 
 // Constants
 const FEATURE_TYPES = {
@@ -467,7 +479,7 @@ const isMetric = computed(() => {
 // Dynamic range bounds based on unit system
 const criticalRangeMax = computed(() => (isMetric.value ? 100 : 300)); // 300m ≈ 1000ft
 const rodeRangeMax = computed(() => (isMetric.value ? 100 : 300)); // 100m ≈ 330ft
-const warningRangeMax = computed(() => (isMetric.value ? 20 : 60)); // 20m ≈ 60ft
+const warningRangeMax = computed(() => (isMetric.value ? 20 : 300)); // 20m ≈ 300ft
 const anchorDragTriggerDistance = computed(() => (isMetric.value ? 1 : 3)); // 1m ≈~ 3ft
 
 logger.debug("Current state:", state.value);
@@ -511,20 +523,16 @@ const updateBoatPosition = debounce(() => {
 
   logger.debug("Updating boat position:", { lat, lon });
 
-  try {
-    // Create the map point
-    const point = new Point(fromLonLat([lon, lat]));
+  // Create the map point
+  const point = new Point(fromLonLat([lon, lat]));
 
-    // Update the boat feature
-    updateFeature(FEATURE_TYPES.BOAT, point, STYLES.BOAT);
+  // Update the boat feature
+  updateFeature(FEATURE_TYPES.BOAT, point, STYLES.BOAT);
 
-    // Center map on boat if needed
-    if (map.value && !map.value.getView().getCenter()) {
-      map.value.getView().setCenter(fromLonLat([lon, lat]));
-      map.value.getView().setZoom(15); // Set a reasonable zoom level
-    }
-  } catch (error) {
-    logger.error("Error updating boat position", { error });
+  // Center map on boat if needed
+  if (map.value && !map.value.getView().getCenter()) {
+    map.value.getView().setCenter(fromLonLat([lon, lat]));
+    map.value.getView().setZoom(15); // Set a reasonable zoom level
   }
 }, 100);
 
@@ -988,7 +996,7 @@ const updateAisTargets = debounce(() => {
         // Update the warning flag if any target is in range
         if (isInWarningRange) {
           hasTargetsInWarningRange = true;
-          logger.warn("TARGET IN WARNING RANGE", target);
+          // logger.warn("TARGET IN WARNING RANGE", target);
         }
       }
 
@@ -1265,25 +1273,52 @@ watch(
       const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
       const boatLon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
 
-      // Get anchor location
+      // Get anchor location (still used for relocation math and alerts)
       const anchorLat = anchorState.value.anchorLocation?.position?.latitude?.value;
       const anchorLon = anchorState.value.anchorLocation?.position?.longitude?.value;
 
-      // Get rode length
+      // Get rode length (user-set chain out)
       const rodeLength = anchorState.value.rode?.amount ?? 0;
 
-      // Calculate distance from boat to anchor
-      const distanceToAnchor = Math.round(
-        calculateDistanceMeters(boatLat, boatLon, anchorLat, anchorLon, isMetric.value)
-      );
+      // Distance from boat to anchor (for relocation + alert payload)
+      const distanceToAnchor =
+        boatLat != null && boatLon != null && anchorLat != null && anchorLon != null
+          ? Math.round(
+              calculateDistanceMeters(boatLat, boatLon, anchorLat, anchorLon, isMetric.value)
+            )
+          : 0;
 
-      // logger.debug(`Distance to anchor: ${distanceToAnchor}, Rode length: ${rodeLength}`);
+      // Distance from anchor DROP location to BOAT (defines the alarm boundary)
+      const dropPos = anchorState.value.anchorDropLocation?.position;
+      const dropLat = dropPos?.latitude?.value ?? dropPos?.latitude;
+      const dropLon = dropPos?.longitude?.value ?? dropPos?.longitude;
 
-      // Check if the anchor is dragging (distance > rode length)
-      if (distanceToAnchor > rodeLength + anchorDragTriggerDistance.value) {
-        logger.warn("Anchor dragging detected - distance exceeds rode length", {
+      const distanceDropToBoat =
+        dropLat != null && dropLon != null && boatLat != null && boatLon != null
+          ? Math.round(
+              calculateDistanceMeters(
+                dropLat,
+                dropLon,
+                boatLat,
+                boatLon,
+                isMetric.value
+              )
+            )
+          : 0;
+
+      // Critical range radius (user alarm radius around the drop location)
+      const criticalRadius = anchorState.value.criticalRange?.r ?? 0;
+
+      // Trigger dragging when the boat leaves the alarm circle (with a small buffer)
+      const radiusWithBuffer = criticalRadius + anchorDragTriggerDistance.value;
+
+      if (distanceDropToBoat > radiusWithBuffer) {
+        logger.warn("Anchor dragging detected - boat outside critical radius", {
           distanceToAnchor,
+          distanceDropToBoat,
           rodeLength,
+          criticalRadius,
+          radiusWithBuffer,
         });
 
         // Send an anchor dragging alert to the server
@@ -1559,23 +1594,18 @@ const recommendedScope = computed(() => {
     const reportedDepth = stateStore.state.navigation?.depth?.belowTransducer?.value;
     const tideData = stateStore.state.tides;
 
-    // Debug logging
-    console.log("Reported depth:", reportedDepth);
-    console.log("Raw tide data:", JSON.parse(JSON.stringify(tideData)));
+    // Debug logging removed for production
 
     if (!reportedDepth) {
-      console.log("Missing current depth");
       return null;
     }
 
     if (!tideData) {
-      console.log("No tide data available");
       return null;
     }
 
     const now = new Date();
     const futureCutoff = new Date(now.getTime() + 72 * 60 * 60 * 1000); // 72 hours from now
-    console.log("Looking for tide data between", now, "and", futureCutoff);
 
     // Get all sea level heights and their corresponding times
     let seaLevels = [];
@@ -1586,26 +1616,21 @@ const recommendedScope = computed(() => {
       // Format: { hourly: { values: { seaLevelHeightMsl: { [index]: value } } } }
       seaLevels = Object.values(tideData.hourly.values.seaLevelHeightMsl);
       timeStamps = tideData.hourly.time || [];
-      console.log("Found seaLevelHeightMsl format with", seaLevels.length, "entries");
     } else if (tideData.hourly?.waterLevels) {
       // Format: { hourly: { waterLevels: [{ time, value }, ...] } }
       seaLevels = tideData.hourly.waterLevels.map((entry) => entry.value);
       timeStamps = tideData.hourly.waterLevels.map((entry) => entry.time);
-      console.log("Found waterLevels format with", seaLevels.length, "entries");
     } else if (tideData.hourly?.length > 0 && tideData.hourly[0].value !== undefined) {
       // Format: { hourly: [{ time, value }, ...] }
       seaLevels = tideData.hourly.map((entry) => entry.value);
       timeStamps = tideData.hourly.map((entry) => entry.time);
-      console.log("Found flat array format with", seaLevels.length, "entries");
     } else if (tideData.hourly?.time && Array.isArray(tideData.hourly.time)) {
       // Format: { hourly: { time: [...], values: { seaLevel: [...] } } }
       seaLevels = Object.values(tideData.hourly.values || {}).flat();
       timeStamps = tideData.hourly.time;
-      console.log("Found time/values format with", seaLevels.length, "entries");
     }
 
     if (seaLevels.length === 0 || timeStamps.length === 0) {
-      console.log("No sea level data or timestamps available in tide data");
       return null;
     }
 
@@ -1623,8 +1648,6 @@ const recommendedScope = computed(() => {
     let maxFutureLevel = -Infinity;
     let maxFutureTime = null;
     let currentLevel = null;
-
-    console.log("Processing tide data...");
 
     // Find current water level (closest to now)
     const currentTime = new Date();
@@ -1654,21 +1677,14 @@ const recommendedScope = computed(() => {
       }
     }
 
-    console.log("Current water level:", currentLevel, "at", new Date(timeStamps[0]));
-    console.log("Max future level:", maxFutureLevel, "at", maxFutureTime);
+    // Detailed tide processing logs removed for production
 
     // Log the range of tide data we have
     if (timeStamps.length > 0) {
-      console.log(
-        "Tide data covers:",
-        new Date(timeStamps[0]),
-        "to",
-        new Date(timeStamps[timeStamps.length - 1])
-      );
+      // Range of tide data is available but no longer logged to console
     }
 
     if (maxFutureLevel === -Infinity) {
-      console.log("No future tide data found in the next 72 hours");
       // Fall back to current level if no future data
       maxFutureLevel = currentLevel;
     }
@@ -1683,13 +1699,7 @@ const recommendedScope = computed(() => {
       maxFutureLevel !== -Infinity ? Math.max(0, maxFutureLevel - referenceLevel) : 0;
     const targetDepthMeters = depthInMeters + depthIncreaseMeters;
 
-    console.log("Depth increase calculation (meters):", {
-      depthInMeters,
-      currentWaterLevel: currentLevel,
-      maxFutureLevel,
-      depthIncreaseMeters,
-      targetDepthMeters,
-    });
+    // Depth increase calculation details are no longer logged to console
 
     // Convert to feet if using imperial units
     const unitMultiplier = isMetric.value ? 1 : 3.28084;
@@ -1906,17 +1916,6 @@ const handleSetAnchor = () => {
     const stateStore = useStateDataStore();
     logger.info("Sending anchor update to server...");
 
-
-    console.log("Message being sent:", {
-      type: "anchor:update",
-      data: newAnchorState,
-      source: "AnchorView.handleSetAnchor",
-      timestamp: new Date().toISOString(),
-    });
-
-    // Then the existing send call
-    // stateStore.sendMessageToServer("anchor:update", newAnchorState, {
-    //   source: "AnchorView.handleSetAnchor",
     //   timeout: 5000,
     // });
 
@@ -1985,19 +1984,65 @@ const handleAnchorDropped = () => {
 };
 
 const handleUpdateDropLocation = () => {
-  if (!validateCoordinates(boatPosition.value)) return;
+  const anchorPos = anchorState.value?.anchorLocation?.position;
+  if (!anchorPos) {
+    logger.warn("Cannot update drop location - anchorLocation.position is missing");
+    return;
+  }
+
+  const lat =
+    typeof anchorPos.latitude === "object" ? anchorPos.latitude.value : anchorPos.latitude;
+  const lon =
+    typeof anchorPos.longitude === "object" ? anchorPos.longitude.value : anchorPos.longitude;
+
+  if (
+    lat === null ||
+    lat === undefined ||
+    lon === null ||
+    lon === undefined ||
+    typeof lat !== "number" ||
+    typeof lon !== "number" ||
+    Number.isNaN(lat) ||
+    Number.isNaN(lon)
+  ) {
+    logger.warn("Cannot update drop location - invalid anchorLocation.position coordinates", {
+      latitude: anchorPos.latitude,
+      longitude: anchorPos.longitude,
+    });
+    return;
+  }
 
   anchorState.value.anchorDropLocation.position = {
-    latitude: boatPosition.value.latitude.value,
-    longitude: boatPosition.value.longitude.value,
+    latitude: { value: lat, units: "deg" },
+    longitude: { value: lon, units: "deg" },
   };
+
   showUpdateDialog.value = false;
 };
 
 const confirmUpdateDropLocation = () => {
   logger.info("Confirming update of drop location...");
   handleUpdateDropLocation();
+  try {
+    const updatedAnchor = anchorState.value;
+    if (updatedAnchor) {
+      stateStore
+        .sendMessageToServer("anchor:update", updatedAnchor, {
+          source: "AnchorView.confirmUpdateDropLocation",
+          timeout: 5000,
+        })
+        .then((response) => {
+          logger.info("Server acknowledged updated drop location", response);
+        })
+        .catch((error) => {
+          logger.error("Failed to send updated drop location to server", error);
+        });
+    }
+  } catch (error) {
+    logger.error("Error preparing anchor update for server", error);
+  }
   showUpdateDropConfirm.value = false;
+  showCancelDialog.value = false;
 };
 
 const handleCancelAnchor = () => {
@@ -2029,8 +2074,10 @@ const handleCancelAnchor = () => {
     vectorSource.addFeature(feature);
   });
 
-  // Re-add the AIS features
+  // Re-add the AIS features with neutral style (reset from warning state)
   aisFeatures.forEach((feature) => {
+    feature.set("isInWarningRange", false);
+    feature.setStyle(STYLES.AIS_VESSEL);
     vectorSource.addFeature(feature);
   });
 
@@ -2047,6 +2094,43 @@ const handleCancelAnchor = () => {
 
   // logger.debug('All anchor-related features have been cleared from the map');
 };
+
+// Toast for anchor reset acknowledgements
+const showAnchorResetToast = async (ack) => {
+  try {
+    const success = ack && ack.success !== false;
+    const message = success
+      ? "Anchor reset on server"
+      : ack && ack.error
+        ? `Failed to reset anchor: ${ack.error}`
+        : "Failed to reset anchor";
+
+    const toast = await toastController.create({
+      message,
+      duration: 2500,
+      position: "bottom",
+      color: success ? "success" : "danger",
+      cssClass: "anchor-reset-toast",
+    });
+    await toast.present();
+  } catch (e) {
+    logger.error("Error showing anchor reset toast", e);
+  }
+};
+
+onMounted(() => {
+  const handler = (msg) => {
+    showAnchorResetToast(msg);
+  };
+
+  relayConnectionBridge.on("anchor:reset:ack", handler);
+  directConnectionAdapter.on("anchor:reset:ack", handler);
+
+  onUnmounted(() => {
+    relayConnectionBridge.off("anchor:reset:ack", handler);
+    directConnectionAdapter.off("anchor:reset:ack", handler);
+  });
+});
 
 // Handle map clicks to detect feature clicks
 const handleMapClick = (event) => {

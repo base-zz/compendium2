@@ -21,13 +21,13 @@ export default defineConfig(() => {
       },
     },
     server: {
-      host: 'compendium.local',
+      host: '0.0.0.0',
       port: 5173,
       strictPort: true,
       // Disable HTTPS for local development
       https: undefined,
       hmr: {
-        host: 'compendium.local',
+        host: 'localhost',
         protocol: 'ws', // Use WS instead of WSS
         port: 24678
       },

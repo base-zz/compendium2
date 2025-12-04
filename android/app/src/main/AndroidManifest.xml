@@ -33,23 +33,9 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
-
-        <service
-            android:name="com.getcapacitor.community.fcm.FCMReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-                <action android:name="com.compendiumnav.compendium2.NOTIFICATION_TAP" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </service>
-
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

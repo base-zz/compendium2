@@ -676,7 +676,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: var(--ion-background-color);
+  background-color: var(--app-background-color);
   z-index: 10;
   display: flex;
   justify-content: center;

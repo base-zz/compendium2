@@ -212,8 +212,21 @@
         </div>
       </div>
       
+      <div v-if="testResult" class="test-result">
+        <p v-if="testResult.status === 'no-value'">
+          Current value for this data source is not available, so the rule cannot be tested right now.
+        </p>
+        <p v-else-if="testResult.status === 'trigger'">
+          Current value: {{ testResult.value }}. This rule WOULD trigger right now.
+        </p>
+        <p v-else>
+          Current value: {{ testResult.value }}. This rule would NOT trigger right now.
+        </p>
+      </div>
+
       <div class="form-actions">
         <button type="button" class="btn-secondary" @click="goBack">Cancel</button>
+        <button type="button" class="btn-secondary" @click="testRule">Test Rule</button>
         <button type="submit" class="btn-primary">{{ isEditMode ? 'Update Rule' : 'Create Rule' }}</button>
       </div>
     </form>
@@ -256,6 +269,8 @@ const rule = ref({
   }
 });
 
+const testResult = ref(null);
+
 // Threshold unit based on the selected data source
 const thresholdUnit = ref('');
 
@@ -268,7 +283,7 @@ onMounted(async () => {
   loadDataSources();
   
   if (isEditMode.value && route.params.id) {
-    const existingRule = stateStore.getAlertRules.find(r => r.id === route.params.id);
+    const existingRule = stateStore.getAlertRules().find(r => r.id === route.params.id);
     
     if (existingRule) {
       rule.value = JSON.parse(JSON.stringify(existingRule));
@@ -279,6 +294,128 @@ onMounted(async () => {
     }
   }
 });
+
+const getCurrentValueForSource = () => {
+  if (!rule.value || !rule.value.source) {
+    return { hasValue: false, value: null };
+  }
+
+  if (!stateStore || !stateStore.state) {
+    return { hasValue: false, value: null };
+  }
+
+  const parts = String(rule.value.source).split('.');
+  let node = stateStore.state;
+
+  for (const part of parts) {
+    if (!node || typeof node !== 'object' || !(part in node)) {
+      return { hasValue: false, value: null };
+    }
+    node = node[part];
+  }
+
+  let value = node;
+  if (value && typeof value === 'object' && 'value' in value) {
+    value = value.value;
+  }
+
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return { hasValue: false, value: null };
+  }
+
+  return { hasValue: true, value };
+};
+
+const evaluateRuleCondition = (ruleToEval, currentValue) => {
+  if (currentValue === null || currentValue === undefined) {
+    return false;
+  }
+
+  const operator = ruleToEval.operator;
+  const threshold = ruleToEval.threshold;
+  const secondary = ruleToEval.secondaryThreshold;
+
+  const opEquals = operator === ALERT_RULE_OPERATORS.EQUALS || operator === 'EQUALS';
+  const opNotEquals = operator === ALERT_RULE_OPERATORS.NOT_EQUALS || operator === 'NOT_EQUALS';
+  const opLt = operator === ALERT_RULE_OPERATORS.LESS_THAN || operator === 'LESS_THAN';
+  const opLte = operator === ALERT_RULE_OPERATORS.LESS_THAN_EQUALS || operator === 'LESS_THAN_EQUALS';
+  const opGt = operator === ALERT_RULE_OPERATORS.GREATER_THAN || operator === 'GREATER_THAN';
+  const opGte = operator === ALERT_RULE_OPERATORS.GREATER_THAN_EQUALS || operator === 'GREATER_THAN_EQUALS';
+  const opBetween = operator === ALERT_RULE_OPERATORS.BETWEEN || operator === 'BETWEEN';
+  const opNotBetween = operator === ALERT_RULE_OPERATORS.NOT_BETWEEN || operator === 'NOT_BETWEEN';
+  const opContains = operator === 'CONTAINS';
+  const opNotContains = operator === 'NOT_CONTAINS';
+
+  if (opEquals) {
+    return currentValue === threshold;
+  }
+
+  if (opNotEquals) {
+    return currentValue !== threshold;
+  }
+
+  if (opLt) {
+    return Number(currentValue) < Number(threshold);
+  }
+
+  if (opLte) {
+    return Number(currentValue) <= Number(threshold);
+  }
+
+  if (opGt) {
+    return Number(currentValue) > Number(threshold);
+  }
+
+  if (opGte) {
+    return Number(currentValue) >= Number(threshold);
+  }
+
+  if (opBetween) {
+    if (threshold === null || threshold === undefined || secondary === null || secondary === undefined) {
+      return false;
+    }
+    const low = Number(threshold);
+    const high = Number(secondary);
+    const value = Number(currentValue);
+    return value >= Math.min(low, high) && value <= Math.max(low, high);
+  }
+
+  if (opNotBetween) {
+    if (threshold === null || threshold === undefined || secondary === null || secondary === undefined) {
+      return false;
+    }
+    const low = Number(threshold);
+    const high = Number(secondary);
+    const value = Number(currentValue);
+    return value < Math.min(low, high) || value > Math.max(low, high);
+  }
+
+  if (opContains) {
+    return String(currentValue).includes(String(threshold ?? ''));
+  }
+
+  if (opNotContains) {
+    return !String(currentValue).includes(String(threshold ?? ''));
+  }
+
+  return false;
+};
+
+const testRule = () => {
+  const { hasValue, value } = getCurrentValueForSource();
+
+  if (!hasValue) {
+    testResult.value = { status: 'no-value', value: null };
+    return;
+  }
+
+  const wouldTrigger = evaluateRuleCondition(rule.value, value);
+
+  testResult.value = {
+    status: wouldTrigger ? 'trigger' : 'no-trigger',
+    value,
+  };
+};
 
 // Data sources available for alert rules - dynamically generated from state
 const dataSources = ref([]);
@@ -378,10 +515,14 @@ const convertSecondsToMs = (property) => {
 
 // Save the rule
 const saveRule = async () => {
+  let savedRule;
   if (isEditMode.value) {
-    await stateStore.updateAlertRule(rule.value.id, rule.value);
+    savedRule = await stateStore.updateAlertRule(rule.value.id, rule.value);
   } else {
-    await stateStore.createAlertRule(rule.value);
+    savedRule = await stateStore.createAlertRule(rule.value);
+  }
+  if (savedRule && stateStore.evaluateRuleNow) {
+    stateStore.evaluateRuleNow(savedRule);
   }
   
   goBack();
@@ -613,6 +754,10 @@ input:checked + .toggle-slider:before {
   display: flex;
   justify-content: flex-end;
   gap: 1rem;
+  margin-top: 1rem;
+}
+
+.test-result {
   margin-top: 1rem;
 }
 

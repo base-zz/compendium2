@@ -138,7 +138,6 @@ const editDevice = async (deviceId) => {
     
     const { data } = await modal.onWillDismiss();
     if (data?.updated) {
-      console.log('Device metadata updated:', data.metadata);
       // The server will update the state automatically via WebSocket
     }
   } catch (error) {

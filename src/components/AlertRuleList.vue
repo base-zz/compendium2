@@ -13,7 +13,7 @@
       <i class="fas fa-spinner fa-spin"></i> Loading alert rules...
     </div>
     
-    <div v-else-if="!stateStore.getAlertRules.length" class="empty-state">
+    <div v-else-if="!stateStore.getAlertRules().length" class="empty-state">
       <div class="empty-icon">
         <i class="fas fa-bell-slash"></i>
       </div>
@@ -23,7 +23,7 @@
     </div>
     
     <div v-else class="rule-list">
-      <div v-for="rule in stateStore.getAlertRules" :key="rule.id" class="rule-card">
+      <div v-for="rule in stateStore.getAlertRules()" :key="rule.id" class="rule-card">
         <div class="rule-header">
           <div class="rule-title">
             <span :class="['status-indicator', rule.enabled ? 'enabled' : 'disabled']"></span>

@@ -62,3 +62,8 @@ body.dark ion-content::part(background) {
 body.dark ion-back-button {
   --color: #f8fafc !important;
 }
+
+/* Anchor reset toast opacity tweak */
+.anchor-reset-toast {
+  opacity: 0.75 !important;
+}

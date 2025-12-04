@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">compendium2</string>
-    <string name="title_activity_main">compendium2</string>
+    <string name="app_name">CompendiumNav</string>
+    <string name="title_activity_main">CompendiumNav</string>
     <string name="package_name">com.compendiumnav.compendium2</string>
     <string name="custom_url_scheme">com.compendiumnav.compendium2</string>
 </resources>

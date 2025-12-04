@@ -856,19 +856,25 @@ export class RelayConnectionBridge {
       "RELAY-CLIENT",
       `Received message of type: ${message.type}`
     );
-    const { type } = message;
-    
-    // Handle boat-status messages
-    if (type === 'boat-status') {
+
+    // Clear the waiting flag if we were waiting for a full state update
+    if (this._waitingForFullState &&
+        (message.type === "state:full-update" || message.type === "state:patch")) {
       remoteLogger.log(
         "RELAY-CLIENT",
-        `Boat status update: ${message.status} for boat ${message.boatId}`
+        "Full state response received successfully"
       );
-      this.emit('boat-status', {
-        status: message.status,
-        boatId: message.boatId,
-        timestamp: message.timestamp || new Date().toISOString()
-      });
+      this._waitingForFullState = false;
+    }
+
+    const { type } = message;
+
+    if (type === 'anchor:reset:ack') {
+      remoteLogger.log(
+        "RELAY-BRIDGE",
+        "Received anchor:reset:ack from server"
+      );
+      this.emit('anchor:reset:ack', message);
       return;
     }
 

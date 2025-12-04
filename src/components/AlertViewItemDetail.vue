@@ -1,8 +1,25 @@
 <script setup>
 import { computed } from "vue";
-import GenericHeader from "@components/GenericHeader.vue";
-import { IonPage, IonContent, IonHeader, IonToolbar, IonTitle, IonList, IonItem, IonLabel, IonButton, IonIcon } from "@ionic/vue";
-import { closeOutline, alertCircleOutline, warningOutline, informationCircleOutline } from "ionicons/icons";
+import {
+  IonPage,
+  IonContent,
+  IonHeader,
+  IonToolbar,
+  IonTitle,
+  IonButtons,
+  IonButton,
+  IonList,
+  IonItem,
+  IonLabel,
+  IonIcon,
+  modalController,
+} from "@ionic/vue";
+import {
+  alertCircleOutline,
+  warningOutline,
+  informationCircleOutline,
+  closeOutline,
+} from "ionicons/icons";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 dayjs.extend(relativeTime);
@@ -17,6 +34,14 @@ const props = defineProps({
     required: false,
   },
 });
+
+const close = async () => {
+  if (props.onClose) {
+    props.onClose();
+  } else {
+    await modalController.dismiss();
+  }
+};
 
 const icon = computed(() => {
   switch (props.alert.severity || props.alert.type) {
@@ -38,7 +63,16 @@ const formattedTime = computed(() =>
 
 <template>
   <IonPage>
-    <GenericHeader title="Alert Details" />
+    <IonHeader class="ion-no-border header">
+      <IonToolbar>
+        <IonButtons slot="start">
+          <IonButton @click="close">
+            <IonIcon :icon="closeOutline" slot="icon-only" />
+          </IonButton>
+        </IonButtons>
+        <IonTitle>Alert Details</IonTitle>
+      </IonToolbar>
+    </IonHeader>
     <IonContent class="ion-padding">
       <IonList>
         <IonItem lines="none">
@@ -81,29 +115,10 @@ const formattedTime = computed(() =>
             <strong>Acknowledged:</strong> {{ props.alert.acknowledged ? "Yes" : "No" }}
           </IonLabel>
         </IonItem>
-        <!-- Show all other fields for debugging -->
-        <IonItem v-for="(value, key) in props.alert" :key="key" v-if="!knownFields.includes(key)">
-          <IonLabel>
-            <strong>{{ key }}:</strong> {{ value }}
-          </IonLabel>
-        </IonItem>
       </IonList>
     </IonContent>
   </IonPage>
 </template>
-
-<script>
-// List of fields already shown above
-export default {
-  computed: {
-    knownFields() {
-      return [
-        "id", "title", "label", "path", "type", "severity", "timestamp", "message", "description", "source", "state", "acknowledged"
-      ];
-    }
-  }
-}
-</script>
 
 <style scoped>
 .alert-title {

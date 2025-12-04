@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>compendiumnav</string>
+        <string>CompendiumNav</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -22,35 +22,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsArbitraryLoadsInWebContent</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<key>NSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>NSBonjourService</key>
-	<string>_compendium._tcp</string>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_compendium._tcp</string>
-		<string>_compendium._udp</string>
-		<string>_http._tcp</string>
-		<string>_https._tcp</string>
-		<string>_ws._tcp</string>
-		<string>_wss._tcp</string>
-	</array>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>This app needs access to the local network to connect to your boat server</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-		<string>fetch</string>
-	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

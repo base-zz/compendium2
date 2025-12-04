@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.compendiumnav.compendium2',
-  appName: 'compendium2',
+  appName: 'CompendiumNav',
   webDir: 'dist',
   plugins: {
     PushNotifications: {
@@ -13,9 +13,14 @@ const config: CapacitorConfig = {
     // For local development with live reload
     // url: 'http://YOUR_DEV_SERVER:PORT',
     // cleartext: true,
-    
+  hostname: 'compendiumnav.com',
+  androidScheme: 'https',    
     // Allow navigation to these URLs in the web view
-    allowNavigation: ['*.yourdomain.com'] // Replace with your actual domain
+    allowNavigation: [
+      'compendiumnav.com',
+      '*.compendiumnav.com',
+      'compendium.local'
+    ]
   },
   ios: {
     // Required for push notifications
@@ -26,7 +31,9 @@ const config: CapacitorConfig = {
     
     // For deep linking with custom URL scheme
     // Example: compendiumnav://alerts/123
-    scheme: 'compendiumnav'
+    scheme: 'CompendiumNav',
+    loggingBehavior: 'production', // or 'none' to suppress everything
+
   },
   android: {
     allowMixedContent: true,

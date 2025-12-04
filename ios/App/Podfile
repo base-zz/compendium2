@@ -20,6 +20,8 @@ def capacitor_pods
   pod 'CapacitorStatusBar', :path => '../../node_modules/@capacitor/status-bar'
 end
 
+project 'App.xcodeproj'
+
 target 'App' do
   capacitor_pods
   # Add your Pods here

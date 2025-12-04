@@ -20,6 +20,12 @@
         
         <div class="device-details">
           <ion-badge color="medium">RSSI: {{ device.rssi || 'N/A' }}</ion-badge>
+          <ion-icon
+            v-if="requiresEncryptionKey"
+            :icon="hasEncryptionKey ? lockOpenIcon : lockClosedIcon"
+            :color="hasEncryptionKey ? 'success' : 'danger'"
+            class="encryption-icon"
+          ></ion-icon>
           
           <ion-badge 
             v-if="device.sensorData" 
@@ -55,7 +61,8 @@ import { computed } from 'vue';
 import { 
   IonItem, IonIcon, IonLabel, IonBadge, IonButton
 } from '@ionic/vue';
-import { bluetooth, pencil } from 'ionicons/icons';
+import { bluetooth, pencil, lockClosed, lockOpen } from 'ionicons/icons';
+import { getDeviceConfig } from '@/config/bluetoothDevices';
 
 const props = defineProps({
   device: {
@@ -83,6 +90,22 @@ const displayName = computed(() => {
 
 // Icon for the device
 const bluetoothIcon = bluetooth;
+
+// Encryption key requirements based on device configuration
+const deviceConfig = computed(() => getDeviceConfig(props.device.manufacturerId));
+
+const requiresEncryptionKey = computed(() => {
+  const fields = deviceConfig.value.fields || {};
+  return !!fields.encryptionKey || !!deviceConfig.value.encryptionKeyRequired;
+});
+
+const hasEncryptionKey = computed(() => {
+  const metadata = props.device.metadata || {};
+  return !!metadata.encryptionKey;
+});
+
+const lockClosedIcon = lockClosed;
+const lockOpenIcon = lockOpen;
 
 // Toggle device selection
 const toggleSelection = () => {

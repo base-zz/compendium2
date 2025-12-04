@@ -4,13 +4,13 @@
       <div class="home-inner">
         <div class="logo-container">
           <div class="company-name">
-            <h1>Compendium</h1>
-            <h6>Systems</h6>
+            <h1>Nexus</h1>
+            <h6>Compendium Systems</h6>
           </div>
           <div class="logo-wrapper">
             <img 
               src="/img/compendium_logo.png" 
-              alt="Compendium Navigation"
+              alt="Compendium Systems"
               class="logo-image"
             />
           </div>

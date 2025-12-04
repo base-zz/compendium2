@@ -86,15 +86,17 @@ const applyTemplate = () => {
 <style scoped>
 .template-selector-container {
   padding: 20px;
-  background: #f5f5f5;
+  background: var(--app-surface-color);
   border-radius: 8px;
   max-width: 800px;
   margin: 0 auto;
+  color: var(--app-text-color);
 }
 
 h3 {
   text-align: center;
   margin-bottom: 20px;
+  color: var(--app-text-color);
 }
 
 .template-grid {
@@ -130,8 +132,8 @@ h3 {
 .template-preview {
   height: 120px;
   width: 70px;
-  background: white;
-  border: 1px solid #ddd;
+  background: var(--app-background-color);
+  border: 1px solid var(--app-border-color);
   border-radius: 4px;
   display: flex;
   justify-content: center;
@@ -239,13 +241,15 @@ h3 {
 }
 
 .preview-area {
-  background: #e0e0e0;
+  background: var(--app-muted-text-color);
+  opacity: 0.3;
   border-radius: 2px;
 }
 
 .template-name {
   text-align: center;
   font-size: 14px;
+  color: var(--app-text-color);
 }
 
 .template-actions {

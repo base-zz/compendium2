@@ -291,15 +291,105 @@ const title = computed(() => {
   else return 'Not Anchored';
 });
 
+// Helper to get a safe, plain snapshot of the current navigation position
+const getCurrentPositionSnapshot = () => {
+  const nav = state.value?.navigation;
+  const navPos = nav?.position;
+  const topPos = state.value?.position;
+  const source = navPos || topPos || null;
 
+  if (!source) {
+    return null;
+  }
 
+  const toScalar = (val) => {
+    if (val == null) return null;
+    if (typeof val === 'number') return Number.isFinite(val) ? val : null;
+    if (typeof val === 'object' && typeof val.value === 'number') {
+      return Number.isFinite(val.value) ? val.value : null;
+    }
+    return null;
+  };
+
+  const lat = toScalar(source.latitude);
+  const lon = toScalar(source.longitude);
+
+  // Return a plain object so we never log reactive proxies
+  return { lat, lon };
+};
+
+// Simple distance helper (meters) using Haversine
+const calculateDistanceMetersLocal = (lat1, lon1, lat2, lon2) => {
+  if (
+    lat1 == null || lon1 == null ||
+    lat2 == null || lon2 == null ||
+    typeof lat1 !== 'number' || typeof lon1 !== 'number' ||
+    typeof lat2 !== 'number' || typeof lon2 !== 'number' ||
+    Number.isNaN(lat1) || Number.isNaN(lon1) ||
+    Number.isNaN(lat2) || Number.isNaN(lon2)
+  ) {
+    return null;
+  }
+
+  const R = 6371000; // meters
+  const toRad = (deg) => (deg * Math.PI) / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
+
+// Watch for status/title changes and log previous/new positions
+const lastPositionSnapshot = ref(getCurrentPositionSnapshot());
+
+watch(
+  title,
+  (newStatus, oldStatus) => {
+    if (newStatus === oldStatus) return;
+
+    const newPos = getCurrentPositionSnapshot();
+    let deltaDistanceFeet = null;
+
+    if (lastPositionSnapshot.value && newPos) {
+      const dMeters = calculateDistanceMetersLocal(
+        lastPositionSnapshot.value.lat,
+        lastPositionSnapshot.value.lon,
+        newPos.lat,
+        newPos.lon
+      );
+      if (dMeters != null) {
+        deltaDistanceFeet = dMeters * 3.28084;
+      }
+    }
+
+    // try {
+    //   console.log('[AnchorStatus] status change', {
+    //     previousStatus: oldStatus,
+    //     status: newStatus,
+    //     previousPosition: lastPositionSnapshot.value,
+    //     newPosition: newPos,
+    //     deltaDistanceFeet,
+    //     time: new Date().toISOString(),
+    //   });
+    // } catch (e) {
+    //   // Swallow logging errors to avoid impacting UI
+    // }
+
+    lastPositionSnapshot.value = newPos;
+  }
+);
 
 // Simple handler that just emits the event to the parent
 const handleDropAnchor = () => {
   // Simply emit the event to the parent component (AnchorView)
   // AnchorView will handle all the state updates and map features
   emit('anchor-dropped');
-  console.log("AnchorInfoGrid: Emitted anchor-dropped event");
 };
 
 </script>
@@ -307,7 +397,7 @@ const handleDropAnchor = () => {
 <style scoped>
 .anchor-grid-div {
   position: absolute;
-  top: 3%;
+  top: calc(var(--ion-safe-area-top, 0) + 56px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 2000;
@@ -444,9 +534,9 @@ const handleDropAnchor = () => {
 }
 
 .ais-warning-title {
-  background: color-mix(in srgb, var(--app-accent-soft-color) 70%, var(--app-text-color) 30%);
-  color: var(--app-accent-color);
-  border-color: var(--app-accent-color);
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #b91c1c;
   animation: blink 1s infinite;
 }
 
@@ -587,7 +677,7 @@ const handleDropAnchor = () => {
 
 @media (max-width: 480px) {
   .anchor-grid-div {
-    top: calc(var(--ion-safe-area-top, 0) + 56px);
+    top: calc(var(--ion-safe-area-top, 0) + 48px);
     width: 90vw;
     padding: 12px;
   }
@@ -602,6 +692,12 @@ const handleDropAnchor = () => {
 
   .drop-anchor-rect {
     height: 48px;
+  }
+}
+
+@media (min-width: 768px) {
+  .anchor-grid-div {
+    top: calc(var(--ion-safe-area-top, 0) + 80px);
   }
 }
 </style>

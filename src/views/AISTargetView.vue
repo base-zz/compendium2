@@ -106,8 +106,8 @@ const target = computed(() => {
   const mmsiStr = String(mmsi);
   const found = state.value.aisTargets[mmsiStr];
   
-  console.log("Available AIS targets:", Object.keys(state.value.aisTargets).length);
-  console.log("AIS TARGET found:", found);
+  // console.log("Available AIS targets:", Object.keys(state.value.aisTargets).length);
+  // console.log("AIS TARGET found:", found);
   return found;
 });
 

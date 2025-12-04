@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { PushNotifications, type PushNotification, type PushNotificationActionPerformed } from '@capacitor/push-notifications';
 import { App } from '@capacitor/app';
 import { ref } from 'vue';
@@ -49,12 +50,18 @@ export class NotificationService {
   public async initialize() {
     if (this.isInitialized) return;
     
-    // Check if we're running in a web browser
-    const isWeb = !(window as any).Capacitor || (window as any).Capacitor.getPlatform() === 'web';
-    
+    const platform = Capacitor.getPlatform();
+    const isWeb = platform === 'web';
+
     if (isWeb) {
       this.logger.debug('Push notifications not available in web environment');
       this.isInitialized = true; // Mark as initialized to prevent repeated attempts
+      return;
+    }
+
+    if (platform === 'android') {
+      this.logger.debug('Skipping push notification registration on Android because Firebase is not configured');
+      this.isInitialized = true;
       return;
     }
     

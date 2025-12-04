@@ -133,16 +133,6 @@
             </div>
           </div>
 
-          <!-- Widget Name Input -->
-          <div class="form-group">
-            <div class="form-label">Widget Name</div>
-            <ion-input
-              class="form-control"
-              placeholder="Add Unique Name"
-              v-model="widgetName"
-            ></ion-input>
-          </div>
-
           <!-- Display Label Input -->
           <div class="form-group">
             <div class="form-label">Display Label</div>
@@ -349,11 +339,19 @@ const availableDataSources = computed(() => {
     // Get Bluetooth devices from state and filter for Ruuvi sensors only
     const devices = state.value.bluetooth?.devices || {};
     const ruuviDevices = Object.entries(devices)
-      .filter(([, device]) => device.manufacturerId === 1177 || device.sensorData?.format === 'ruuvi/rawv2')
+      .filter(([, device]) => {
+        const mId = Number(device.manufacturerId);
+        return (
+          mId === 1177 ||
+          mId === 4101 ||
+          mId === 4357 ||
+          device.sensorData?.format === 'ruuvi/rawv2'
+        );
+      })
       .map(([id, device]) => ({
         value: id,
-        label: device.name || device.localName || id,
-        description: `Ruuvi sensor: ${device.name || id}`
+        label: device.metadata?.userLabel || device.name || device.localName || id,
+        description: device.metadata?.userLabel || device.name || device.localName || id,
       }));
     return ruuviDevices;
   } else if (displayType.value === 'victron-battery-monitor') {
@@ -371,6 +369,40 @@ const availableDataSources = computed(() => {
     return victronDevices;
   }
   return [];
+});
+
+// Reactive debug logging for Ruuvi data sources
+watch(displayType, (newType) => {
+  console.log('[AddWidgetModal] displayType changed', newType);
+  if (newType === 'ruuvi') {
+    const btState = state.value.bluetooth || {};
+    const devices = btState.devices || {};
+    console.log('[AddWidgetModal] bluetooth devices keys', Object.keys(devices));
+    // Log a few sample devices including any that look like Ruuvi
+    const sampleEntries = Object.entries(devices).slice(0, 5);
+    const ruuviEntry = Object.entries(devices).find(([id, d]) =>
+      (d.name && d.name.toLowerCase().includes('ruuvi')) || id === 'DE:27:99:8D:54:44'
+    );
+
+    console.log('[AddWidgetModal] sample devices manufacturerIds', sampleEntries.map(([id, d]) => ({
+      id,
+      manufacturerId: d.manufacturerId,
+      type: typeof d.manufacturerId,
+      sensorFormat: d.sensorData?.format,
+    })));
+
+    if (ruuviEntry) {
+      const [id, d] = ruuviEntry;
+      console.log('[AddWidgetModal] ruuvi candidate', {
+        id,
+        manufacturerId: d.manufacturerId,
+        type: typeof d.manufacturerId,
+        sensorData: d.sensorData,
+      });
+    }
+
+    console.log('[AddWidgetModal] availableDataSources (ruuvi)', availableDataSources.value);
+  }
 });
 
 // Watch for displayType changes to set default values
