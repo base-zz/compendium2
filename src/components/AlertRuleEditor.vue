@@ -539,6 +539,7 @@ const goBack = () => {
   max-width: 800px;
   margin: 0 auto;
   padding: 1rem;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
   height: 100%;
   overflow-y: auto;
 }

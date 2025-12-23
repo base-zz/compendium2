@@ -41,6 +41,10 @@
             <i class="fas fa-water custom-icon"></i>
           </ion-button>
 
+          <ion-button @click="router.push('/marine')" size="large" class="nav-button">
+            <ion-icon :icon="compassOutline" class="custom-icon"></ion-icon>
+          </ion-button>
+
           <ion-button @click="router.push('/bluetooth')" size="large" class="nav-button">
             <ion-icon :icon="bluetooth" class="custom-icon"></ion-icon>
           </ion-button>
@@ -66,7 +70,7 @@ import {
   IonIcon,
 } from "@ionic/vue";
 import { useRouter } from "vue-router";
-import { notifications, partlySunny, bluetooth } from "ionicons/icons";
+import { notifications, partlySunny, bluetooth, compassOutline } from "ionicons/icons";
 
 
 const router = useRouter();
@@ -175,30 +179,32 @@ ion-content {
 }
 
 ion-button.nav-button {
-  border: 2px solid var(--widget-border-color);
-  border-radius: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  --background: var(--widget-surface-color);
-  --color: var(--widget-text-color);
+  --border-radius: 16px;
+  --background: var(--ion-color-primary);
+  --background-hover: var(--ion-color-primary);
+  --background-activated: var(--ion-color-primary-shade);
+  --box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   --padding-start: 0;
   --padding-end: 0;
   --padding-top: 0;
   --padding-bottom: 0;
-  width: 100%;
-  max-width: 72px;
-  aspect-ratio: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border: 1px solid var(--app-border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  width: 60px;
+  height: 60px;
+  margin: 0;
+  transition: transform 0.15s ease;
+}
+
+ion-button.nav-button:active {
+  transform: scale(0.94);
 }
 
 ion-button.nav-button ion-icon {
-  font-size: 24px;
-  width: 24px;
-  height: 24px;
-  color: var(--widget-text-color);
+  font-size: 26px;
+  width: 26px;
+  height: 26px;
+  color: var(--app-text-color);
 }
 
 .button-container {

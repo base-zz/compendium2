@@ -4,11 +4,35 @@
       <h2>Login</h2>
       
       <!-- Boat detection banner -->
-      <div v-if="localBoatId" class="boat-banner">
+      <div v-if="detectedBoatId" class="boat-banner">
         <div class="boat-icon">🚤</div>
         <div class="boat-text">
-          Boat "{{ detectedBoatName }}" detected on local Wi-Fi.<br>
-          <small>It will be added to your fleet after login.</small>
+          <strong>Boat "{{ detectedBoatName }}" detected on local Wi-Fi.</strong><br>
+          <small v-if="pairingConsent === true">
+            This boat will be added to your fleet after you log in.
+          </small>
+          <small v-else-if="pairingConsent === false">
+            You chose not to add this boat right now. You can change your mind below.
+          </small>
+          <small v-else>
+            We can add it to your fleet after login if you confirm below.
+          </small>
+        </div>
+        <div class="boat-actions">
+          <button
+            type="button"
+            class="primary"
+            @click="openPairingPrompt"
+            :disabled="pairingConsent === true"
+          >
+            {{ pairingConsent === true ? 'Pairing Confirmed' : 'Add to your fleet' }}
+          </button>
+          <button
+            v-if="pairingConsent === true"
+            type="button"
+            class="link"
+            @click="openPairingPrompt"
+          >Change</button>
         </div>
       </div>
       
@@ -29,6 +53,29 @@
       </div>
     </form>
   </div>
+
+  <!-- Pairing confirmation modal -->
+  <div v-if="showPairModal" class="pair-modal-overlay" @click.self="dismissPairingPrompt">
+    <div class="pair-modal">
+      <h3>Boat detected</h3>
+      <p>
+        Boat "{{ detectedBoatName }}" detected on local Wi-Fi.<br />
+        Add to your fleet?
+      </p>
+      <div class="pair-modal-actions">
+        <button type="button" class="primary" @click="handlePairDecision(true)">Pair & Continue</button>
+        <button type="button" class="secondary" @click="handlePairDecision(false)">Skip for now</button>
+      </div>
+    </div>
+  </div>
+
+  <ion-toast
+    :is-open="showPairSuccessToast"
+    :message="pairSuccessMessage"
+    :duration="2500"
+    position="bottom"
+    @didDismiss="showPairSuccessToast = false"
+  ></ion-toast>
 </template>
 
 <script setup>
@@ -37,6 +84,7 @@ import axios from 'axios';
 import { useRouter } from 'vue-router';
 import { useBoatConnectionStore } from '@/stores/boatConnection';
 import { relayConnectionBridge } from '@/relay/client/RelayConnectionBridge.js';
+import { IonToast } from '@ionic/vue';
 
 const email = ref('');
 const password = ref('');
@@ -44,6 +92,11 @@ const loading = ref(false);
 const error = ref('');
 const localBoatId = ref(null);
 const detectedBoatName = ref('');
+const detectedBoatId = ref(null);
+const pairingConsent = ref(null); // null = pending, true = pair, false = skip
+const showPairModal = ref(false);
+const showPairSuccessToast = ref(false);
+const pairSuccessMessage = ref('');
 
 // Get local API URL from environment variables
 const LOCAL_API_URL = import.meta.env.VITE_LOCAL_API_URL;
@@ -91,12 +144,32 @@ onMounted(async () => {
     const boat = await boatConnectionStore.initializeConnection();
     if (boat?.boatId) {
       localBoatId.value = boat.boatId;
+      detectedBoatId.value = boat.boatId;
       detectedBoatName.value = boat.name || boat.boatId;
+      pairingConsent.value = null;
+      showPairModal.value = true;
     }
   } catch (err) {
     debugWarn('Local boat detection failed:', err);
   }
 });
+
+const openPairingPrompt = () => {
+  if (!detectedBoatId.value) return;
+  showPairModal.value = true;
+};
+
+const dismissPairingPrompt = () => {
+  showPairModal.value = false;
+  if (pairingConsent.value === null) {
+    pairingConsent.value = false;
+  }
+};
+
+const handlePairDecision = (shouldPair) => {
+  pairingConsent.value = shouldPair;
+  showPairModal.value = false;
+};
 
 // Note: We're hardcoding the VPS URLs for diagnostic purposes
 
@@ -108,10 +181,12 @@ async function handleLogin() {
   loading.value = true;
   
   // Simplify payload to exactly match what the server expects
+  const includeDetectedBoat = pairingConsent.value === true && localBoatId.value;
+
   const payload = {
     username: email.value,
     password: password.value,
-    ...(localBoatId.value && { localBoatId: localBoatId.value })
+    ...(includeDetectedBoat && { localBoatId: localBoatId.value })
   };
   
   debugLog(`[LOGIN] Attempting login with payload:`, { username: payload.username, password: '******' });
@@ -198,25 +273,40 @@ async function handleLogin() {
       // Check if we have a boat ID from the store (direct connection)
       const storeBoatId = boatConnectionStore?.boatId ?? null;
       const isDirectConnected = !!boatConnectionStore?.directConnected;
+      const storeBoatMatchesDetected = detectedBoatId.value && storeBoatId === detectedBoatId.value;
       
-      // Always prefer store boat ID (direct connection) or local detected boat
-      const preferredBoatId = storeBoatId || localBoatId.value;
+      let preferredBoatId = null;
+      let shouldRegisterDetectedBoat = false;
+      const userAcceptedDetectedBoat = pairingConsent.value === true && detectedBoatId.value;
+      
+      if (userAcceptedDetectedBoat) {
+        preferredBoatId = storeBoatMatchesDetected ? storeBoatId : detectedBoatId.value;
+        shouldRegisterDetectedBoat = true;
+      } else if (storeBoatId && !storeBoatMatchesDetected) {
+        preferredBoatId = storeBoatId;
+      } else if (boatIds.length > 0) {
+        preferredBoatId = boatIds[0];
+      }
       
       if (preferredBoatId) {
         boatIds = [preferredBoatId, ...boatIds.filter(id => id !== preferredBoatId)];
         boatConnectionStore.setActiveBoatId(preferredBoatId);
-        debugLog('[LOGIN] Using boat ID:', preferredBoatId, isDirectConnected ? '(direct connection)' : '(local detection)');
+        debugLog('[LOGIN] Using boat ID:', preferredBoatId, isDirectConnected ? '(direct connection)' : '(remote connection)');
         
-        // Register boat with VPS to associate it with the user
-        try {
-          debugLog('[LOGIN] Registering boat with VPS...');
-          await boatConnectionStore.registerWithVPS(preferredBoatId);
-          debugLog('[LOGIN] Boat registered with VPS successfully');
-        } catch (err) {
-          debugWarn('[LOGIN] Failed to register boat with VPS:', err);
-          // Continue anyway - this is non-critical
+        if (shouldRegisterDetectedBoat) {
+          try {
+            debugLog('[LOGIN] Registering boat with VPS...');
+            await boatConnectionStore.registerWithVPS(preferredBoatId);
+            debugLog('[LOGIN] Boat registered with VPS successfully');
+            pairSuccessMessage.value = `Boat "${detectedBoatName.value || preferredBoatId}" added to your fleet.`;
+            showPairSuccessToast.value = true;
+          } catch (err) {
+            debugWarn('[LOGIN] Failed to register boat with VPS:', err);
+          }
         }
-      } else if (boatIds.length > 0) {
+      }
+      
+      if (!preferredBoatId && boatIds.length > 0) {
         boatConnectionStore.setActiveBoatId(boatIds[0]);
         debugLog('[LOGIN] Using first server boat ID:', boatIds[0]);
       }
@@ -306,5 +396,97 @@ button[disabled] {
   color: #d32f2f;
   margin-bottom: 1rem;
   text-align: center;
+}
+.boat-banner {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border-radius: 8px;
+  background: #e8f3ff;
+  border: 1px solid rgba(25, 118, 210, 0.3);
+  color: #0c2d4a;
+  margin-bottom: 1rem;
+}
+.boat-icon {
+  font-size: 1.5rem;
+}
+.boat-text small {
+  display: block;
+  margin-top: 0.25rem;
+  color: rgba(12, 45, 74, 0.75);
+}
+.boat-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+.boat-actions .primary {
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+.boat-actions .primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.boat-actions .link {
+  background: none;
+  border: none;
+  color: #1976d2;
+  text-decoration: underline;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.pair-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.pair-modal {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 10px;
+  width: min(90vw, 360px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  text-align: center;
+}
+.pair-modal h3 {
+  margin-bottom: 0.5rem;
+}
+.pair-modal p {
+  margin-bottom: 1rem;
+  color: #333;
+  line-height: 1.4;
+}
+.pair-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.pair-modal-actions .primary,
+.pair-modal-actions .secondary {
+  border: none;
+  padding: 0.6rem 0.9rem;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pair-modal-actions .primary {
+  background: #1976d2;
+  color: #fff;
+}
+.pair-modal-actions .secondary {
+  background: #f3f4f6;
+  color: #111;
 }
 </style>

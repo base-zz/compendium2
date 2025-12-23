@@ -2,7 +2,6 @@
   <div 
     ref="chartContainer"
     class="tide-chart-container" 
-    :style="{ height: `${height}px` }"
     @mousemove="handleMouseMove"
     @mouseleave="handleMouseLeave"
     @touchstart="handleTouchStart"
@@ -46,7 +45,7 @@
               text-anchor="end"
               class="axis-label y-axis-label"
             >
-              {{ typeof tick === 'number' ? tick.toFixed(1) + 'm' : '--' }}
+              {{ typeof tick === 'number' ? tick.toFixed(1) + seaLevelUnitLabel : '--' }}
             </text>
           </g>
           
@@ -76,13 +75,36 @@
             <text 
               v-if="tick.isMajor"
               :x="xScale(tick.time)" 
-              :y="height - props.padding.bottom + 24" 
+              :y="height - props.padding.bottom + 18" 
               font-size="12" 
               text-anchor="middle"
               font-weight="500"
               class="axis-label x-axis-label"
             >
-              {{ formatTime(tick.time) }}
+              {{ formatXAxisTick(tick.time) }}
+            </text>
+          </g>
+
+          <!-- Day band (weekday labels) -->
+          <g v-for="(band, index) in dayBands" :key="'dayband' + index">
+            <rect
+              :x="band.x1"
+              :y="bandY"
+              :width="band.x2 - band.x1"
+              :height="bandHeight"
+              :class="['day-band-rect', index % 2 === 1 ? 'day-band-rect-alt' : '']"
+              rx="4"
+              ry="4"
+            />
+            <text
+              :x="(band.x1 + band.x2) / 2"
+              :y="bandY + bandHeight - 4"
+              font-size="11"
+              text-anchor="middle"
+              class="day-band-label"
+              font-weight="600"
+            >
+              {{ band.label }}
             </text>
           </g>
           
@@ -146,7 +168,7 @@
               font-size="10" 
               class="cursor-value-label"
             >
-              {{ cursorValue.toFixed(2) }}m
+              {{ cursorValue.toFixed(2) }}{{ seaLevelUnitLabel }}
             </text>
           </g>
           
@@ -159,27 +181,6 @@
             class="indicator-dot"
           />
         </svg>
-        
-        <div class="tide-stats">
-          <div class="tide-stat">
-            <span class="label">Current:</span>
-            <span class="value">{{ currentTideLevel !== null ? currentTideLevel.toFixed(2) + 'm' : '--' }}</span>
-          </div>
-          <div class="tide-stat">
-            <span class="label">Next High:</span>
-            <span class="value">
-              {{ nextHighTide && nextHighTide.value !== null ? 
-                 `${nextHighTide.value.toFixed(2)}m at ${formatTime(nextHighTide.time)}` : '--' }}
-            </span>
-          </div>
-          <div class="tide-stat">
-            <span class="label">Next Low:</span>
-            <span class="value">
-              {{ nextLowTide && nextLowTide.value !== null ? 
-                 `${nextLowTide.value.toFixed(2)}m at ${formatTime(nextLowTide.time)}` : '--' }}
-            </span>
-          </div>
-        </div>
       </template>
     </div>
   </div>
@@ -217,24 +218,80 @@ const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 const currentTime = ref(new Date());
 
-// Check if we have valid tide data
-const hasTideData = computed(() => {
-  const times = tideData.value?.hourly?.time || [];
-  const levels = tideData.value?.hourly?.values?.seaLevelHeightMsl || {};
-  return times.length > 0 && Object.keys(levels).length > 0;
+const tideData = computed(() => state.value?.tides);
+const seaLevelUnit = computed(() => tideData.value?.units?.seaLevelHeight);
+const seaLevelUnitLabel = computed(() => (typeof seaLevelUnit.value === 'string' ? seaLevelUnit.value : ''));
+
+const dataPoints = computed(() => {
+  const timeValues = tideData.value?.hourly?.time;
+  const levelValues = tideData.value?.hourly?.values?.seaLevelHeightMsl;
+
+  if (!Array.isArray(timeValues) || !Array.isArray(levelValues)) return [];
+
+  const minLength = Math.min(timeValues.length, levelValues.length);
+  const points = [];
+
+  for (let i = 0; i < minLength; i += 1) {
+    const rawTime = timeValues[i];
+    const rawLevel = levelValues[i];
+
+    const time = rawTime instanceof Date ? rawTime : new Date(rawTime);
+    if (!(time instanceof Date) || Number.isNaN(time.getTime())) continue;
+    if (typeof rawLevel !== 'number' || Number.isNaN(rawLevel)) continue;
+
+    points.push({ time, level: rawLevel });
+  }
+
+  return points;
 });
 
-// Computed properties
-const tideData = computed(() => state.value?.tides || { hourly: { time: [], values: { seaLevelHeightMsl: {} } } });
+const windowedDataPoints = computed(() => {
+  const points = dataPoints.value;
+  if (!Array.isArray(points) || points.length === 0) return [];
+
+  const minTime = points[0]?.time;
+  const maxTime = points[points.length - 1]?.time;
+  if (!(minTime instanceof Date) || Number.isNaN(minTime.getTime())) return [];
+  if (!(maxTime instanceof Date) || Number.isNaN(maxTime.getTime())) return [];
+
+  const totalMs = maxTime.getTime() - minTime.getTime();
+  if (!(typeof totalMs === 'number') || Number.isNaN(totalMs) || totalMs <= 0) return [];
+
+  const now = currentTime.value;
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) return [];
+
+  const pastAvailableMs = now.getTime() - minTime.getTime();
+  const futureAvailableMs = maxTime.getTime() - now.getTime();
+
+  // If we don't have past or future data, just return all available points.
+  if (!(pastAvailableMs > 0) || !(futureAvailableMs > 0)) {
+    return points;
+  }
+
+  // Enforce a 1/4 past + 3/4 future window around now, clamped to available data.
+  // Choose the largest window that preserves the ratio.
+  const futureSpanMs = Math.min(futureAvailableMs, pastAvailableMs * 3);
+  const pastSpanMs = futureSpanMs / 3;
+
+  const windowStart = new Date(now.getTime() - pastSpanMs);
+  const windowEnd = new Date(now.getTime() + futureSpanMs);
+
+  if (windowStart >= windowEnd) return [];
+
+  return points.filter((p) => p.time >= windowStart && p.time <= windowEnd);
+});
+
+// Check if we have valid tide data
+const hasTideData = computed(() => {
+  return windowedDataPoints.value.length > 0;
+});
 
 const seaLevels = computed(() => {
-  if (!tideData.value?.hourly?.values?.seaLevelHeightMsl) return [];
-  return Object.values(tideData.value.hourly.values.seaLevelHeightMsl);
+  return windowedDataPoints.value.map((p) => p.level);
 });
 
 const times = computed(() => {
-  if (!tideData.value?.hourly?.time) return [];
-  return tideData.value.hourly.time.map(time => new Date(time));
+  return windowedDataPoints.value.map((p) => p.time);
 });
 
 const currentTideLevel = computed(() => {
@@ -310,58 +367,102 @@ const yTicks = computed(() => {
   return ticks;
 });
 
-// Generate X-axis ticks with major ticks at midnight and minor ticks at noon
+// Generate X-axis ticks with labels every 2 hours
 const xTicks = computed(() => {
   if (!times.value || times.value.length === 0) return [];
   
   const start = new Date(times.value[0]);
   const end = new Date(times.value[times.value.length - 1]);
-  
-  // Calculate number of days in range
-  const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+
+  if (!(start instanceof Date) || Number.isNaN(start.getTime())) return [];
+  if (!(end instanceof Date) || Number.isNaN(end.getTime())) return [];
+
   const ticks = [];
-  
-  // Add one tick per day at midnight (major) and noon (minor)
-  for (let i = 0; i <= days; i++) {
-    const midnight = new Date(start);
-    midnight.setDate(start.getDate() + i);
-    midnight.setHours(0, 0, 0, 0);
-    const noon = new Date(midnight);
-    noon.setHours(12, 0, 0, 0);
-    
-    // Only add if within our time range
-    if (midnight >= start && midnight <= end) {
-      ticks.push({ time: new Date(midnight), isMajor: true });
-    }
-    if (noon >= start && noon <= end) {
-      ticks.push({ time: new Date(noon), isMajor: false });
-    }
+  const twoHoursMs = 2 * 60 * 60 * 1000;
+
+  // Align first tick to the next 2-hour boundary.
+  const firstTick = new Date(start);
+  firstTick.setMinutes(0, 0, 0);
+  if (start.getMinutes() !== 0 || start.getSeconds() !== 0 || start.getMilliseconds() !== 0) {
+    firstTick.setHours(firstTick.getHours() + 1);
   }
-  
-  // Always include the start time
-  if (ticks.length === 0 || ticks[0].time.getTime() !== start.getTime()) {
-    ticks.unshift({ time: new Date(start), isMajor: start.getHours() === 0 });
+  if (firstTick.getHours() % 2 !== 0) {
+    firstTick.setHours(firstTick.getHours() + 1);
   }
-  
-  // Always include the end time
-  const lastTick = ticks[ticks.length - 1];
-  if (!lastTick || lastTick.time.getTime() !== end.getTime()) {
-    ticks.push({ time: new Date(end), isMajor: end.getHours() === 0 });
+
+  for (let t = firstTick.getTime(); t <= end.getTime(); t += twoHoursMs) {
+    ticks.push({ time: new Date(t), isMajor: true });
   }
-  
-  // Sort to ensure proper order and remove duplicates
+
+  // Ensure there's at least a start/end tick if the range is tiny.
+  if (ticks.length === 0) {
+    ticks.push({ time: new Date(start), isMajor: true });
+    ticks.push({ time: new Date(end), isMajor: true });
+  }
+
+  // Remove duplicates (can happen when start/end align perfectly)
   const uniqueTicks = [];
   const seen = new Set();
-  
-  ticks.forEach(tick => {
+
+  ticks.forEach((tick) => {
     const key = tick.time.getTime();
     if (!seen.has(key)) {
       seen.add(key);
       uniqueTicks.push(tick);
     }
   });
-  
+
   return uniqueTicks.sort((a, b) => a.time - b.time);
+});
+
+const bandHeight = 14;
+const bandY = computed(() => props.height - props.padding.bottom + 22);
+
+const dayBands = computed(() => {
+  if (!times.value || times.value.length === 0 || !xScale.value) return [];
+
+  const start = times.value[0];
+  const end = times.value[times.value.length - 1];
+  if (!(start instanceof Date) || Number.isNaN(start.getTime())) return [];
+  if (!(end instanceof Date) || Number.isNaN(end.getTime())) return [];
+
+  const bands = [];
+
+  // Start at local midnight of the chart start.
+  const cursor = new Date(start);
+  cursor.setHours(0, 0, 0, 0);
+  if (cursor < start) {
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // If the range starts mid-day, include the partial first day segment.
+  const firstDayStart = new Date(start);
+  const firstDayEnd = new Date(cursor);
+  if (firstDayEnd > firstDayStart) {
+    const label = firstDayStart.toLocaleDateString('en-US', { weekday: 'short' });
+    bands.push({ start: firstDayStart, end: firstDayEnd, label });
+  }
+
+  // Full days between
+  while (cursor < end) {
+    const dayStart = new Date(cursor);
+    const dayEnd = new Date(cursor);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    const clippedEnd = dayEnd > end ? end : dayEnd;
+
+    const label = dayStart.toLocaleDateString('en-US', { weekday: 'short' });
+    bands.push({ start: dayStart, end: clippedEnd, label });
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return bands
+    .map((b) => ({
+      x1: xScale.value(b.start),
+      x2: xScale.value(b.end),
+      label: b.label,
+    }))
+    .filter((b) => typeof b.x1 === 'number' && typeof b.x2 === 'number' && b.x2 > b.x1);
 });
 
 // Generate the SVG path for the tide line
@@ -379,15 +480,18 @@ const tidePath = computed(() => {
 
 // Current time position on the X axis
 const currentTimeX = computed(() => {
-  if (!times.value.length) return null;
-  
+  if (!times.value.length || !xScale.value) return null;
+
   const now = currentTime.value;
   const startTime = times.value[0];
   const endTime = times.value[times.value.length - 1];
-  
-  if (now < startTime || now > endTime) return null;
-  
-  return xScale.value(now);
+
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) return null;
+  if (!(startTime instanceof Date) || Number.isNaN(startTime.getTime())) return null;
+  if (!(endTime instanceof Date) || Number.isNaN(endTime.getTime())) return null;
+
+  const clampedNow = now < startTime ? startTime : now > endTime ? endTime : now;
+  return xScale.value(clampedNow);
 });
 
 // Current tide level position on the Y axis
@@ -396,48 +500,15 @@ const currentTideY = computed(() => {
   return yScale.value(currentTideLevel.value);
 });
 
-// Find the next high or low tide
-function findNextExtreme(type) {
-  if (!times.value.length || !seaLevels.value.length) return { time: null, value: null };
-  
-  const now = currentTime.value;
-  let extremeValue = type === 'high' ? -Infinity : Infinity;
-  let extremeTime = null;
-  
-  // Find the next extreme after current time
-  for (let i = 0; i < times.value.length; i++) {
-    const time = times.value[i];
-    const value = seaLevels.value[i];
-    
-    if (time <= now) continue;
-    
-    if ((type === 'high' && value > extremeValue) || 
-        (type === 'low' && value < extremeValue)) {
-      extremeValue = value;
-      extremeTime = time;
-    }
-  }
-  
-  return {
-    time: extremeTime,
-    value: extremeValue
-  };
-}
+function formatXAxisTick(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '--';
 
-// Next high and low tides
-const nextHighTide = computed(() => findNextExtreme('high'));
-const nextLowTide = computed(() => findNextExtreme('low'));
-
-// Format time for display (shows day and time for midnight)
-function formatTime(date) {
-  if (!(date instanceof Date) || isNaN(date.getTime())) return '--';
-  
-  const day = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
   const hour = date.getHours();
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const displayHour = hour % 12 || 12; // Convert 0 to 12 for 12AM/PM
-  
-  return `${day} ${displayHour}${ampm}`;
+  if (hour === 0) return 'Midnight';
+  if (hour === 12) return 'Noon';
+
+  const displayHour = hour % 12 || 12;
+  return String(displayHour);
 }
 
 // Interactive cursor state
@@ -635,6 +706,7 @@ onUnmounted(() => {
 .tide-svg {
   display: block;
   max-width: 100%;
+  width: 100%;
   height: auto;
 }
 
@@ -674,6 +746,35 @@ onUnmounted(() => {
   fill: var(--app-text-color);
 }
 
+.day-band-rect {
+  fill: #000000;
+  fill-opacity: 0.06;
+  stroke: color-mix(in srgb, var(--app-border-color) 70%, transparent);
+  stroke-width: 1;
+}
+
+.day-band-rect-alt {
+  fill: #000000;
+  fill-opacity: 0.03;
+}
+
+@media (prefers-color-scheme: dark) {
+  .day-band-rect {
+    fill: #ffffff;
+    fill-opacity: 0.10;
+  }
+
+  .day-band-rect-alt {
+    fill: #ffffff;
+    fill-opacity: 0.05;
+  }
+}
+
+.day-band-label {
+  fill: var(--app-muted-text-color);
+  user-select: none;
+}
+
 .tide-line {
   stroke: var(--tide-line-color);
 }
@@ -703,64 +804,7 @@ onUnmounted(() => {
   stroke: #f8fafc !important;
 }
 
-.tide-stats {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-  padding: 0;
-  background: color-mix(in srgb, var(--app-surface-color) 80%, var(--app-background-color) 20%);
-  border-radius: 10px;
-  border: 1px solid var(--app-border-color);
-}
-
-.tide-stat {
-  text-align: center;
-  padding: 0;
-}
-
-.tide-stat .label {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--app-muted-text-color);
-  margin-bottom: 0;
-  line-height: 0.9;
-}
-
-.tide-stat .value {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--app-text-color);
-  line-height: 1;
-}
-
 @media (max-width: 768px) {
-  .tide-stats {
-    flex-direction: column;
-    gap: 0.5rem;
-    margin: 0.5rem 0.75rem 0 0.75rem;
-    padding: 0.5rem;
-  }
-  
-  .tide-stat {
-    text-align: left;
-    display: flex;
-    justify-content: space-between;
-    padding: 0.25rem 0.5rem;
-    background: color-mix(in srgb, var(--app-surface-color) 65%, var(--app-background-color) 35%);
-    border-radius: 6px;
-  }
-  
-  .tide-stat .label {
-    margin-bottom: 0;
-    margin-right: 1rem;
-    font-weight: 500;
-  }
-  
-  .tide-stat .value {
-    font-weight: 600;
-  }
-  
   .tide-chart {
     padding: 4px 0; /* Remove horizontal padding */
     width: 100%;
@@ -777,12 +821,6 @@ onUnmounted(() => {
     max-width: 100% !important;
     margin: 0;
     padding: 0;
-  }
-  
-  /* Make sure the SVG scales properly */
-  svg {
-    max-width: 100%;
-    height: auto;
   }
 }
 </style>

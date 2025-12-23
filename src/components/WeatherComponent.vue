@@ -183,7 +183,7 @@ const processDailyForecast = (dailyData) => {
   if (!dailyData?.time?.length) return [];
   
   return dailyData.time.map((dateStr, index) => {
-    const date = new Date(dateStr);
+    const date = parseLocalDate(dateStr) || new Date(dateStr);
     const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
     
     return {
@@ -226,6 +226,17 @@ const dailyForecast = computed(() => {
 // Weather data
 const locationName = ref('');
 const locationDetails = ref('');
+
+const parseLocalDate = (dateStr) => {
+  if (typeof dateStr !== 'string') return null;
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return null;
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  return new Date(year, month - 1, day);
+};
 
 // Function to get location name from coordinates
 async function updateLocationName(lat, lon) {
@@ -773,6 +784,28 @@ onUnmounted(() => {
 
   .weather-details {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 769px) {
+  .day {
+    display: grid;
+    grid-template-columns: 4rem 2rem 1fr 5rem;
+    align-items: center;
+    column-gap: 0.75rem;
+  }
+
+  .day .weather-icon {
+    width: auto;
+  }
+
+  .precip {
+    justify-self: end;
+  }
+
+  .temp-range {
+    margin-left: 0;
+    justify-self: end;
   }
 }
 </style>

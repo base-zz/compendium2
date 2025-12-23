@@ -65,10 +65,10 @@ function handleClick() {
 .alert-message {
   margin-top: 4px;
   margin-bottom: 2px;
-  color: var(--ion-color-medium);
+  color: rgba(255, 255, 255, 0.9);
 }
 .alert-timestamp {
   font-size: 0.9em;
-  color: var(--ion-color-light);
+  color: rgba(255, 255, 255, 0.75);
 }
 </style>

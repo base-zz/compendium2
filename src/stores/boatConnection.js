@@ -289,9 +289,8 @@ export const useBoatConnectionStore = defineStore('boatConnection', () => {
         if (localBoatInfo) {
           logger.info('Local boat found:', localBoatInfo);
           connectionMode.value = 'local';
-          boatId.value = localBoatInfo.boatId;
-          localStorage.setItem('activeBoatId', boatId.value);
-          await registerWithVPS(boatId.value);
+          connectionStatus.value = 'connected';
+          updateDirectConnectionStatus(true);
           detectedBoat = localBoatInfo;
         } else if (boatId.value) {
           // Fall back to remote connection if we have a boat ID

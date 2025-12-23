@@ -250,23 +250,38 @@
     </IonModal>
 
     <div class="map-wrapper" :class="{ 'dark-mode': isDarkMode }">
-      <AnchorInfoGrid
-        class="anchor-info-grid"
-        @anchor-dropped="handleAnchorDropped"
-        @update-drop-location="handleUpdateDropLocation"
-        @cancel-anchor="handleCancelAnchor"
-      />
+      <div ref="anchorInfoContainer" class="anchor-info-grid">
+        <AnchorInfoGrid
+          @anchor-dropped="handleAnchorDropped"
+          @update-drop-location="handleUpdateDropLocation"
+          @cancel-anchor="handleCancelAnchor"
+        />
+      </div>
       <div ref="mapElement" class="openlayers-map"></div>
       <div ref="attributionContainer" class="map-attribution"></div>
 
       <!-- Custom zoom controls -->
       <div class="custom-zoom-controls">
-        <button @click="zoomIn" class="zoom-button zoom-in" data-label="Zoom In">
-          +
+        <button @click="recenterMap" class="zoom-button recenter-button" data-label="Recenter">
+          <ion-icon :icon="navigate" size="small" />
         </button>
-        <button @click="zoomOut" class="zoom-button zoom-out" data-label="Zoom Out">
-          −
+
+        <button
+          @click="toggleMeasureMode"
+          class="zoom-button"
+          :data-label="measureModeEnabled ? 'Measure (On)' : 'Measure (Off)'"
+        >
+          <ion-icon :icon="resizeOutline" size="small" aria-hidden="true" />
         </button>
+
+        <div class="zoom-compact" aria-label="Zoom Controls">
+          <button @click="zoomIn" class="zoom-compact-button zoom-compact-in" data-label="Zoom In">
+            +
+          </button>
+          <button @click="zoomOut" class="zoom-compact-button zoom-compact-out" data-label="Zoom Out">
+            −
+          </button>
+        </div>
       </div>
 
       <div class="anchor-fab-container">
@@ -279,7 +294,7 @@
           <img
             src="/img/anchor2.svg"
             alt="Set Anchor"
-            class="custom-icon"
+            class="custom-icon anchor-fab-icon"
             style="width: 24px; height: 24px"
           />
         </ion-fab-button>
@@ -334,9 +349,10 @@ import {
   IonIcon,
   IonFooter,
   IonToolbar,
+  onIonViewDidEnter,
   toastController,
 } from "@ionic/vue";
-import { chevronUpOutline } from "ionicons/icons";
+import { chevronUpOutline, navigate, resizeOutline } from "ionicons/icons";
 
 // OpenLayers imports
 import Map from "ol/Map";
@@ -346,8 +362,9 @@ import OSM from "ol/source/OSM";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import Feature from "ol/Feature";
-import { Style, Stroke } from "ol/style";
-import { fromLonLat } from "ol/proj";
+import { Style, Stroke, Fill, Text } from "ol/style";
+import CircleStyle from "ol/style/Circle";
+import { fromLonLat, toLonLat } from "ol/proj";
 import { Point } from "ol/geom";
 import Polygon from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
@@ -356,6 +373,10 @@ import LineString from "ol/geom/LineString";
 import { defaults as defaultControls } from "ol/control";
 import Attribution from "ol/control/Attribution";
 import { defaults as defaultInteractions } from "ol/interaction";
+import Collection from "ol/Collection";
+import Translate from "ol/interaction/Translate";
+import DragPan from "ol/interaction/DragPan";
+
 import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import ScaleLine from "ol/control/ScaleLine";
 import { useMapTools } from "@/utils/mapUtils.js";
@@ -375,6 +396,10 @@ const FEATURE_TYPES = {
   ANCHOR_DROP_LOCATION: "anchor-drop-location",
   ANCHOR_LOCATION: "anchor-location",
   RODE: "rode",
+  MEASURE_PIN_A: "measure-pin-a",
+  MEASURE_PIN_B: "measure-pin-b",
+  MEASURE_LINE: "measure-line",
+  MEASURE_LABEL: "measure-label",
 };
 
 // Main component setup
@@ -407,6 +432,280 @@ const aisTargets = computed(() => {
 });
 
 const isDarkMode = computed(() => preferences.value?.display?.darkMode || false);
+
+const measureModeEnabled = ref(false);
+const measurePinAFollowsBoat = ref(false);
+const measurePinBFollowsBoat = ref(false);
+const measurePinA = ref(null);
+const measurePinB = ref(null);
+const measureLine = ref(null);
+const measureLabel = ref(null);
+
+const measureSnapDistanceMeters = 5;
+
+let modifyInteraction;
+let scaleLineControl;
+let dragPanInteraction;
+
+const getMeasurePinStyle = (labelText) => {
+  const darkMode = isDarkMode.value === true;
+  const fillColor = darkMode ? "rgba(248,250,252,0.92)" : "rgba(99,102,241,0.92)";
+  const strokeColor = darkMode ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.95)";
+  const textColor = darkMode ? "#111827" : "#ffffff";
+
+  return new Style({
+    image: new CircleStyle({
+      radius: 10,
+      fill: new Fill({ color: fillColor }),
+      stroke: new Stroke({ color: strokeColor, width: 3 }),
+    }),
+    text: new Text({
+      text: labelText,
+      font: "700 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+      fill: new Fill({ color: textColor }),
+      offsetY: 0,
+    }),
+    zIndex: 120,
+  });
+};
+
+const MEASURE_LINE_STYLE = new Style({
+  stroke: new Stroke({
+    color: "rgba(99,102,241,0.9)",
+    width: 3,
+  }),
+  zIndex: 110,
+});
+
+const getMeasureLabelStyle = (labelText) => {
+  const darkMode = isDarkMode.value === true;
+  const textColor = darkMode ? "#111827" : "#f9fafb";
+  const bgColor = darkMode ? "rgba(248,250,252,0.92)" : "rgba(17,24,39,0.85)";
+  const borderColor = darkMode ? "rgba(15,23,42,0.35)" : "rgba(248,250,252,0.25)";
+
+  return new Style({
+    text: new Text({
+      text: labelText,
+      font: "600 13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+      fill: new Fill({ color: textColor }),
+      backgroundFill: new Fill({ color: bgColor }),
+      backgroundStroke: new Stroke({ color: borderColor, width: 2 }),
+      padding: [6, 8, 6, 8],
+      offsetY: -14,
+    }),
+    zIndex: 130,
+  });
+};
+
+const getBoatLonLatForMeasure = () => {
+  const pos = stateStore.state?.navigation?.position;
+  if (!pos || !pos.latitude || !pos.longitude) return null;
+  const lat = pos.latitude.value;
+  const lon = pos.longitude.value;
+  if (lat == null || lon == null) return null;
+  if (typeof lat !== "number" || typeof lon !== "number") return null;
+  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  return [lon, lat];
+};
+
+const clearMeasurementFeatures = () => {
+  clearFeature(FEATURE_TYPES.MEASURE_PIN_A);
+  clearFeature(FEATURE_TYPES.MEASURE_PIN_B);
+  clearFeature(FEATURE_TYPES.MEASURE_LINE);
+  clearFeature(FEATURE_TYPES.MEASURE_LABEL);
+  measurePinA.value = null;
+  measurePinB.value = null;
+  measureLine.value = null;
+  measureLabel.value = null;
+  measurePinAFollowsBoat.value = false;
+  measurePinBFollowsBoat.value = false;
+};
+
+const ensureTranslateInteraction = () => {
+  if (!map.value) return;
+  if (modifyInteraction) return;
+
+  modifyInteraction = new Translate({
+    features: new Collection(),
+    hitTolerance: 12,
+  });
+
+  modifyInteraction.on("translatestart", (evt) => {
+    if (dragPanInteraction && typeof dragPanInteraction.setActive === "function") {
+      dragPanInteraction.setActive(false);
+    }
+    const moved = evt?.features;
+    if (!moved || typeof moved.forEach !== "function") return;
+    moved.forEach((feature) => {
+      const type = feature?.get?.("type");
+      if (type === FEATURE_TYPES.MEASURE_PIN_A) {
+        measurePinAFollowsBoat.value = false;
+      }
+      if (type === FEATURE_TYPES.MEASURE_PIN_B) {
+        measurePinBFollowsBoat.value = false;
+      }
+    });
+  });
+
+  modifyInteraction.on("translateend", () => {
+    if (dragPanInteraction && typeof dragPanInteraction.setActive === "function") {
+      dragPanInteraction.setActive(true);
+    }
+    updateMeasurementLineAndLabel();
+  });
+
+  const interactions = map.value.getInteractions?.();
+  if (interactions && typeof interactions.insertAt === "function") {
+    interactions.insertAt(0, modifyInteraction);
+  } else {
+    map.value.addInteraction(modifyInteraction);
+  }
+};
+
+const syncTranslateFeatures = () => {
+  if (!modifyInteraction) return;
+  const collection = modifyInteraction.getFeatures?.();
+  if (!collection) return;
+
+  collection.clear();
+  if (measurePinA.value) {
+    collection.push(measurePinA.value);
+  }
+  if (measurePinB.value) {
+    collection.push(measurePinB.value);
+  }
+};
+
+const updateMeasurementLineAndLabel = () => {
+  if (!measurePinA.value || !measurePinB.value) {
+    clearFeature(FEATURE_TYPES.MEASURE_LINE);
+    clearFeature(FEATURE_TYPES.MEASURE_LABEL);
+    measureLine.value = null;
+    measureLabel.value = null;
+    return;
+  }
+
+  const geomA = measurePinA.value.getGeometry?.();
+  const geomB = measurePinB.value.getGeometry?.();
+  const coordA = geomA?.getCoordinates?.();
+  const coordB = geomB?.getCoordinates?.();
+  if (!Array.isArray(coordA) || !Array.isArray(coordB)) return;
+
+  const lineGeom = new LineString([coordA, coordB]);
+  if (!measureLine.value) {
+    const lineFeature = new Feature({ geometry: lineGeom });
+    lineFeature.set("type", FEATURE_TYPES.MEASURE_LINE);
+    lineFeature.setStyle(MEASURE_LINE_STYLE);
+    vectorSource.addFeature(lineFeature);
+    measureLine.value = lineFeature;
+  } else {
+    measureLine.value.setGeometry(lineGeom);
+  }
+
+  const lonLatA = toLonLat(coordA);
+  const lonLatB = toLonLat(coordB);
+  const distanceValue = calculateDistanceMeters(lonLatA[1], lonLatA[0], lonLatB[1], lonLatB[0], isMetric.value);
+  const unitLabel = isMetric.value ? "m" : "ft";
+  const distanceText = typeof distanceValue === "number" ? `${Math.round(distanceValue)} ${unitLabel}` : "--";
+
+  const midCoord = [(coordA[0] + coordB[0]) / 2, (coordA[1] + coordB[1]) / 2];
+  const labelGeom = new Point(midCoord);
+
+  if (!measureLabel.value) {
+    const labelFeature = new Feature({ geometry: labelGeom });
+    labelFeature.set("type", FEATURE_TYPES.MEASURE_LABEL);
+    labelFeature.setStyle(getMeasureLabelStyle(distanceText));
+    vectorSource.addFeature(labelFeature);
+    measureLabel.value = labelFeature;
+  } else {
+    measureLabel.value.setGeometry(labelGeom);
+    measureLabel.value.setStyle(getMeasureLabelStyle(distanceText));
+  }
+};
+
+const applyBoatFollowToPin = (pinType, pinRef, followsRef) => {
+  const boatLonLat = getBoatLonLatForMeasure();
+  if (!boatLonLat) return;
+  const coord = fromLonLat(boatLonLat);
+  if (!pinRef.value) {
+    const feature = new Feature({ geometry: new Point(coord) });
+    feature.set(
+      "type",
+      pinType === "A" ? FEATURE_TYPES.MEASURE_PIN_A : FEATURE_TYPES.MEASURE_PIN_B
+    );
+    feature.setStyle(getMeasurePinStyle(pinType));
+    vectorSource.addFeature(feature);
+    pinRef.value = feature;
+  } else {
+    pinRef.value.setGeometry(new Point(coord));
+    pinRef.value.setStyle(getMeasurePinStyle(pinType));
+  }
+  followsRef.value = true;
+};
+
+const tryCreateOrUpdateMeasurePin = (pinType, lonLatClicked) => {
+  const clickedCoord = fromLonLat(lonLatClicked);
+  const boatLonLat = getBoatLonLatForMeasure();
+  const shouldSnapToBoat = (() => {
+    if (!boatLonLat) return false;
+    const d = calculateDistanceMeters(lonLatClicked[1], lonLatClicked[0], boatLonLat[1], boatLonLat[0], true);
+    return typeof d === "number" && d <= measureSnapDistanceMeters;
+  })();
+
+  if (pinType === "A") {
+    if (shouldSnapToBoat) {
+      applyBoatFollowToPin("A", measurePinA, measurePinAFollowsBoat);
+    } else {
+      measurePinAFollowsBoat.value = false;
+      if (!measurePinA.value) {
+        const feature = new Feature({ geometry: new Point(clickedCoord) });
+        feature.set("type", FEATURE_TYPES.MEASURE_PIN_A);
+        feature.setStyle(getMeasurePinStyle("A"));
+        vectorSource.addFeature(feature);
+        measurePinA.value = feature;
+      } else {
+        measurePinA.value.setGeometry(new Point(clickedCoord));
+        measurePinA.value.setStyle(getMeasurePinStyle("A"));
+      }
+    }
+  }
+
+  if (pinType === "B") {
+    if (shouldSnapToBoat) {
+      applyBoatFollowToPin("B", measurePinB, measurePinBFollowsBoat);
+    } else {
+      measurePinBFollowsBoat.value = false;
+      if (!measurePinB.value) {
+        const feature = new Feature({ geometry: new Point(clickedCoord) });
+        feature.set("type", FEATURE_TYPES.MEASURE_PIN_B);
+        feature.setStyle(getMeasurePinStyle("B"));
+        vectorSource.addFeature(feature);
+        measurePinB.value = feature;
+      } else {
+        measurePinB.value.setGeometry(new Point(clickedCoord));
+        measurePinB.value.setStyle(getMeasurePinStyle("B"));
+      }
+    }
+  }
+
+  syncTranslateFeatures();
+  updateMeasurementLineAndLabel();
+};
+
+const toggleMeasureMode = () => {
+  measureModeEnabled.value = !measureModeEnabled.value;
+  if (measureModeEnabled.value) {
+    ensureTranslateInteraction();
+    syncTranslateFeatures();
+    return;
+  }
+
+  clearMeasurementFeatures();
+  if (modifyInteraction && map.value) {
+    map.value.removeInteraction(modifyInteraction);
+    modifyInteraction = null;
+  }
+};
 
 // Derived state
 const boatPosition = computed(() => navigationState.value?.position);
@@ -476,6 +775,17 @@ const isMetric = computed(() => {
   return false;
 });
 
+watch(
+  isMetric,
+  (next) => {
+    if (!scaleLineControl || typeof scaleLineControl.setUnits !== "function") {
+      return;
+    }
+    scaleLineControl.setUnits(next ? "metric" : "imperial");
+  },
+  { immediate: true }
+);
+
 // Dynamic range bounds based on unit system
 const criticalRangeMax = computed(() => (isMetric.value ? 100 : 300)); // 300m ≈ 1000ft
 const rodeRangeMax = computed(() => (isMetric.value ? 100 : 300)); // 100m ≈ 330ft
@@ -492,6 +802,10 @@ const savedView = restoreViewState();
 
 // Map tools
 const { fitToFeatures, validateCoordinates } = useMapTools(map, vectorSource);
+
+const anchorInfoContainer = ref(null);
+
+const hasCenteredOnBoatThisEntry = ref(null);
 
 // Feature Updates
 const updateBoatPosition = debounce(() => {
@@ -529,12 +843,119 @@ const updateBoatPosition = debounce(() => {
   // Update the boat feature
   updateFeature(FEATURE_TYPES.BOAT, point, STYLES.BOAT);
 
-  // Center map on boat if needed
-  if (map.value && !map.value.getView().getCenter()) {
-    map.value.getView().setCenter(fromLonLat([lon, lat]));
-    map.value.getView().setZoom(15); // Set a reasonable zoom level
+  // Center map on boat once each time the user enters this view
+  if (map.value && hasCenteredOnBoatThisEntry.value !== true) {
+    const view = map.value.getView();
+    if (view) {
+      const coord = fromLonLat([lon, lat]);
+      // Ensure the map has an up-to-date size before computing pixel offsets.
+      // Ionic view transitions can leave the map with a stale size for a moment.
+      map.value.updateSize();
+      const size = map.value.getSize();
+      const overlayBottomPx = (() => {
+        const wrapper = anchorInfoContainer.value;
+        const mapEl = mapElement.value;
+        if (!wrapper || !mapEl) return null;
+        if (typeof wrapper.querySelector !== 'function') return null;
+        if (typeof mapEl.getBoundingClientRect !== 'function') return null;
+
+        const overlayEl = wrapper.querySelector('.anchor-grid-div');
+        if (!overlayEl || typeof overlayEl.getBoundingClientRect !== 'function') return null;
+
+        const overlayRect = overlayEl.getBoundingClientRect();
+        const mapRect = mapEl.getBoundingClientRect();
+
+        const bottom = overlayRect.bottom - mapRect.top;
+        return typeof bottom === 'number' && !Number.isNaN(bottom) ? bottom : null;
+      })();
+
+      // If we can measure the overlay, center within the remaining visible map area.
+      // AnchorInfoGrid is top-anchored, so the visible map area is the space below it.
+      if (
+        Array.isArray(size) &&
+        size.length === 2 &&
+        typeof size[0] === 'number' &&
+        typeof size[1] === 'number' &&
+        overlayBottomPx != null
+      ) {
+        const visibleStartY = overlayBottomPx;
+        const visibleHeight = size[1] - visibleStartY;
+        if (visibleStartY >= 0 && visibleHeight > 0) {
+          const targetY = (() => {
+            const centered = visibleStartY + visibleHeight / 2;
+            const shifted = centered - visibleHeight * 0.1;
+            return shifted < visibleStartY ? visibleStartY : shifted;
+          })();
+          view.centerOn(coord, size, [size[0] / 2, targetY]);
+          hasCenteredOnBoatThisEntry.value = true;
+          return;
+        }
+      }
+
+      // Fallback to normal centering
+      view.setCenter(coord);
+      hasCenteredOnBoatThisEntry.value = true;
+    }
   }
 }, 100);
+
+const recenterMap = () => {
+  const pos = stateStore.state?.navigation?.position;
+  if (!pos || !pos.latitude || !pos.longitude) return;
+  if (pos.latitude.value == null || pos.longitude.value == null) return;
+
+  const lat = pos.latitude.value;
+  const lon = pos.longitude.value;
+  if (typeof lat !== 'number' || typeof lon !== 'number' || Number.isNaN(lat) || Number.isNaN(lon)) return;
+
+  if (!map.value) return;
+  const view = map.value.getView();
+  if (!view) return;
+
+  const coord = fromLonLat([lon, lat]);
+  map.value.updateSize();
+  const size = map.value.getSize();
+  if (!Array.isArray(size) || size.length !== 2 || typeof size[0] !== 'number' || typeof size[1] !== 'number') {
+    view.setCenter(coord);
+    return;
+  }
+
+  const overlayBottomPx = (() => {
+    const wrapper = anchorInfoContainer.value;
+    const mapEl = mapElement.value;
+    if (!wrapper || !mapEl) return null;
+    if (typeof wrapper.querySelector !== 'function') return null;
+    if (typeof mapEl.getBoundingClientRect !== 'function') return null;
+
+    const overlayEl = wrapper.querySelector('.anchor-grid-div');
+    if (!overlayEl || typeof overlayEl.getBoundingClientRect !== 'function') return null;
+
+    const overlayRect = overlayEl.getBoundingClientRect();
+    const mapRect = mapEl.getBoundingClientRect();
+    const bottom = overlayRect.bottom - mapRect.top;
+    return typeof bottom === 'number' && !Number.isNaN(bottom) ? bottom : null;
+  })();
+
+  if (overlayBottomPx == null) {
+    view.setCenter(coord);
+    return;
+  }
+
+  const visibleStartY = overlayBottomPx;
+  const visibleHeight = size[1] - visibleStartY;
+  if (!(visibleStartY >= 0) || !(visibleHeight > 0)) {
+    view.setCenter(coord);
+    return;
+  }
+
+  const targetY = (() => {
+    const centered = visibleStartY + visibleHeight / 2;
+    const shifted = centered - visibleHeight * 0.1;
+    return shifted < visibleStartY ? visibleStartY : shifted;
+  })();
+
+  view.centerOn(coord, size, [size[0] / 2, targetY]);
+};
 
 // Track the last known valid position to prevent flickering
 const lastKnownValidPosition = ref({
@@ -1120,7 +1541,7 @@ const initializeMap = () => {
   let centerLon = 0;
   let hasValidPosition = false;
 
-  if (pos?.latitude?.value && pos?.longitude?.value) {
+  if (pos?.latitude?.value != null && pos?.longitude?.value != null) {
     centerLat = pos.latitude.value;
     centerLon = pos.longitude.value;
     hasValidPosition = true;
@@ -1153,6 +1574,68 @@ const initializeMap = () => {
       mouseWheelZoom: false, // Disable default and add our custom one below
     }),
     pixelRatio: window.devicePixelRatio,
+  });
+
+  // Capture the default DragPan interaction so we can temporarily disable it while dragging measure pins.
+  dragPanInteraction = null;
+  map.value.getInteractions().forEach((interaction) => {
+    if (interaction instanceof DragPan) {
+      dragPanInteraction = interaction;
+    }
+  });
+
+  // Disable DragPan when a gesture starts on a measurement pin so the Translate interaction can move the pin.
+  let isDraggingMeasurePin = false;
+  let draggedMeasureFeature = null;
+  map.value.on("pointerdown", (evt) => {
+    if (measureModeEnabled.value !== true) return;
+    if (!dragPanInteraction || typeof dragPanInteraction.setActive !== "function") return;
+    const pixel = evt?.pixel;
+    if (!pixel) return;
+    const featuresAtPixel = map.value.getFeaturesAtPixel(pixel, { hitTolerance: 18 });
+    const measurePinFeature = Array.isArray(featuresAtPixel)
+      ? featuresAtPixel.find((feature) => {
+          const type = feature?.get?.("type");
+          return type === FEATURE_TYPES.MEASURE_PIN_A || type === FEATURE_TYPES.MEASURE_PIN_B;
+        })
+      : null;
+    if (measurePinFeature) {
+      isDraggingMeasurePin = true;
+      draggedMeasureFeature = measurePinFeature;
+      dragPanInteraction.setActive(false);
+
+      const draggedType = draggedMeasureFeature?.get?.("type");
+      if (draggedType === FEATURE_TYPES.MEASURE_PIN_A) {
+        measurePinAFollowsBoat.value = false;
+      }
+      if (draggedType === FEATURE_TYPES.MEASURE_PIN_B) {
+        measurePinBFollowsBoat.value = false;
+      }
+
+      syncTranslateFeatures();
+    }
+  });
+
+  // Manual drag fallback: move the pin geometry directly on pointerdrag.
+  map.value.on("pointerdrag", (evt) => {
+    if (measureModeEnabled.value !== true) return;
+    if (!isDraggingMeasurePin) return;
+    if (!draggedMeasureFeature) return;
+    const coord = evt?.coordinate;
+    if (!coord || coord.length < 2) return;
+    const geom = draggedMeasureFeature.getGeometry?.();
+    if (!geom || typeof geom.setCoordinates !== "function") return;
+    geom.setCoordinates(coord);
+    updateMeasurementLineAndLabel();
+  });
+
+  map.value.on("pointerup", () => {
+    if (!dragPanInteraction || typeof dragPanInteraction.setActive !== "function") return;
+    if (!isDraggingMeasurePin) return;
+    isDraggingMeasurePin = false;
+    draggedMeasureFeature = null;
+    dragPanInteraction.setActive(true);
+    updateMeasurementLineAndLabel();
   });
 
   // Add boat feature immediately if we have valid position
@@ -1197,7 +1680,8 @@ const initializeMap = () => {
   });
   map.value.addInteraction(mouseWheelZoom);
 
-  map.value.addControl(new ScaleLine({ units: "metric" }));
+  scaleLineControl = new ScaleLine({ units: isMetric.value ? "metric" : "imperial" });
+  map.value.addControl(scaleLineControl);
   if (attributionContainer.value) {
     map.value.addControl(
       new Attribution({
@@ -1263,6 +1747,23 @@ watch(
   boatPosition,
   (newPosition) => {
     logger.debug("Boat position updated", { position: newPosition });
+
+    if (measureModeEnabled.value) {
+      let updated = false;
+      if (measurePinAFollowsBoat.value === true) {
+        applyBoatFollowToPin("A", measurePinA, measurePinAFollowsBoat);
+        updated = true;
+      }
+      if (measurePinBFollowsBoat.value === true) {
+        applyBoatFollowToPin("B", measurePinB, measurePinBFollowsBoat);
+        updated = true;
+      }
+      if (updated) {
+        syncTranslateFeatures();
+        updateMeasurementLineAndLabel();
+      }
+    }
+
     // Check if anchorState exists before accessing properties
     if (!anchorState.value) {
       return;
@@ -1596,7 +2097,7 @@ const recommendedScope = computed(() => {
 
     // Debug logging removed for production
 
-    if (!reportedDepth) {
+    if (reportedDepth == null) {
       return null;
     }
 
@@ -1607,42 +2108,19 @@ const recommendedScope = computed(() => {
     const now = new Date();
     const futureCutoff = new Date(now.getTime() + 72 * 60 * 60 * 1000); // 72 hours from now
 
-    // Get all sea level heights and their corresponding times
-    let seaLevels = [];
-    let timeStamps = [];
+    const timeStamps = tideData?.hourly?.time;
+    const seaLevels = tideData?.hourly?.values?.seaLevelHeightMsl;
+    const seaLevelUnit = tideData?.units?.seaLevelHeight;
 
-    // Try different possible data structures
-    if (tideData.hourly?.values?.seaLevelHeightMsl) {
-      // Format: { hourly: { values: { seaLevelHeightMsl: { [index]: value } } } }
-      seaLevels = Object.values(tideData.hourly.values.seaLevelHeightMsl);
-      timeStamps = tideData.hourly.time || [];
-    } else if (tideData.hourly?.waterLevels) {
-      // Format: { hourly: { waterLevels: [{ time, value }, ...] } }
-      seaLevels = tideData.hourly.waterLevels.map((entry) => entry.value);
-      timeStamps = tideData.hourly.waterLevels.map((entry) => entry.time);
-    } else if (tideData.hourly?.length > 0 && tideData.hourly[0].value !== undefined) {
-      // Format: { hourly: [{ time, value }, ...] }
-      seaLevels = tideData.hourly.map((entry) => entry.value);
-      timeStamps = tideData.hourly.map((entry) => entry.time);
-    } else if (tideData.hourly?.time && Array.isArray(tideData.hourly.time)) {
-      // Format: { hourly: { time: [...], values: { seaLevel: [...] } } }
-      seaLevels = Object.values(tideData.hourly.values || {}).flat();
-      timeStamps = tideData.hourly.time;
+    if (!Array.isArray(timeStamps) || !Array.isArray(seaLevels)) {
+      return null;
     }
 
     if (seaLevels.length === 0 || timeStamps.length === 0) {
       return null;
     }
 
-    if (seaLevels.length !== timeStamps.length) {
-      console.warn(
-        `Mismatched data: ${seaLevels.length} sea levels vs ${timeStamps.length} timestamps`
-      );
-      // Try to handle the mismatch by using the minimum length
-      const minLength = Math.min(seaLevels.length, timeStamps.length);
-      seaLevels = seaLevels.slice(0, minLength);
-      timeStamps = timeStamps.slice(0, minLength);
-    }
+    const minLength = Math.min(seaLevels.length, timeStamps.length);
 
     // Find maximum water level in the next 72 hours
     let maxFutureLevel = -Infinity;
@@ -1653,7 +2131,7 @@ const recommendedScope = computed(() => {
     const currentTime = new Date();
     let closestTimeDiff = Infinity;
 
-    for (let i = 0; i < timeStamps.length; i++) {
+    for (let i = 0; i < minLength; i++) {
       try {
         const entryTime = new Date(timeStamps[i]);
         const timeDiff = Math.abs(entryTime - currentTime);
@@ -1666,14 +2144,27 @@ const recommendedScope = computed(() => {
 
         // Check if this entry is within our future window
         if (entryTime >= currentTime && entryTime <= futureCutoff) {
-          const level = seaLevels[i];
-          if (level !== undefined && level > maxFutureLevel) {
+          const rawLevel = seaLevels[i];
+          if (typeof rawLevel !== "number" || Number.isNaN(rawLevel)) {
+            continue;
+          }
+
+          const level = (() => {
+            if (isMetric.value) {
+              if (seaLevelUnit === "ft") return rawLevel / 3.28084;
+              return rawLevel;
+            }
+            if (seaLevelUnit === "m") return rawLevel * 3.28084;
+            return rawLevel;
+          })();
+
+          if (level > maxFutureLevel) {
             maxFutureLevel = level;
             maxFutureTime = entryTime;
           }
         }
       } catch (error) {
-        console.error("Error processing tide data at index", i, error);
+        // Skip invalid entries
       }
     }
 
@@ -1720,6 +2211,11 @@ const recommendedScope = computed(() => {
     logger.error("Error calculating recommended scope:", error);
     return null;
   }
+});
+
+onIonViewDidEnter(() => {
+  hasCenteredOnBoatThisEntry.value = null;
+  updateBoatPosition();
 });
 
 // Apply the recommended scope to the anchor state
@@ -2139,6 +2635,20 @@ const handleMapClick = (event) => {
     pixel: event.pixel,
     type: event.type,
   });
+
+  if (measureModeEnabled.value) {
+    const lonLatClicked = toLonLat(event.coordinate);
+    if (!measurePinA.value) {
+      tryCreateOrUpdateMeasurePin("A", lonLatClicked);
+      return;
+    }
+    if (!measurePinB.value) {
+      tryCreateOrUpdateMeasurePin("B", lonLatClicked);
+      return;
+    }
+    return;
+  }
+
   // Get features at the click position
   const clickedFeatures = map.value.getFeaturesAtPixel(event.pixel);
 
@@ -2361,29 +2871,36 @@ onUnmounted(() => {
 .custom-zoom-controls {
   position: fixed;
   left: 20px;
-  bottom: 80px; /* Aligned with the anchor-fab-container */
+  bottom: 70px; /* Aligned with the anchor-fab-container */
   display: flex;
   flex-direction: column;
-  gap: 10px; /* Matched gap with anchor-fab-container */
+  align-items: center;
+  gap: 6px;
   z-index: 1000; /* Same z-index as anchor-fab-container */
+
+  padding: 8px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--app-surface-color) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-border-color) 70%, transparent);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--app-text-color) 18%, transparent);
 }
 
 .zoom-button {
-  width: 56px; /* Match --size: 56px from .custom-fab-size */
-  height: 56px; /* Match --size: 56px from .custom-fab-size */
-  margin: 5px; /* Match margin from .custom-fab-size */
+  width: 44px;
+  height: 44px;
+  margin: 0;
   border-radius: 50%;
   background-color: var(--app-accent-color);
   color: var(--app-accent-contrast-color);
+  border: none;
   font-size: 28px;
   font-weight: bold;
-  border: none;
-  box-shadow: 0 3px 8px color-mix(in srgb, var(--app-text-color) 18%, transparent);
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease-in-out;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-text-color) 18%, transparent);
   -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
 }
 
@@ -2398,21 +2915,43 @@ onUnmounted(() => {
   transform: scale(0.95);
 }
 
-/* Add a subtle animation to draw attention to the buttons */
-@keyframes pulse {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-  100% {
-    transform: scale(1);
-  }
+
+.zoom-compact {
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--app-accent-color) 70%, transparent);
+  background-color: var(--app-accent-color);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-text-color) 18%, transparent);
 }
 
-.zoom-button.zoom-in {
-  animation: pulse 2s infinite;
+.zoom-compact-button {
+  width: 40px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--app-accent-contrast-color);
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.zoom-compact-in {
+  border-bottom: 1px solid color-mix(in srgb, var(--app-accent-contrast-color) 45%, transparent);
+}
+
+.zoom-compact-button:hover {
+  filter: brightness(1.08);
+}
+
+.zoom-compact-button:active {
+  filter: brightness(0.92);
 }
 
 ion-page.page-container {
@@ -2457,6 +2996,10 @@ ion-page.page-container {
 .custom-icon {
   width: 24px;
   height: 24px;
+}
+
+.anchor-fab-icon {
+  filter: brightness(0) invert(1);
 }
 
 .map-attribution {

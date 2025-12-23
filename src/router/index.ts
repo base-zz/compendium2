@@ -22,6 +22,7 @@ import HomePage from "@/views/HomePage.vue";
 import BoatPairing from "@/components/onboarding/BoatPairing.vue";
 import WeatherView from "@/views/WeatherView.vue";
 import TidalView from "@/views/TidalView.vue";
+import MarineDashboardView from "@/views/MarineDashboardView.vue";
 const routes = [
   {
     path: "/:pathMatch(.*)*",
@@ -152,6 +153,12 @@ const routes = [
     name: "Tides",
     component: TidalView,
     meta: { title: "Tides" },
+  },
+  {
+    path: "/marine",
+    name: "MarineDashboard",
+    component: MarineDashboardView,
+    meta: { title: "Marine Dashboard" },
   },
   {
     path: "/tide-chart",
