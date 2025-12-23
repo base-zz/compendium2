@@ -268,7 +268,19 @@
 
         <button
           @click="toggleMeasureMode"
-          class="zoom-button"
+          class="zoom-button measure-toggle"
+          :class="{ 'measure-toggle-active': measureModeEnabled }"
+          :style="
+            measureModeEnabled
+              ? {
+                  backgroundColor: '#facc15',
+                  background: '#facc15',
+                  color: '#111827',
+                  boxShadow:
+                    '0 0 0 3px rgba(250, 204, 21, 0.55), 0 8px 18px rgba(250, 204, 21, 0.25)',
+                }
+              : null
+          "
           :data-label="measureModeEnabled ? 'Measure (On)' : 'Measure (Off)'"
         >
           <ion-icon :icon="resizeOutline" size="small" aria-hidden="true" />
@@ -313,7 +325,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { createLogger } from "@/services/logger";
 
@@ -447,11 +459,21 @@ let modifyInteraction;
 let scaleLineControl;
 let dragPanInteraction;
 
-const getMeasurePinStyle = (labelText) => {
+const getMeasurePinStyle = (labelText, isSnappedToBoat) => {
   const darkMode = isDarkMode.value === true;
-  const fillColor = darkMode ? "rgba(248,250,252,0.92)" : "rgba(99,102,241,0.92)";
-  const strokeColor = darkMode ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.95)";
-  const textColor = darkMode ? "#111827" : "#ffffff";
+  const alpha = isSnappedToBoat === true ? 0.2 : 0.95;
+  const fillColor = (() => {
+    if (labelText === "A") return `rgba(239,68,68,${alpha})`;
+    if (labelText === "B") return `rgba(34,197,94,${alpha})`;
+    return darkMode ? `rgba(248,250,252,${alpha})` : `rgba(99,102,241,${alpha})`;
+  })();
+  const strokeColor = (() => {
+    if (isSnappedToBoat === true) {
+      return darkMode ? "rgba(15,23,42,0.2)" : "rgba(255,255,255,0.2)";
+    }
+    return darkMode ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.95)";
+  })();
+  const textColor = isSnappedToBoat === true ? "rgba(255,255,255,0.2)" : "#ffffff";
 
   return new Style({
     image: new CircleStyle({
@@ -471,8 +493,8 @@ const getMeasurePinStyle = (labelText) => {
 
 const MEASURE_LINE_STYLE = new Style({
   stroke: new Stroke({
-    color: "rgba(99,102,241,0.9)",
-    width: 3,
+    color: "rgba(250,204,21,0.95)",
+    width: 4,
   }),
   zIndex: 110,
 });
@@ -540,17 +562,64 @@ const ensureTranslateInteraction = () => {
       const type = feature?.get?.("type");
       if (type === FEATURE_TYPES.MEASURE_PIN_A) {
         measurePinAFollowsBoat.value = false;
+        if (typeof feature?.setStyle === "function") {
+          feature.setStyle(getMeasurePinStyle("A", false));
+        }
       }
       if (type === FEATURE_TYPES.MEASURE_PIN_B) {
         measurePinBFollowsBoat.value = false;
+        if (typeof feature?.setStyle === "function") {
+          feature.setStyle(getMeasurePinStyle("B", false));
+        }
       }
     });
   });
 
-  modifyInteraction.on("translateend", () => {
+  modifyInteraction.on("translateend", (evt) => {
     if (dragPanInteraction && typeof dragPanInteraction.setActive === "function") {
       dragPanInteraction.setActive(true);
     }
+
+    const boatLonLat = getBoatLonLatForMeasure();
+    if (boatLonLat) {
+      const boatLon = boatLonLat[0];
+      const boatLat = boatLonLat[1];
+      const tryResnap = (feature) => {
+        const type = feature?.get?.("type");
+        if (type !== FEATURE_TYPES.MEASURE_PIN_A && type !== FEATURE_TYPES.MEASURE_PIN_B) {
+          return;
+        }
+        const geom = feature?.getGeometry?.();
+        const coord = geom?.getCoordinates?.();
+        if (!Array.isArray(coord)) return;
+        const lonLat = toLonLat(coord);
+        if (!Array.isArray(lonLat) || lonLat.length < 2) return;
+        const lon = lonLat[0];
+        const lat = lonLat[1];
+        if (typeof lon !== "number" || typeof lat !== "number") return;
+        if (Number.isNaN(lon) || Number.isNaN(lat)) return;
+
+        const d = calculateDistanceMeters(lat, lon, boatLat, boatLon, true);
+        if (typeof d !== "number" || Number.isNaN(d)) return;
+        if (d > measureSnapDistanceMeters) return;
+
+        if (type === FEATURE_TYPES.MEASURE_PIN_A) {
+          applyBoatFollowToPin("A", measurePinA, measurePinAFollowsBoat);
+        }
+        if (type === FEATURE_TYPES.MEASURE_PIN_B) {
+          applyBoatFollowToPin("B", measurePinB, measurePinBFollowsBoat);
+        }
+      };
+
+      const moved = evt?.features;
+      if (moved && typeof moved.forEach === "function") {
+        moved.forEach((feature) => {
+          tryResnap(feature);
+        });
+      }
+    }
+
+    syncTranslateFeatures();
     updateMeasurementLineAndLabel();
   });
 
@@ -633,12 +702,12 @@ const applyBoatFollowToPin = (pinType, pinRef, followsRef) => {
       "type",
       pinType === "A" ? FEATURE_TYPES.MEASURE_PIN_A : FEATURE_TYPES.MEASURE_PIN_B
     );
-    feature.setStyle(getMeasurePinStyle(pinType));
+    feature.setStyle(getMeasurePinStyle(pinType, true));
     vectorSource.addFeature(feature);
     pinRef.value = feature;
   } else {
     pinRef.value.setGeometry(new Point(coord));
-    pinRef.value.setStyle(getMeasurePinStyle(pinType));
+    pinRef.value.setStyle(getMeasurePinStyle(pinType, true));
   }
   followsRef.value = true;
 };
@@ -660,12 +729,12 @@ const tryCreateOrUpdateMeasurePin = (pinType, lonLatClicked) => {
       if (!measurePinA.value) {
         const feature = new Feature({ geometry: new Point(clickedCoord) });
         feature.set("type", FEATURE_TYPES.MEASURE_PIN_A);
-        feature.setStyle(getMeasurePinStyle("A"));
+        feature.setStyle(getMeasurePinStyle("A", false));
         vectorSource.addFeature(feature);
         measurePinA.value = feature;
       } else {
         measurePinA.value.setGeometry(new Point(clickedCoord));
-        measurePinA.value.setStyle(getMeasurePinStyle("A"));
+        measurePinA.value.setStyle(getMeasurePinStyle("A", false));
       }
     }
   }
@@ -678,12 +747,12 @@ const tryCreateOrUpdateMeasurePin = (pinType, lonLatClicked) => {
       if (!measurePinB.value) {
         const feature = new Feature({ geometry: new Point(clickedCoord) });
         feature.set("type", FEATURE_TYPES.MEASURE_PIN_B);
-        feature.setStyle(getMeasurePinStyle("B"));
+        feature.setStyle(getMeasurePinStyle("B", false));
         vectorSource.addFeature(feature);
         measurePinB.value = feature;
       } else {
         measurePinB.value.setGeometry(new Point(clickedCoord));
-        measurePinB.value.setStyle(getMeasurePinStyle("B"));
+        measurePinB.value.setStyle(getMeasurePinStyle("B", false));
       }
     }
   }
@@ -692,11 +761,15 @@ const tryCreateOrUpdateMeasurePin = (pinType, lonLatClicked) => {
   updateMeasurementLineAndLabel();
 };
 
-const toggleMeasureMode = () => {
+const toggleMeasureMode = async () => {
   measureModeEnabled.value = !measureModeEnabled.value;
   if (measureModeEnabled.value) {
-    ensureTranslateInteraction();
-    syncTranslateFeatures();
+    await nextTick();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    setTimeout(() => {
+      ensureTranslateInteraction();
+      syncTranslateFeatures();
+    }, 0);
     return;
   }
 
@@ -808,6 +881,25 @@ const anchorInfoContainer = ref(null);
 const hasCenteredOnBoatThisEntry = ref(null);
 
 // Feature Updates
+const getBoatHeadingDegreesFromState = (state) => {
+  if (!state || !state.navigation || !state.navigation.course) {
+    return 0;
+  }
+
+  const course = state.navigation.course;
+  const trueHeading = course.heading?.true?.value;
+  if (typeof trueHeading === "number" && !Number.isNaN(trueHeading)) {
+    return trueHeading;
+  }
+
+  const magneticHeading = course.heading?.magnetic?.value;
+  if (typeof magneticHeading === "number" && !Number.isNaN(magneticHeading)) {
+    return magneticHeading;
+  }
+
+  return 0;
+};
+
 const updateBoatPosition = debounce(() => {
   // Get the raw state to ensure we're accessing the data directly
   const state = stateStore.state;
@@ -841,7 +933,21 @@ const updateBoatPosition = debounce(() => {
   const point = new Point(fromLonLat([lon, lat]));
 
   // Update the boat feature
-  updateFeature(FEATURE_TYPES.BOAT, point, STYLES.BOAT);
+  const headingDegrees = getBoatHeadingDegreesFromState(state);
+  const headingRadians = (headingDegrees * Math.PI) / 180;
+  const correctedHeadingRadians = headingRadians + Math.PI / 2;
+  const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
+
+  try {
+    const img = boatStyle?.getImage?.();
+    if (img && typeof img.setRotation === "function") {
+      img.setRotation(correctedHeadingRadians);
+    }
+  } catch (e) {
+    // If rotation fails, keep rendering the boat marker without rotation.
+  }
+
+  updateFeature(FEATURE_TYPES.BOAT, point, boatStyle);
 
   // Center map on boat once each time the user enters this view
   if (map.value && hasCenteredOnBoatThisEntry.value !== true) {
@@ -1607,9 +1713,15 @@ const initializeMap = () => {
       const draggedType = draggedMeasureFeature?.get?.("type");
       if (draggedType === FEATURE_TYPES.MEASURE_PIN_A) {
         measurePinAFollowsBoat.value = false;
+        if (typeof draggedMeasureFeature?.setStyle === "function") {
+          draggedMeasureFeature.setStyle(getMeasurePinStyle("A", false));
+        }
       }
       if (draggedType === FEATURE_TYPES.MEASURE_PIN_B) {
         measurePinBFollowsBoat.value = false;
+        if (typeof draggedMeasureFeature?.setStyle === "function") {
+          draggedMeasureFeature.setStyle(getMeasurePinStyle("B", false));
+        }
       }
 
       syncTranslateFeatures();
@@ -1632,9 +1744,46 @@ const initializeMap = () => {
   map.value.on("pointerup", () => {
     if (!dragPanInteraction || typeof dragPanInteraction.setActive !== "function") return;
     if (!isDraggingMeasurePin) return;
+
+    const dragged = draggedMeasureFeature;
+    if (dragged) {
+      const boatLonLat = getBoatLonLatForMeasure();
+      if (boatLonLat) {
+        const boatLon = boatLonLat[0];
+        const boatLat = boatLonLat[1];
+        const draggedType = dragged?.get?.("type");
+        const geom = dragged?.getGeometry?.();
+        const coord = geom?.getCoordinates?.();
+        if (Array.isArray(coord)) {
+          const lonLat = toLonLat(coord);
+          if (Array.isArray(lonLat) && lonLat.length >= 2) {
+            const lon = lonLat[0];
+            const lat = lonLat[1];
+            if (
+              typeof lon === "number" &&
+              typeof lat === "number" &&
+              !Number.isNaN(lon) &&
+              !Number.isNaN(lat)
+            ) {
+              const d = calculateDistanceMeters(lat, lon, boatLat, boatLon, true);
+              if (typeof d === "number" && !Number.isNaN(d) && d <= measureSnapDistanceMeters) {
+                if (draggedType === FEATURE_TYPES.MEASURE_PIN_A) {
+                  applyBoatFollowToPin("A", measurePinA, measurePinAFollowsBoat);
+                }
+                if (draggedType === FEATURE_TYPES.MEASURE_PIN_B) {
+                  applyBoatFollowToPin("B", measurePinB, measurePinBFollowsBoat);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     isDraggingMeasurePin = false;
     draggedMeasureFeature = null;
     dragPanInteraction.setActive(true);
+    syncTranslateFeatures();
     updateMeasurementLineAndLabel();
   });
 
@@ -1712,6 +1861,14 @@ watch(
   (newPos) => {
     logger.debug("Navigation position updated", { position: newPos });
     logger.debug("Navigation position changed, updating boat position");
+    updateBoatPosition();
+  },
+  { immediate: true, deep: true }
+);
+
+watch(
+  () => stateStore.state.navigation?.course?.heading,
+  () => {
     updateBoatPosition();
   },
   { immediate: true, deep: true }
@@ -2835,6 +2992,7 @@ onUnmounted(() => {
   window.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
   document.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
 });
+
 </script>
 
 <style scoped>
@@ -2893,6 +3051,9 @@ onUnmounted(() => {
   background-color: var(--app-accent-color);
   color: var(--app-accent-contrast-color);
   border: none;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
   font-size: 28px;
   font-weight: bold;
   cursor: pointer;
@@ -2913,6 +3074,14 @@ onUnmounted(() => {
 .zoom-button:active {
   filter: brightness(0.92);
   transform: scale(0.95);
+}
+
+.zoom-button.measure-toggle-active {
+  background-color: #facc15 !important;
+  background: #facc15 !important;
+  color: #111827;
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.55),
+    0 8px 18px rgba(250, 204, 21, 0.25);
 }
 
 
@@ -3423,6 +3592,12 @@ body.dark .modal-actions ion-button[color="primary"] {
 body.dark .zoom-button {
   background-color: #1f2933 !important;
   color: #f8fafc !important;
+}
+
+body.dark .zoom-button.measure-toggle-active {
+  background-color: #facc15 !important;
+  background: #facc15 !important;
+  color: #111827 !important;
 }
 
 body.dark .zoom-button:hover {

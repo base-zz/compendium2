@@ -1,5 +1,7 @@
-import { Style, Fill, Stroke } from "ol/style";
+import { Style, Fill, Stroke, Icon } from "ol/style";
 import CircleStyle from "ol/style/Circle";
+
+const BOAT_ICON_SRC = "/img/navigate.svg";
 
 export const createStyle = (config) => {
   return new Style({
@@ -25,12 +27,16 @@ export const STYLES = {
     },
     zIndex: 80,
   }),
-  BOAT: createStyle({
-    circle: {
-      radius: 8,
-      fill: { color: "#2196f3" }, // Blue
-      stroke: { color: "#ffffff", width: 3 },
-    },
+  BOAT: new Style({
+    image: new Icon({
+      src: BOAT_ICON_SRC,
+      anchor: [0.5, 0.5],
+      anchorXUnits: "fraction",
+      anchorYUnits: "fraction",
+      imgSize: [512, 512],
+      scale: 0.06,
+      rotateWithView: true,
+    }),
     zIndex: 100,
   }),
   ANCHOR_DROP_LOCATION: createStyle({

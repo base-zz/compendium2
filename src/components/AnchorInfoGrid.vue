@@ -39,22 +39,6 @@
           <div class="metric-div">{{ stateStore.state.environment?.current?.speed?.value || '--' }}</div>
         </div>
       </div>
-      
-      <!-- Recommended Scope Section -->
-      <div v-if="recommendedScope && anchorState?.anchorDeployed" class="scope-suggestion">
-        <div class="suggestion-title">Recommended Cable</div>
-        <div class="suggestion-detail">
-          <span class="label">Current (5:1):</span>
-          <span class="value">{{ Math.round(recommendedScope.currentDepth * 5) }} {{ recommendedScope.unit }}</span>
-        </div>
-        <div class="suggestion-detail">
-          <span class="label">With tide (5:1):</span>
-          <span class="value highlight">{{ Math.round(recommendedScope.recommendedCableLength) }} {{ recommendedScope.unit }}</span>
-        </div>
-        <div class="suggestion-note">
-          Accounts for {{ recommendedScope.depthIncrease.toFixed(1) }}{{ recommendedScope.unit }} tide rise
-        </div>
-      </div>
     </div>
     <!-- anchor-btn-row removed: no extra action buttons needed when anchor is deployed -->
     <ion-modal :is-open="showEditRadiusModal" @didDismiss="showEditRadiusModal = false">
@@ -90,11 +74,8 @@ import { ref, watch, computed, onUnmounted } from 'vue';
 import { IonModal, IonButton, IonRange } from '@ionic/vue';
 import { useStateDataStore } from '@/stores/stateDataStore.js';
 import { storeToRefs } from 'pinia';
-import { createLogger } from '@/services/logger';
 import { usePreferencesStore } from '@/stores/preferences';
 import { UnitConversion } from '@/shared/unitConversion';
-
-const logger = createLogger('AnchorInfoGrid');
 
 const emit = defineEmits(['anchor-dropped']);
 
@@ -212,68 +193,6 @@ onUnmounted(() => {
   }
 });
 
-// Calculate recommended scope based on tide data
-const recommendedScope = computed(() => {
-  try {
-    const currentDepth = state.value.navigation?.depth?.belowTransducer?.value;
-    const tides = state.value.tides;
-    const tideTimes = tides?.hourly?.time;
-    const tideLevels = tides?.hourly?.values?.seaLevelHeightMsl;
-    const tideHeightUnit = tides?.units?.seaLevelHeight;
-    
-    if (currentDepth == null || !Array.isArray(tideTimes) || !Array.isArray(tideLevels)) return null;
-    if (tideTimes.length === 0 || tideLevels.length === 0) return null;
-    
-    const now = new Date();
-    const futureCutoff = new Date(now.getTime() + 72 * 60 * 60 * 1000); // 72 hours from now
-    
-    // Find maximum water level in the next 72 hours
-    let maxFutureLevel = null;
-    for (let i = 0; i < tideTimes.length && i < tideLevels.length; i += 1) {
-      const entryTime = new Date(tideTimes[i]);
-      const entryValue = tideLevels[i];
-      if (!(entryTime instanceof Date) || Number.isNaN(entryTime.getTime())) continue;
-      if (entryTime < now || entryTime > futureCutoff) continue;
-      if (typeof entryValue !== 'number' || Number.isNaN(entryValue)) continue;
-
-      if (maxFutureLevel == null || entryValue > maxFutureLevel) {
-        maxFutureLevel = entryValue;
-      }
-    }
-    
-    if (maxFutureLevel == null || maxFutureLevel <= 0) return null;
-
-    // Tide heights may arrive in ft or m; normalize them to the same unit as currentDepth
-    // before doing the delta math.
-    const tideLevelInDepthUnits = (() => {
-      if (isMetric.value) {
-        if (tideHeightUnit === 'ft') return maxFutureLevel / 3.28084;
-        return maxFutureLevel;
-      }
-      if (tideHeightUnit === 'm') return maxFutureLevel * 3.28084;
-      return maxFutureLevel;
-    })();
-    
-    const depthIncrease = Math.max(0, tideLevelInDepthUnits - currentDepth);
-    const targetDepth = currentDepth + depthIncrease;
-    
-    // Convert to feet if using imperial units
-    const unitMultiplier = isMetric.value ? 1 : 3.28084;
-    const unit = isMetric.value ? 'm' : 'ft';
-    
-    return {
-      currentDepth: currentDepth * unitMultiplier,
-      maxDepth: targetDepth * unitMultiplier,
-      depthIncrease: depthIncrease * unitMultiplier,
-      recommendedCableLength: Math.ceil(targetDepth * 5 * unitMultiplier),
-      unit
-    };
-  } catch (error) {
-    logger.error('Error calculating recommended scope:', error);
-    return null;
-  }
-});
-
 const titleClass = computed(() => {
   if (!anchorState.value) return 'not-anchored-title';
   
@@ -375,18 +294,14 @@ watch(
     if (newStatus === oldStatus) return;
 
     const newPos = getCurrentPositionSnapshot();
-    let deltaDistanceFeet = null;
 
     if (lastPositionSnapshot.value && newPos) {
-      const dMeters = calculateDistanceMetersLocal(
+      calculateDistanceMetersLocal(
         lastPositionSnapshot.value.lat,
         lastPositionSnapshot.value.lon,
         newPos.lat,
         newPos.lon
       );
-      if (dMeters != null) {
-        deltaDistanceFeet = dMeters * 3.28084;
-      }
     }
 
     // try {
