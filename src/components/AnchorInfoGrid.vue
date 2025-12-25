@@ -105,6 +105,15 @@ const preferredLengthUnit = computed(() => {
 
 const isMetric = computed(() => preferredLengthUnit.value === 'm');
 
+const aisWarningEffective = computed(() => {
+  const warningRange = anchorState.value?.warningRange;
+  const warningRadius = warningRange?.r;
+  if (warningRadius === 0) {
+    return false;
+  }
+  return anchorState.value?.aisWarning === true;
+});
+
 function convertLengthToPreferred(value, units) {
   if (value == null) {
     return 0;
@@ -163,7 +172,7 @@ const alertCycleInterval = ref(null);
 
 // Setup alert cycling when there are multiple alerts
 watch(
-  () => [anchorState.value?.dragging, anchorState.value?.aisWarning],
+  () => [anchorState.value?.dragging, aisWarningEffective.value],
   ([isDragging, hasAisWarning]) => {
     // Clear any existing interval
     if (alertCycleInterval.value) {
@@ -198,11 +207,11 @@ const titleClass = computed(() => {
   
   // If dragging is active and it's either the only alert or it's the current alert in the cycle
   if (anchorState.value.dragging && 
-      (currentAlertIndex.value === 0 || !anchorState.value.aisWarning)) { 
+      (currentAlertIndex.value === 0 || !aisWarningEffective.value)) { 
     return 'dragging-title';
   }
   // If AIS warning is active and it's either the only alert or it's the current alert in the cycle
-  else if (anchorState.value.aisWarning && 
+  else if (aisWarningEffective.value && 
            (currentAlertIndex.value === 1 || !anchorState.value.dragging)) {
     return 'ais-warning-title';
   }
@@ -217,11 +226,11 @@ const title = computed(() => {
   
   // If dragging is active and it's either the only alert or it's the current alert in the cycle
   if (anchorState.value.dragging && 
-      (currentAlertIndex.value === 0 || !anchorState.value.aisWarning)) { 
+      (currentAlertIndex.value === 0 || !aisWarningEffective.value)) { 
     return 'DRAGGING';
   }
   // If AIS warning is active and it's either the only alert or it's the current alert in the cycle
-  else if (anchorState.value.aisWarning && 
+  else if (aisWarningEffective.value && 
            (currentAlertIndex.value === 1 || !anchorState.value.dragging)) {
     return 'AIS PROXIMITY WARNING';
   }

@@ -401,6 +401,19 @@ export const WIDGET_DATA_SOURCES = [
       },
     },
   },
+
+  // Zora Navigation Display
+  {
+    id: "zoraDisplay",
+    type: "zora",
+    category: "Navigation",
+    statePath: ["navigation"],
+    label: "Zora",
+    displayLabel: "Zora Navigation Display",
+    description: "Circular navigation display showing heading, wind, and current vectors",
+    aspectRatio: 1, // Square aspect ratio
+    maintainAspectRatio: true,
+  },
 ];
 
 /**

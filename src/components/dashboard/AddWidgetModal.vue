@@ -36,6 +36,7 @@
               @click.stop
             >
               <ion-select-option value="sail360">Sail 360 &deg;</ion-select-option>
+              <ion-select-option value="zora">Zora Navigation</ion-select-option>
               <ion-select-option value="windspeed">Wind Speed</ion-select-option>
               <ion-select-option value="windcompassarrow">Wind Compass</ion-select-option>
               <ion-select-option value="instrument">Digital Instrument</ion-select-option>
@@ -406,10 +407,19 @@ watch(displayType, (newType) => {
 });
 
 // Watch for displayType changes to set default values
-const widgetsWithoutDataSource = ['sail360', 'clock', 'anchor', 'weather', 'temp-wind', 'pressure-tide', 'windcompassarrow'];
+const widgetsWithoutDataSource = ['sail360', 'zora', 'clock', 'anchor', 'weather', 'temp-wind', 'pressure-tide', 'windcompassarrow'];
 watch(displayType, (newType) => {
   if (newType === 'sail360') {
     maintainSquareRatio.value = true;
+  } else if (newType === 'zora') {
+    dataSource.value = '';
+    maintainSquareRatio.value = true;
+    if (!widgetTitle.value) {
+      widgetTitle.value = 'Zora Navigation';
+    }
+    if (!widgetName.value) {
+      widgetName.value = 'Zora';
+    }
   } else if (newType === 'windspeed' && !dataSource.value) {
     maintainSquareRatio.value = true;
     const sources = windSpeedDataSources.value;

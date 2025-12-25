@@ -76,6 +76,7 @@ import AnchorWidget from "../AnchorWidget.vue";
 import BoatingWeatherWidget from "../BoatingWeatherWidget.vue";
 import TempWindWidget from "../TempWindWidget.vue";
 import PressureTideWidget from "../PressureTideWidget.vue";
+import ZoraComponent from "../ZoraComponent.vue";
 
 const props = defineProps({
   widget: {
@@ -155,6 +156,7 @@ const componentMap = {
   weather: BoatingWeatherWidget,
   "temp-wind": TempWindWidget,
   "pressure-tide": PressureTideWidget,
+  "zora": ZoraComponent,
   placeholder: PlaceholderWidget,
 };
 

@@ -29,7 +29,7 @@
     >
       <ion-content class="set-anchor-modal">
         <div class="modal-body">
-          <h3>Set Anchor</h3>
+          <h3>{{ anchorState?.anchorDeployed ? "Edit Anchor Parameters" : "Set Anchor" }}</h3>
           <div class="slider-label">
           <strong>Rode:</strong>
           <span class="slider-value"
@@ -92,22 +92,24 @@
           style="margin-bottom: 18px; width: 80%"
         />
 
-          <div class="slider-label">
-            <strong>Bearing:</strong>
-            <span class="slider-value"
-              >{{ anchorState.anchorDropLocation.bearing?.degrees || "--" }}°</span
-            >
-          </div>
-          <ion-range
-            v-model="anchorState.anchorDropLocation.bearing.degrees"
-            :min="0"
-            :max="360"
-            :step="1"
-            ticks="true"
-            color="primary"
-            class="modal-range modal-range-center"
-            style="margin-bottom: 18px; width: 80%"
-          />
+          <template v-if="!anchorState?.anchorDeployed">
+            <div class="slider-label">
+              <strong>Bearing:</strong>
+              <span class="slider-value"
+                >{{ anchorState.anchorDropLocation.bearing?.degrees || "--" }}°</span
+              >
+            </div>
+            <ion-range
+              v-model="anchorState.anchorDropLocation.bearing.degrees"
+              :min="0"
+              :max="360"
+              :step="1"
+              ticks="true"
+              color="primary"
+              class="modal-range modal-range-center"
+              style="margin-bottom: 18px; width: 80%"
+            />
+          </template>
 
           <!-- Scope Recommendation -->
           <div v-if="recommendedScope" class="scope-recommendation">
@@ -176,7 +178,12 @@
       <ion-footer class="set-anchor-footer">
         <ion-toolbar class="modal-toolbar">
           <div class="modal-actions">
-            <IonButton color="primary" @click="handleSetAnchor">Set Anchor</IonButton>
+            <IonButton
+              color="primary"
+              @click="anchorState?.anchorDeployed ? handleSaveAnchorParameters() : handleSetAnchor()"
+            >
+              {{ anchorState?.anchorDeployed ? "Save Changes" : "Set Anchor" }}
+            </IonButton>
             <IonButton @click="showSetAnchorDialog = false">Cancel</IonButton>
           </div>
         </ion-toolbar>
@@ -270,17 +277,6 @@
           @click="toggleMeasureMode"
           class="zoom-button measure-toggle"
           :class="{ 'measure-toggle-active': measureModeEnabled }"
-          :style="
-            measureModeEnabled
-              ? {
-                  backgroundColor: '#facc15',
-                  background: '#facc15',
-                  color: '#111827',
-                  boxShadow:
-                    '0 0 0 3px rgba(250, 204, 21, 0.55), 0 8px 18px rgba(250, 204, 21, 0.25)',
-                }
-              : null
-          "
           :data-label="measureModeEnabled ? 'Measure (On)' : 'Measure (Off)'"
         >
           <ion-icon :icon="resizeOutline" size="small" aria-hidden="true" />
@@ -301,7 +297,6 @@
           color="secondary"
           @click="showSetAnchorDialog = true"
           class="custom-fab-size"
-          :disabled="anchorState?.anchorDeployed"
         >
           <img
             src="/img/anchor2.svg"
@@ -763,8 +758,16 @@ const tryCreateOrUpdateMeasurePin = (pinType, lonLatClicked) => {
 
 const toggleMeasureMode = async () => {
   measureModeEnabled.value = !measureModeEnabled.value;
+  
+  // Force DOM reflow to ensure iOS Safari applies CSS immediately
   if (measureModeEnabled.value) {
     await nextTick();
+    // Force a reflow on the measure button specifically
+    const measureButton = document.querySelector('.measure-toggle');
+    if (measureButton) {
+      measureButton.offsetHeight;
+    }
+    
     await new Promise((resolve) => requestAnimationFrame(resolve));
     setTimeout(() => {
       ensureTranslateInteraction();
@@ -1478,7 +1481,24 @@ const updateAisTargets = debounce(() => {
 
   // Get warning range radius
   const warningRadius = anchorState.value?.warningRange?.r ?? 15; // Default to 15 if not set
-  logger.debug(`Warning range radius: ${warningRadius}`);
+  const warningUnits = anchorState.value?.warningRange?.units;
+  const effectiveWarningRadius = (() => {
+    if (typeof warningRadius !== "number" || Number.isNaN(warningRadius)) {
+      return warningRadius;
+    }
+    if (warningUnits === "m" && isMetric.value === false) {
+      return UnitConversion.mToFt(warningRadius);
+    }
+    if (warningUnits === "ft" && isMetric.value === true) {
+      return UnitConversion.ftToM(warningRadius);
+    }
+    return warningRadius;
+  })();
+  logger.debug(`Warning range radius: ${warningRadius}`, {
+    warningUnits,
+    effectiveWarningRadius,
+    effectiveUnits: isMetric.value ? "m" : "ft",
+  });
 
   // Track if any targets are within warning range
   let hasTargetsInWarningRange = false;
@@ -1518,7 +1538,7 @@ const updateAisTargets = debounce(() => {
         // logger.debug(`  In warning range? ${distance <= warningRadius}`);
 
         // Check if within warning range
-        isInWarningRange = distance <= warningRadius;
+        isInWarningRange = distance <= effectiveWarningRadius;
 
         // Update the warning flag if any target is in range
         if (isInWarningRange) {
@@ -1558,8 +1578,7 @@ const updateAisTargets = debounce(() => {
       const targetsInRange = validTargets.filter((feature) =>
         feature.get("isInWarningRange")
       ).length;
-      const warningRadius = anchorState.value?.warningRange?.r ?? 15;
-      createAisProximityAlert(targetsInRange, warningRadius, isMetric.value);
+      createAisProximityAlert(targetsInRange, effectiveWarningRadius, isMetric.value);
     }
 
     // Update the state
@@ -2399,6 +2418,194 @@ const showUpdateDialog = ref(false);
 const showCancelDialog = ref(false);
 const showUpdateDropConfirm = ref(false);
 const locationRequestFailed = ref(false);
+
+const handleSaveAnchorParameters = () => {
+  if (!anchorState.value) {
+    logger.warn("Cannot save anchor parameters - anchorState is missing");
+    showSetAnchorDialog.value = false;
+    return;
+  }
+
+  if (anchorState.value.anchorDeployed !== true) {
+    logger.warn("Cannot save anchor parameters - anchor is not deployed");
+    showSetAnchorDialog.value = false;
+    return;
+  }
+
+  const rodeAmount = anchorState.value.rode?.amount;
+  const critical = anchorState.value.criticalRange?.r;
+  const warning = anchorState.value.warningRange?.r;
+
+  if (typeof rodeAmount !== "number" || Number.isNaN(rodeAmount)) {
+    logger.warn("Cannot save anchor parameters - invalid rode amount", { rodeAmount });
+    return;
+  }
+  if (typeof critical !== "number" || Number.isNaN(critical)) {
+    logger.warn("Cannot save anchor parameters - invalid critical range", { critical });
+    return;
+  }
+  if (typeof warning !== "number" || Number.isNaN(warning)) {
+    logger.warn("Cannot save anchor parameters - invalid warning range", { warning });
+    return;
+  }
+
+  const preferredUnits = preferences.value?.units?.length || anchorState.value.rode?.units;
+  if (preferredUnits !== "m" && preferredUnits !== "ft") {
+    logger.warn("Cannot save anchor parameters - missing/invalid preferred length units", {
+      preferredUnits,
+    });
+    return;
+  }
+
+  try {
+    const updatedAnchorState = {
+      ...anchorState.value,
+      rode: {
+        ...anchorState.value.rode,
+        amount: rodeAmount,
+        units: preferredUnits,
+      },
+      criticalRange: {
+        ...anchorState.value.criticalRange,
+        r: critical,
+        units: preferredUnits,
+      },
+      warningRange: {
+        ...anchorState.value.warningRange,
+        r: warning,
+        units: preferredUnits,
+      },
+    };
+
+    if (updatedAnchorState.warningRange?.r === 0) {
+      updatedAnchorState.aisWarning = false;
+    }
+
+    state.value.anchor = { ...updatedAnchorState };
+
+    // Use nextTick to ensure all reactive updates are processed before calling updateAisTargets
+    nextTick(() => {
+      try {
+        if (typeof updateAisTargets?.cancel === "function") {
+          updateAisTargets.cancel();
+        }
+        if (typeof updateAisTargets === "function") {
+          updateAisTargets();
+        }
+      } catch (e) {
+        logger.error("Failed to update AIS targets after saving anchor parameters", e);
+      }
+    });
+
+    try {
+      const unitLabel = isMetric.value ? "m" : "ft";
+
+      if (updatedAnchorState.warningRange?.r === 0) {
+        if (typeof stateStore?.resolveAlertsByTrigger === "function") {
+          stateStore.resolveAlertsByTrigger("ais_proximity", {
+            warningRadius: updatedAnchorState.warningRange.r,
+            units: unitLabel,
+            source: "AnchorView.handleSaveAnchorParameters",
+          });
+        }
+
+        if (state.value?.alerts?.active && Array.isArray(state.value.alerts.active)) {
+          const shouldRemove = (alert) => {
+            const trigger = alert?.trigger;
+            const type = alert?.type;
+            return trigger === "ais_proximity" || type === "ais_proximity";
+          };
+
+          const nextActive = state.value.alerts.active.filter((alert) => !shouldRemove(alert));
+          state.value.alerts.active = nextActive;
+        }
+
+        if (anchorState.value) {
+          anchorState.value.aisWarning = false;
+        }
+      }
+
+      if (updatedAnchorState.criticalRange?.r === 0) {
+        if (typeof stateStore?.resolveAlertsByTrigger === "function") {
+          stateStore.resolveAlertsByTrigger("critical_range", {
+            criticalRange: updatedAnchorState.criticalRange.r,
+            units: unitLabel,
+            source: "AnchorView.handleSaveAnchorParameters",
+          });
+        }
+
+        if (state.value?.alerts?.active && Array.isArray(state.value.alerts.active)) {
+          const shouldRemove = (alert) => {
+            const trigger = alert?.trigger;
+            const type = alert?.type;
+            return trigger === "critical_range" || type === "critical_range";
+          };
+
+          const nextActive = state.value.alerts.active.filter((alert) => !shouldRemove(alert));
+          state.value.alerts.active = nextActive;
+        }
+      }
+    } catch (e) {
+      logger.error("Failed to auto-resolve alerts after anchor parameter update", e);
+    }
+
+    try {
+      const storageState = {
+        anchorDeployed: true,
+        anchorDropLocation: updatedAnchorState.anchorDropLocation,
+        anchorLocation: updatedAnchorState.anchorLocation,
+        criticalRange: updatedAnchorState.criticalRange,
+        warningRange: updatedAnchorState.warningRange,
+        rode: updatedAnchorState.rode,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem("anchorState", JSON.stringify(storageState));
+    } catch (e) {
+      logger.error("Failed to save anchor parameters to localStorage", e);
+    }
+
+    try {
+      stateStore
+        .sendMessageToServer("anchor:update", updatedAnchorState, {
+          source: "AnchorView.handleSaveAnchorParameters",
+          timeout: 5000,
+        })
+        .then((response) => {
+          logger.info("Server acknowledged anchor parameter update", response);
+          const merged = { ...updatedAnchorState, ...(response?.data || {}) };
+
+          if (merged?.warningRange?.r === 0) {
+            merged.aisWarning = false;
+          }
+
+          state.value.anchor = merged;
+
+          try {
+            if (typeof updateAisTargets?.cancel === "function") {
+              updateAisTargets.cancel();
+            }
+            if (typeof updateAisTargets === "function") {
+              updateAisTargets();
+            }
+          } catch (e) {
+            logger.error("Failed to update AIS targets after server ack", e);
+          }
+        })
+        .catch((error) => {
+          logger.error("Failed to send updated anchor parameters to server", error);
+        });
+    } catch (error) {
+      logger.error("Error preparing anchor parameter update for server", error);
+    }
+
+    updateCriticalRangeCircle();
+    updateBoatRangeCircle();
+    updateRodeLine();
+    showSetAnchorDialog.value = false;
+  } catch (error) {
+    logger.error("Failed to save anchor parameters", error);
+  }
+};
 
 // Modal Handlers
 const handleSetAnchor = () => {
