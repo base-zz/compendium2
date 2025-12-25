@@ -1,9 +1,6 @@
 <template>
   <div class="zora-container">
-    <svg viewBox="-200 -200 400 400" class="compass-svg">
-      <!-- Dark background -->
-      <rect x="-200" y="-200" width="400" height="400" :fill="colors.background"/>
-      
+    <svg viewBox="-250 -250 500 500" class="compass-svg">
       <!-- Gradient definitions -->
       <defs>
         <radialGradient id="redGradient">
@@ -19,15 +16,14 @@
       </defs>
       
       <!-- Single circle with radial gradient -->
-      <circle cx="0" cy="0" r="187" fill="url(#redGradient)" stroke="none"/>
+      <circle cx="0" cy="0" r="181" fill="url(#redGradient)" stroke="none"/>
       
       <!-- Inner compass ring -->
       <circle cx="0" cy="0" r="140" fill="none" :stroke="colors.outerRing" stroke-width="6"/>
       <circle cx="0" cy="0" r="130" fill="none" :stroke="colors.outerRingInner" stroke-width="2"/>
       
       <!-- Outer compass ring -->
-      <circle cx="0" cy="0" r="190" fill="none" :stroke="colors.outerRing" stroke-width="8"/>
-      <circle cx="0" cy="0" r="180" fill="none" :stroke="colors.outerRingInner" stroke-width="2"/>
+      <circle cx="0" cy="0" r="190" fill="none" stroke="none"/>
       
       <!-- Outer ring degree marks - every 1 degree -->
       <g>
@@ -37,9 +33,10 @@
           :transform="`rotate(${deg})`"
           x1="0" y1="-190"
           :x2="0"
-          :y2="deg % 45 === 0 ? -175 : deg % 5 === 0 ? -178 : -185"
+          :y2="deg % 45 === 0 ? -182 : deg % 5 === 0 ? -182 : -185"
           :stroke="deg % 45 === 0 ? colors.majorTicks : colors.minorTicks"
-          :stroke-width="deg % 45 === 0 ? 2 : deg % 5 === 0 ? 1 : 0.5"
+          :stroke-width="deg % 45 === 0 ? 1.5 : deg % 5 === 0 ? 1 : 0.5"
+          :opacity="deg % 45 === 0 ? 1 : deg % 5 === 0 ? 0.6 : 0.5"
         />
       </g>
       
@@ -48,7 +45,7 @@
         <text
           v-for="num in filteredDegreeNumbers"
           :key="num"
-          :transform="`rotate(${num}) translate(0, -165) rotate(${-num})`"
+          :transform="`rotate(${num}) translate(0, -174) rotate(${-num})`"
           :fill="colors.degreeNumbers"
           font-size="6"
           font-family="monospace"
@@ -58,14 +55,17 @@
       </g>
       
       <!-- Cardinal directions -->
-      <text x="0" y="-165" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle">N</text>
-      <text x="165" y="0" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">E</text>
-      <text x="0" y="165" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">S</text>
-      <text x="-165" y="0" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">W</text>
+      <text x="0" y="-172" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle">N</text>
+      <text x="172" y="0" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">E</text>
+      <text x="0" y="172" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">S</text>
+      <text x="-172" y="0" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">W</text>
       
       <!-- Inner compass ring -->
       <circle cx="0" cy="0" r="140" fill="none" :stroke="colors.outerRing" stroke-width="6"/>
       <circle cx="0" cy="0" r="130" fill="none" :stroke="colors.outerRingInner" stroke-width="2"/>
+      
+      <!-- Horizontal line across inner compass center -->
+      <line x1="-120" y1="0" x2="120" y2="0" :stroke="colors.minorTicks" stroke-width="1"/>
       
       <!-- Inner ring degree marks - every 1 degree -->
       <g>
@@ -75,9 +75,10 @@
           :transform="`rotate(${deg})`"
           x1="0" y1="-140"
           :x2="0"
-          :y2="deg % 45 === 0 ? -125 : deg % 5 === 0 ? -128 : -135"
+          :y2="deg % 45 === 0 ? -129 : deg % 5 === 0 ? -132 : -135"
           :stroke="deg % 45 === 0 ? colors.majorTicks : colors.minorTicks"
-          :stroke-width="deg % 45 === 0 ? 2 : deg % 5 === 0 ? 1 : 0.5"
+          :stroke-width="deg % 45 === 0 ? 1.5 : deg % 5 === 0 ? 1 : 0.5"
+          :opacity="deg % 45 === 0 ? 1 : deg % 5 === 0 ? 0.6 : 0.5"
         />
       </g>
       
@@ -86,7 +87,7 @@
         <text
           v-for="num in filteredDegreeNumbers"
           :key="num"
-          :transform="`rotate(${num}) translate(0, -105) rotate(${-num})`"
+          :transform="`rotate(${num}) translate(0, -148) rotate(${-num})`"
           :fill="colors.degreeNumbers"
           font-size="6"
           font-family="monospace"
@@ -96,10 +97,10 @@
       </g>
       
       <!-- Inner ring cardinal directions -->
-      <text x="0" y="-115" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle">N</text>
-      <text x="115" y="0" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">E</text>
-      <text x="0" y="115" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">S</text>
-      <text x="-115" y="0" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">W</text>
+      <text x="0" y="-148" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle">N</text>
+      <text x="148" y="0" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">E</text>
+      <text x="0" y="148" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">S</text>
+      <text x="-148" y="0" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">W</text>
       
       <!-- Green arc on top of all elements -->
       <path d="M 0,-140 A 140,140 0 0,1 80.2,-115.2" fill="none" stroke="#00ff00" stroke-width="4"/>
