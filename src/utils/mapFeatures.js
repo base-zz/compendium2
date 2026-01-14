@@ -2,7 +2,6 @@ import { ref, reactive } from 'vue';
 import { Feature } from 'ol';
 import { fromLonLat } from 'ol/proj';
 import { Circle } from 'ol/geom';
-import VectorSource from 'ol/source/Vector';
 
 export const useMapFeatures = (vectorSource) => {
   const features = ref({});
@@ -36,20 +35,22 @@ export const useMapFeatures = (vectorSource) => {
     // Temporary debug logging for boat feature behavior
     if (type === 'boat') {
       try {
-        const all = vectorSource.getFeatures().filter(f => f.get('type') === 'boat');
-        // Boat feature count can be inspected via vectorSource if needed; console logging removed.
-      } catch (e) {}
+        vectorSource.getFeatures().filter(f => f.get('type') === 'boat');
+      } catch (e) {
+        // Ignore errors in debug logging
+      }
     }
   };
 
   const updateFeatureGroup = (type, featuresData, defaultStyle) => {
     clearFeature(type);
     const newFeatures = featuresData.map(data => {
-      const feature = new Feature(data.geometry);
+      const feature = new Feature({ geometry: data.geometry });
       feature.set('type', type);
       feature.setStyle(data.style || defaultStyle);
       return feature;
     });
+    
     vectorSource.addFeatures(newFeatures);
     features.value[type] = newFeatures;
     perfStats.updates++;

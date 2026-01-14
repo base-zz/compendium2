@@ -320,6 +320,7 @@
 </template>
 
 <script setup>
+console.log("=== ANCHOR VIEW SCRIPT SETUP STARTING ===");
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { createLogger } from "@/services/logger";
@@ -335,7 +336,7 @@ import { usePreferencesStore } from "@/stores/preferences";
 import { UnitConversion } from "@/shared/unitConversion";
 import { debounce } from "lodash-es";
 import { getComputedAnchorLocation } from "@/stores/stateDataStore";
-import { createAnchorDraggingAlert, createAisProximityAlert } from "@/utils/anchorAlerts";
+import { createAisProximityAlert } from "@/utils/anchorAlerts";
 
 // Component imports
 import AnchorInfoGrid from "@/components/AnchorInfoGrid.vue";
@@ -366,6 +367,7 @@ import Map from "ol/Map";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
 import OSM from "ol/source/OSM";
+import XYZ from "ol/source/XYZ";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import Feature from "ol/Feature";
@@ -375,8 +377,7 @@ import { fromLonLat, toLonLat } from "ol/proj";
 import { Point } from "ol/geom";
 import Polygon from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
-// Circle is imported but now only used in comments
-// import Circle from "ol/geom/Circle";
+import Circle from "ol/geom/Circle";
 import { defaults as defaultControls } from "ol/control";
 import Attribution from "ol/control/Attribution";
 import { defaults as defaultInteractions } from "ol/interaction";
@@ -388,7 +389,7 @@ import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import ScaleLine from "ol/control/ScaleLine";
 import { useMapTools } from "@/utils/mapUtils.js";
 import { useMapFeatures } from "@/utils/mapFeatures";
-import { STYLES, createStyle } from "@/utils/mapStyles";
+import { STYLES } from "@/utils/mapStyles";
 import { useMapPersist } from "@/utils/mapPersist";
 import { relayConnectionBridge } from "@/relay/client/RelayConnectionBridge.js";
 import { directConnectionAdapter } from "@/services/directConnectionAdapter.js";
@@ -419,7 +420,6 @@ const {
   updateFeatureGroup,
   clearFeature,
   clearAll,
-  perfStats,
 } = useMapFeatures(vectorSource);
 
 // Store integration
@@ -784,51 +784,39 @@ const toggleMeasureMode = async () => {
 };
 
 // Derived state
+console.log("=== ANCHOR VIEW SETUP STARTING ===");
+
 const boatPosition = computed(() => navigationState.value?.position);
 const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
 const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
-const anchorLocation = computed(() => anchorState.value?.anchorLocation?.position);
 
-// Determine if anchor is dragging based on its position relative to drop location
+// Determine if anchor is dragging based on server-calculated state
 const isAnchorDragging = computed(() => {
-  if (!anchorDeployed.value || !anchorDropLocation.value?.position) return false;
-
-  const dropLat = anchorDropLocation.value.position.latitude;
-  const dropLon = anchorDropLocation.value.position.longitude;
-  const anchorLat = anchorLocation.value?.position?.latitude;
-  const anchorLon = anchorLocation.value?.position?.longitude;
-
-  if (!dropLat || !dropLon || !anchorLat || !anchorLon) return false;
-
-  // Calculate distance between drop location and current anchor position
-  const distance = calculateDistanceMeters(
-    dropLat,
-    dropLon,
-    anchorLat,
-    anchorLon,
-    isMetric.value
-  );
-
-  // If distance exceeds 10 meters, consider it dragging
-  return distance > 2;
+  // Use the server's dragging state instead of client-side calculation
+  return anchorState.value?.dragging === true;
 });
 
-const anchorPosition = ref(null);
-const anchorBearing = ref(0);
-const rodeLength = ref(30); // Default rode length in meters
-const criticalRange = ref(30); // Default critical range in meters
-const isAnchorSet = ref(false);
-const breadcrumbs = ref([]);
+console.log("anchorState.value:", anchorState.value);
+console.log("anchorState getter:", anchorState);
 
-// Format rode length for display
-const formatRodeLength = (value) => {
-  return `${value} ${isMetric.value ? "m" : "ft"}`;
-};
+const breadcrumbs = computed(() => {
+  const history = anchorState.value?.history || [];
+  console.log("=== BREADCRUMB COMPUTED ===");
+  console.log("anchorState.value?.history:", history);
+  console.log("anchorState.value?.history length:", history?.length);
+  console.log("========================");
+  return history;
+});
 
-// Computed critical range from anchor state
-const computedCriticalRange = computed(
-  () => anchorState.value?.criticalRange?.r || criticalRange.value
-);
+// Debug: Log what we're getting from stateStore
+console.log("=== INITIAL BREADCRUMB STATE ===");
+console.log("anchorState.value:", anchorState.value);
+console.log("anchorState.value?.history:", anchorState.value?.history);
+console.log("stateStore:", stateStore);
+console.log("stateStore.state:", stateStore.state);
+console.log("stateStore.state.anchor:", stateStore.state?.anchor);
+console.log("stateStore.state.anchor?.history:", stateStore.state?.anchor?.history);
+console.log("================================");
 
 // Unit system handling
 const isMetric = computed(() => {
@@ -866,7 +854,6 @@ watch(
 const criticalRangeMax = computed(() => (isMetric.value ? 100 : 300)); // 300m ≈ 1000ft
 const rodeRangeMax = computed(() => (isMetric.value ? 100 : 300)); // 100m ≈ 330ft
 const warningRangeMax = computed(() => (isMetric.value ? 20 : 300)); // 20m ≈ 300ft
-const anchorDragTriggerDistance = computed(() => (isMetric.value ? 1 : 3)); // 1m ≈~ 3ft
 
 logger.debug("Current state:", state.value);
 logger.debug("Anchor state:", anchorState.value);
@@ -1604,43 +1591,98 @@ const updateAisTargets = debounce(() => {
 }, 200);
 
 const updateBreadcrumbs = debounce(() => {
+  // Log breadcrumbs state for debugging
+  console.log("=== BREADCRUMB DEBUG ===");
+  console.log("breadcrumbs.value:", breadcrumbs.value);
+  console.log("breadcrumbs.value length:", breadcrumbs.value?.length);
+  console.log("breadcrumbs.value type:", typeof breadcrumbs.value);
+  console.log("stateStore.breadcrumbs:", stateStore.breadcrumbs);
+  console.log("========================");
+  
   // Skip if no breadcrumbs
   if (!breadcrumbs.value || breadcrumbs.value.length === 0) {
+    console.log("No breadcrumbs found, clearing breadcrumb features");
     clearFeature(FEATURE_TYPES.BREADCRUMB);
     return;
   }
 
   logger.debug(`Updating ${breadcrumbs.value.length} breadcrumbs`);
+  console.log(`Processing ${breadcrumbs.value.length} breadcrumbs`);
 
   // Filter for valid breadcrumbs and create features
   const validCrumbs = breadcrumbs.value
     .filter((crumb) => {
       // Check if crumb has valid coordinates
-      if (!crumb) return false;
-      const lat = crumb.latitude?.value ?? crumb.latitude;
-      const lon = crumb.longitude?.value ?? crumb.longitude;
-      return typeof lat === "number" && typeof lon === "number";
+      if (!crumb) {
+        console.log("Skipping null/undefined crumb");
+        return false;
+      }
+      
+      // Handle both coordinate structures: direct lat/lon or nested in position
+      let lat, lon;
+      
+      if (crumb.position) {
+        // New format: coordinates in position object
+        lat = crumb.position.latitude?.value ?? crumb.position.latitude;
+        lon = crumb.position.longitude?.value ?? crumb.position.longitude;
+      } else {
+        // Old format: direct coordinates
+        lat = crumb.latitude?.value ?? crumb.latitude;
+        lon = crumb.longitude?.value ?? crumb.longitude;
+      }
+      
+      const isValid = typeof lat === "number" && typeof lon === "number";
+      if (!isValid) {
+        console.log("Skipping invalid crumb:", crumb);
+      } else {
+        console.log("Valid crumb found:", { lat, lon, time: crumb.time });
+      }
+      return isValid;
     })
     .map((crumb, idx, array) => {
-      // Calculate age factor (0 = newest, 1 = oldest)
-      const age = idx / Math.max(array.length - 1, 1);
+      // Extract coordinates (handle both formats)
+      let lon, lat;
+      
+      if (crumb.position) {
+        // New format: coordinates in position object
+        lon = crumb.position.longitude?.value ?? crumb.position.longitude;
+        lat = crumb.position.latitude?.value ?? crumb.position.latitude;
+      } else {
+        // Old format: direct coordinates
+        lon = crumb.longitude?.value ?? crumb.longitude;
+        lat = crumb.latitude?.value ?? crumb.latitude;
+      }
 
-      // Extract coordinates
-      const lon = crumb.longitude?.value ?? crumb.longitude;
-      const lat = crumb.latitude?.value ?? crumb.latitude;
+      const geometry = new Point(fromLonLat([lon, lat]));
+      
+      // Calculate age-based opacity (0 = newest, 1 = oldest)
+      const age = array.length > 1 ? idx / (array.length - 1) : 0;
+      const opacity = 1.0 - (age * 0.7); // Fade from 1.0 to 0.3
+      
+      // Dynamic color based on dark mode with age-based opacity
+      const isDark = preferencesStore.darkMode;
+      const fillColor = isDark 
+        ? `rgba(255, 255, 255, ${opacity})`
+        : `rgba(0, 0, 0, ${opacity})`;
+      const strokeColor = isDark
+        ? `rgba(200, 200, 200, ${opacity})`
+        : `rgba(51, 51, 51, ${opacity})`;
+      
+      const breadcrumbStyle = new Style({
+        image: new CircleStyle({
+          radius: 0.5,
+          fill: new Fill({ color: fillColor }),
+          stroke: new Stroke({ 
+            color: strokeColor, 
+            width: isDark ? 0.75 : 1 
+          }),
+        }),
+        zIndex: 80,
+      });
 
       return {
-        geometry: new Point(fromLonLat([lon, lat])),
-        style: createStyle({
-          circle: {
-            radius: 3,
-            fill: { color: `rgba(33,150,243,${0.9 - age * 0.8})` },
-            stroke: {
-              color: `rgba(21,101,192,${0.9 - age * 0.7})`,
-              width: 1,
-            },
-          },
-        }),
+        geometry: geometry,
+        style: breadcrumbStyle,
       };
     });
 
@@ -1658,35 +1700,59 @@ const initializeMap = () => {
   // Get position from state
   const state = stateStore.state;
   const pos = state?.navigation?.position;
+  const anchor = state?.anchor;
 
   logger.debug("Position data:", pos ? pos : "No position data");
+  logger.debug("Anchor state:", anchor);
 
-  // Determine center coordinates
+  // Determine center coordinates based on anchor state
   let centerLat = 0;
   let centerLon = 0;
   let hasValidPosition = false;
 
-  if (pos?.latitude?.value != null && pos?.longitude?.value != null) {
+  // If anchor is deployed, center on anchor location
+  if (anchor?.anchorDeployed && anchor?.anchorLocation) {
+    const anchorLoc = anchor.anchorLocation;
+    if (anchorLoc.latitude?.value != null && anchorLoc.longitude?.value != null) {
+      centerLat = anchorLoc.latitude.value;
+      centerLon = anchorLoc.longitude.value;
+      hasValidPosition = true;
+      logger.debug("Centering on anchor location:", { lat: centerLat, lon: centerLon });
+    }
+  }
+  
+  // Otherwise, center on boat position
+  if (!hasValidPosition && pos?.latitude?.value != null && pos?.longitude?.value != null) {
     centerLat = pos.latitude.value;
     centerLon = pos.longitude.value;
     hasValidPosition = true;
-    logger.debug("Using valid position:", { lat: centerLat, lon: centerLon });
-  } else {
+    logger.debug("Centering on boat position:", { lat: centerLat, lon: centerLon });
+  }
+  
+  if (!hasValidPosition) {
     logger.debug("Using default position (0,0)");
   }
 
   const defaultCenter = fromLonLat([centerLon, centerLat]);
+  const defaultZoom = savedView?.zoom || 15;
 
   // Create the map with minimal interactions initially
   map.value = new Map({
     target: mapElement.value,
     layers: [
-      new TileLayer({ source: new OSM() }),
+      new TileLayer({ 
+        source: isDarkMode.value 
+          ? new XYZ({
+              url: 'https://{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+              attributions: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, © <a href="https://carto.com/attributions">CARTO</a>'
+            })
+          : new OSM()
+      }),
       new VectorLayer({ source: vectorSource, zIndex: 5 }),
     ],
     view: new View({
-      center: savedView?.center || defaultCenter,
-      zoom: savedView?.zoom || 15,
+      center: defaultCenter,
+      zoom: defaultZoom,
       rotation: savedView?.rotation || 0,
       minZoom: 5,
       maxZoom: 22,
@@ -1700,6 +1766,36 @@ const initializeMap = () => {
     }),
     pixelRatio: window.devicePixelRatio,
   });
+
+  // Fit view to critical range circle when anchor is deployed
+  if (anchor?.anchorDeployed && anchor?.criticalRange && hasValidPosition) {
+    const criticalRangeValue = anchor.criticalRange.r ?? anchor.criticalRange.value;
+    if (criticalRangeValue != null && Number.isFinite(criticalRangeValue)) {
+      // Critical range in meters (convert from feet if needed)
+      let criticalRangeMeters = criticalRangeValue;
+      const units = anchor.criticalRange.units || 'm';
+      if (units.toLowerCase().startsWith('ft')) {
+        criticalRangeMeters = criticalRangeValue / 3.28084;
+      }
+
+      // Create a circle geometry representing the critical range
+      const circleGeom = new Circle(defaultCenter, criticalRangeMeters);
+      const extent = circleGeom.getExtent();
+      
+      // Fit to extent with padding
+      // Top padding accounts for info grid, sides/bottom for 80% width target
+      const screenWidth = window.innerWidth;
+      const screenHeight = window.innerHeight;
+      const infoGridHeight = 150;
+      
+      map.value.getView().fit(extent, {
+        padding: [infoGridHeight, screenWidth * 0.1, screenHeight * 0.1, screenWidth * 0.1],
+        duration: 0
+      });
+      
+      logger.debug("Fitted view to critical range circle");
+    }
+  }
 
   // Capture the default DragPan interaction so we can temporarily disable it while dragging measure pins.
   dragPanInteraction = null;
@@ -1946,144 +2042,44 @@ watch(
     }
     
     if (anchorState.value.anchorDeployed) {
-      // Get current boat position
-      const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
-      const boatLon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
-
-      // Get anchor location (still used for relocation math and alerts)
-      const anchorLat = anchorState.value.anchorLocation?.position?.latitude?.value;
-      const anchorLon = anchorState.value.anchorLocation?.position?.longitude?.value;
-
-      // Get rode length (user-set chain out)
-      const rodeLength = anchorState.value.rode?.amount ?? 0;
-
-      // Distance from boat to anchor (for relocation + alert payload)
-      const distanceToAnchor =
-        boatLat != null && boatLon != null && anchorLat != null && anchorLon != null
-          ? Math.round(
-              calculateDistanceMeters(boatLat, boatLon, anchorLat, anchorLon, isMetric.value)
-            )
-          : 0;
-
-      // Distance from anchor DROP location to BOAT (defines the alarm boundary)
-      const dropPos = anchorState.value.anchorDropLocation?.position;
-      const dropLat = dropPos?.latitude?.value ?? dropPos?.latitude;
-      const dropLon = dropPos?.longitude?.value ?? dropPos?.longitude;
-
-      const distanceDropToBoat =
-        dropLat != null && dropLon != null && boatLat != null && boatLon != null
-          ? Math.round(
-              calculateDistanceMeters(
-                dropLat,
-                dropLon,
-                boatLat,
-                boatLon,
-                isMetric.value
-              )
-            )
-          : 0;
-
-      // Critical range radius (user alarm radius around the drop location)
-      const criticalRadius = anchorState.value.criticalRange?.r ?? 0;
-
-      // Trigger dragging when the boat leaves the alarm circle (with a small buffer)
-      const radiusWithBuffer = criticalRadius + anchorDragTriggerDistance.value;
-
-      if (distanceDropToBoat > radiusWithBuffer) {
-        logger.warn("Anchor dragging detected - boat outside critical radius", {
-          distanceToAnchor,
-          distanceDropToBoat,
-          rodeLength,
-          criticalRadius,
-          radiusWithBuffer,
-        });
-
-        // Send an anchor dragging alert to the server
-        createAnchorDraggingAlert(distanceToAnchor, rodeLength, isMetric.value);
-
-        // Calculate new anchor position based on boat position and bearing
-        // We need to move the anchor in the direction from boat to anchor
-        // First, calculate the bearing from boat to anchor
-        const dx = anchorLon - boatLon;
-        const dy = anchorLat - boatLat;
-        const bearing = Math.atan2(dx, dy);
-        const bearingDegrees = ((bearing * 180) / Math.PI + 360) % 360; // Convert to degrees (0-360)
-
-        // Store the previous anchor location before updating it - useful for debugging
-        // const previousAnchorLocation = {
-        //   latitude: anchorLat,
-        //   longitude: anchorLon,
-        //   time: anchorState.value.anchorLocation.time
-        // };
-
-        // Calculate new anchor position that's exactly rode length away from boat
-        const computedAnchorLocation = getComputedAnchorLocation(
-          { latitude: boatLat, longitude: boatLon },
-          rodeLength,
-          bearing,
-          anchorState.value.anchorLocation?.depth?.value ?? 0,
-          isMetric.value
-        );
-
-        // Update anchor location
-        anchorState.value.anchorLocation.position.latitude.value =
-          computedAnchorLocation.latitude;
-        anchorState.value.anchorLocation.position.longitude.value =
-          computedAnchorLocation.longitude;
-
-        // Update the bearing in the anchor state
-        anchorState.value.anchorLocation.bearing = {
-          value: bearing,
-          units: "rad",
-          degrees: bearingDegrees,
-        };
-
-        // Update the timestamp to reflect the change
-        const currentTime = new Date().toISOString();
-        anchorState.value.anchorLocation.time = currentTime;
-
-        // Set dragging state
-        anchorState.value.dragging = true;
-
-        // Add the previous anchor location to breadcrumbs
-        if (breadcrumbs.value) {
-          breadcrumbs.value.push({
-            latitude: { value: boatPosition.value.latitude },
-            longitude: { value: boatPosition.value.longitude },
-            time: currentTime,
-            type: "anchor_drag",
-          });
-
-          // Limit the number of breadcrumbs to prevent performance issues
-          if (breadcrumbs.value.length > 100) {
-            // Keep the most recent 100 breadcrumbs
-            breadcrumbs.value = breadcrumbs.value.slice(-100);
-          }
-
-          // Update breadcrumbs visualization
-          updateBreadcrumbs();
-        }
-
-        // Persist to localStorage
-        const storageState = {
-          anchorDeployed: true,
-          anchorDropLocation: anchorState.value.anchorDropLocation,
-          anchorLocation: anchorState.value.anchorLocation,
-          criticalRange: anchorState.value.criticalRange,
-          warningRange: anchorState.value.warningRange,
-          rode: anchorState.value.rode,
-          dragging: true,
-        };
-
-        localStorage.setItem("anchorState", JSON.stringify(storageState));
-
-        // Update all anchor-related features
-        updateAnchorPoints();
-        updateCriticalRangeCircle();
-      }
-
-      // Always update the rode line
+      // The server now handles all dragging detection and anchor location updates
+      // Client only needs to update the rode line visualization
       updateRodeLine();
+    }
+  },
+  { deep: true }
+);
+
+// Watch for anchor state changes from the server
+watch(
+  anchorState,
+  (newState, oldState) => {
+    if (!newState) return;
+    
+    // If anchor location was updated by server, update the map visualization
+    if (newState.anchorLocation?.position && 
+        oldState?.anchorLocation?.position &&
+        (newState.anchorLocation.position.latitude?.value !== oldState.anchorLocation.position.latitude?.value ||
+         newState.anchorLocation.position.longitude?.value !== oldState.anchorLocation.position.longitude?.value)) {
+      logger.debug("Anchor location updated by server", {
+        oldPosition: oldState.anchorLocation.position,
+        newPosition: newState.anchorLocation.position
+      });
+      
+      // Update anchor visualization
+      updateAnchorPoints();
+      updateCriticalRangeCircle();
+      updateRodeLine();
+    }
+    
+    // If dragging state changed, update visualization
+    if (newState.dragging !== oldState?.dragging) {
+      logger.debug("Anchor dragging state changed", {
+        isDragging: newState.dragging
+      });
+      
+      // Update critical range circle style based on dragging state
+      updateCriticalRangeCircle();
     }
   },
   { deep: true }
@@ -2155,7 +2151,7 @@ const updateBoatRangeCircle = debounce(() => {
 
 // Watch for critical anchor state changes
 watch(
-  [criticalRange, () => anchorState.value?.dragging],
+  [() => anchorState.value?.criticalRange?.r, () => anchorState.value?.dragging],
   ([range, isDragging]) => {
     logger.debug("Critical anchor state changed:", {
       criticalRange: range,
@@ -2197,9 +2193,6 @@ watch(
     const latitude = position.latitude?.value || position.latitude;
     const longitude = position.longitude?.value || position.longitude;
 
-    // Create the center point
-    const center = fromLonLat([longitude, latitude]);
-
     // Get the radius value (range is already the r value from the computed property)
     const radius = range;
 
@@ -2240,8 +2233,9 @@ watch(
 );
 
 // Watch for critical range changes
+console.log("AnchorView setup - critical range watch loading...");
 watch(
-  criticalRange,
+  () => anchorState.value?.criticalRange?.r,
   (newVal) => {
     logger.debug("Critical range changed:", newVal);
     logger.debug("Anchor drop location:", anchorDropLocation.value);
@@ -2253,14 +2247,20 @@ watch(
 // Watch for AIS targets changes
 watch(
   aisTargets,
-  (newTargets) => {
+  () => {
     updateAisTargets();
   },
   { immediate: true, deep: true }
 );
 
 // Watch for breadcrumbs changes
-watch(breadcrumbs, updateBreadcrumbs, { immediate: true });
+watch(breadcrumbs, (newBreadcrumbs) => {
+  console.log("=== BREADCRUMB WATCH TRIGGERED ===");
+  console.log("New breadcrumbs:", newBreadcrumbs);
+  console.log("New breadcrumbs length:", newBreadcrumbs?.length);
+  console.log("================================");
+  updateBreadcrumbs();
+}, { immediate: true });
 
 // Modal State
 const showSetAnchorDialog = ref(false);
@@ -2300,7 +2300,6 @@ const recommendedScope = computed(() => {
 
     // Find maximum water level in the next 72 hours
     let maxFutureLevel = -Infinity;
-    let maxFutureTime = null;
     let currentLevel = null;
 
     // Find current water level (closest to now)
@@ -2336,7 +2335,6 @@ const recommendedScope = computed(() => {
 
           if (level > maxFutureLevel) {
             maxFutureLevel = level;
-            maxFutureTime = entryTime;
           }
         }
       } catch (error) {
@@ -2394,26 +2392,6 @@ onIonViewDidEnter(() => {
   updateBoatPosition();
 });
 
-// Apply the recommended scope to the anchor state
-const setRodeLength = (length) => {
-  rodeLength.value = Math.round(length);
-  criticalRange.value = Math.round(length * 1.2);
-};
-
-const applyRecommendedScope = () => {
-  if (!recommendedScope.value) {
-    return;
-  }
-
-  setRodeLength(recommendedScope.value.recommendedCableLength);
-
-  if (anchorState.value.criticalRange) {
-    anchorState.value.criticalRange.r = Math.ceil(
-      recommendedScope.value.recommendedCableLength / 5
-    );
-    anchorState.value.criticalRange.units = recommendedScope.value.unit;
-  }
-};
 const showUpdateDialog = ref(false);
 const showCancelDialog = ref(false);
 const showUpdateDropConfirm = ref(false);
@@ -3348,10 +3326,6 @@ ion-page.page-container {
   background: var(--app-background-color);
 }
 
-.map-wrapper.dark-mode .openlayers-map :deep(.ol-layer canvas) {
-  filter: invert(0.85) hue-rotate(180deg) saturate(1.05) brightness(0.95);
-  transition: filter 0.25s ease;
-}
 /* Zoom buttons removed - using native OpenLayers pinch-to-zoom functionality */
 
 .anchor-fab-container {

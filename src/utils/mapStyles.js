@@ -19,12 +19,12 @@ export const createStyle = (config) => {
 };
 
 export const STYLES = {
-  BREADCRUMB: createStyle({
-    circle: {
-      radius: 3, // Smaller than boat and anchor
-      fill: { color: "rgba(121,85,72,0.7)" }, // Brown color for breadcrumbs
-      stroke: { color: "rgba(255,255,255,0.5)", width: 1 },
-    },
+  BREADCRUMB: () => new Style({
+    image: new CircleStyle({
+      radius: 6,
+      fill: new Fill({ color: '#000000' }),
+      stroke: new Stroke({ color: '#333333', width: 1 }),
+    }),
     zIndex: 80,
   }),
   BOAT: new Style({

@@ -1473,7 +1473,14 @@ export const useStateDataStore = defineStore("stateData", () => {
       if (!newPos) return;
       logger.debug("Position updated", { position: newPos });
       // Skip if state or position is not available
-      if (!newPos?.latitude?.value || !newPos?.longitude?.value) return;
+      if (
+        typeof newPos?.latitude?.value !== "number" ||
+        typeof newPos?.longitude?.value !== "number" ||
+        Number.isNaN(newPos.latitude.value) ||
+        Number.isNaN(newPos.longitude.value)
+      ) {
+        return;
+      }
 
       const lat = newPos.latitude.value;
       const lon = newPos.longitude.value;
@@ -1502,8 +1509,8 @@ export const useStateDataStore = defineStore("stateData", () => {
           lon
         );
 
-        // Only add if we've moved more than 0.5 meters
-        if (distance > 0.5) {
+        // Add a breadcrumb on any movement
+        if (distance > 0) {
           breadcrumbs.value.push(newEntry);
           logger.debug(
             `[Breadcrumbs] Added new position entry, moved ${distance.toFixed(

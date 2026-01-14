@@ -25,44 +25,58 @@
       <!-- Outer compass ring -->
       <circle cx="0" cy="0" r="190" fill="none" stroke="none"/>
       
-      <!-- Outer ring degree marks - every 1 degree -->
-      <g>
-        <line
-          v-for="deg in 360"
-          :key="deg"
-          :transform="`rotate(${deg})`"
-          x1="0" y1="-190"
-          :x2="0"
-          :y2="deg % 45 === 0 ? -182 : deg % 5 === 0 ? -182 : -185"
-          :stroke="deg % 45 === 0 ? colors.majorTicks : colors.minorTicks"
-          :stroke-width="deg % 45 === 0 ? 1.5 : deg % 5 === 0 ? 1 : 0.5"
-          :opacity="deg % 45 === 0 ? 1 : deg % 5 === 0 ? 0.6 : 0.5"
-        />
+      <!-- Outer compass elements that rotate with heading -->
+      <g :transform="`rotate(${-props.headingValue})`">
+        <!-- Outer ring degree marks - every 1 degree -->
+        <g>
+          <line
+            v-for="deg in 360"
+            :key="deg"
+            :transform="`rotate(${deg})`"
+            x1="0" y1="-190"
+            :x2="0"
+            :y2="deg % 45 === 0 ? -182 : deg % 5 === 0 ? -182 : -185"
+            :stroke="deg % 45 === 0 ? colors.majorTicks : colors.minorTicks"
+            :stroke-width="deg % 45 === 0 ? 1.5 : deg % 5 === 0 ? 1 : 0.5"
+            :opacity="deg % 45 === 0 ? 1 : deg % 5 === 0 ? 0.6 : 0.5"
+          />
+        </g>
+        
+        <!-- Outer compass numbers -->
+        <g>
+          <text x="87" y="-151" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(30 87 -151)">30</text>
+          <text x="151" y="-87" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(60 151 -87)">60</text>
+          <text x="151" y="87" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(120 151 87)">120</text>
+          <text x="87" y="151" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(150 87 151)">150</text>
+          <text x="-87" y="151" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(210 -87 151)">210</text>
+          <text x="-151" y="87" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(240 -151 87)">240</text>
+          <text x="-151" y="-87" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(300 -151 -87)">300</text>
+          <text x="-87" y="-151" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(330 -87 -151)">330</text>
+        </g>
+        
+        <!-- Cardinal directions -->
+        <text x="0" y="-172" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">N</text>
+        <text x="172" y="0" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(90 172 0)">E</text>
+        <text x="0" y="172" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(180 0 172)">S</text>
+        <text x="-172" y="0" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(270 -172 0)">W</text>
       </g>
-      
-      <!-- Outer ring degree numbers - every 30 degrees, just inside outer ring -->
-      <g>
-        <text
-          v-for="num in filteredDegreeNumbers"
-          :key="num"
-          :transform="`rotate(${num}) translate(0, -174) rotate(${-num})`"
-          :fill="colors.degreeNumbers"
-          font-size="6"
-          font-family="monospace"
-          text-anchor="middle"
-          dominant-baseline="middle"
-        >{{ num }}</text>
-      </g>
-      
-      <!-- Cardinal directions -->
-      <text x="0" y="-172" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle">N</text>
-      <text x="172" y="0" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">E</text>
-      <text x="0" y="172" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">S</text>
-      <text x="-172" y="0" :fill="colors.cardinalDirections" font-size="12" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">W</text>
       
       <!-- Inner compass ring -->
       <circle cx="0" cy="0" r="140" fill="none" :stroke="colors.outerRing" stroke-width="6"/>
       <circle cx="0" cy="0" r="130" fill="none" :stroke="colors.outerRingInner" stroke-width="2"/>
+      
+      <!-- Blue background for bottom half (semicircle) -->
+      <defs>
+        <clipPath id="bottomHalf">
+          <rect x="-140" y="0" width="280" height="140"/>
+        </clipPath>
+        <linearGradient id="blueToBlack" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#3e6a9f"/>
+          <stop offset="50%" stop-color="#3e6a9f"/>
+          <stop offset="100%" stop-color="#000000"/>
+        </linearGradient>
+      </defs>
+      <circle cx="0" cy="0" r="120" fill="url(#blueToBlack)" opacity="0.6" clip-path="url(#bottomHalf)"/>
       
       <!-- Horizontal line across inner compass center -->
       <line x1="-120" y1="0" x2="120" y2="0" :stroke="colors.minorTicks" stroke-width="1"/>
@@ -84,39 +98,88 @@
       
       <!-- Inner ring numbers - every 30 degrees -->
       <g>
-        <text
-          v-for="num in filteredDegreeNumbers"
-          :key="num"
-          :transform="`rotate(${num}) translate(0, -148) rotate(${-num})`"
-          :fill="colors.degreeNumbers"
-          font-size="6"
-          font-family="monospace"
-          text-anchor="middle"
-          dominant-baseline="middle"
-        >{{ num }}</text>
+        <text x="74" y="-128" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(30 74 -128)">30</text>
+        <text x="128" y="-74" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(60 128 -74)">60</text>
+        <text x="128" y="74" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(120 128 74)">120</text>
+        <text x="74" y="128" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(150 74 128)">150</text>
+        <text x="-74" y="128" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(210 -74 128)">210</text>
+        <text x="-128" y="74" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(240 -128 74)">240</text>
+        <text x="-128" y="-74" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(300 -128 -74)">300</text>
+        <text x="-74" y="-128" :fill="colors.degreeNumbers" font-size="6" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(330 -74 -128)">330</text>
       </g>
       
       <!-- Inner ring cardinal directions -->
-      <text x="0" y="-148" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle">N</text>
-      <text x="148" y="0" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">E</text>
-      <text x="0" y="148" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">S</text>
-      <text x="-148" y="0" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">W</text>
+      <text x="0" y="-148" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle">N</text>
+      <text x="148" y="0" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(90 148 0)">E</text>
+      <text x="0" y="148" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(180 0 148)">S</text>
+      <text x="-148" y="0" :fill="colors.cardinalDirections" font-size="8" font-weight="bold" font-family="monospace" text-anchor="middle" dominant-baseline="middle" transform="rotate(270 -148 0)">W</text>
       
       <!-- Green arc on top of all elements -->
-      <path d="M 0,-140 A 140,140 0 0,1 80.2,-115.2" fill="none" stroke="#00ff00" stroke-width="4"/>
+      <path d="M 0,-140 A 140,140 0 0,1 80.2,-115.2" fill="none" stroke="#00ff00" stroke-width="4" opacity="0.7"/>
       <!-- Red arc on top of all elements -->
-      <path d="M 0,-140 A 140,140 0 0,0 -80.2,-115.2" fill="none" stroke="#ff0000" stroke-width="4"/>
+      <path d="M 0,-140 A 140,140 0 0,0 -80.2,-115.2" fill="none" stroke="#ff0000" stroke-width="4" opacity="0.7"/>
+      
+      <!-- Data overlays -->
+      <text x="0" y="-85" fill="#ffffff" font-size="20" font-family="monospace" font-weight="bold" text-anchor="middle">6°</text>
+      <text x="0" y="-70" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="middle">AWA</text>
+      <text x="-2" y="-45" fill="#ffffff" font-size="20" font-family="monospace" font-weight="bold" text-anchor="end">18</text>
+      <text x="2" y="-45" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="start">kt</text>
+      <text x="0" y="-30" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="middle">AWS</text>
+      <text x="-2" y="40" fill="#ffffff" font-size="20" font-family="monospace" font-weight="bold" text-anchor="end">15</text>
+      <text x="2" y="40" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="start">m</text>
+      <text x="0" y="55" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="middle">DBK</text>
+      <text x="-2" y="80" fill="#ffffff" font-size="20" font-family="monospace" font-weight="bold" text-anchor="end">0.0</text>
+      <text x="2" y="80" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="start">kt</text>
+      <text x="0" y="95" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="middle">STW</text>
+      <!-- Tide arrows above water icon -->
+      <text x="32" y="66" fill="#ffffff" font-size="12" text-anchor="middle">↓</text>
+      <text x="38" y="66" fill="#ffffff" font-size="12" text-anchor="middle">↓</text>
+      
+      <!-- Wave icon using foreignObject -->
+      <foreignObject x="25" y="65" width="20" height="20">
+        <i class="fas fa-water" style="color: white; font-size: 14px;"></i>
+      </foreignObject>
+      
+      <!-- Red and green vertical lines below data displays -->
+      <line x1="-2" y1="115" x2="-2" y2="125" stroke="#ff0000" stroke-width="3" opacity="0.7"/>
+      <line x1="2" y1="115" x2="2" y2="125" stroke="#00ff00" stroke-width="3" opacity="0.7"/>
+      
+      <!-- SOG display below compass -->
+      <text x="-0.2" y="220" fill="#ffffff" font-size="20" font-family="monospace" font-weight="bold" text-anchor="end">0.4</text>
+      <text x="0.2" y="220" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="start">kt</text>
+      <text x="0" y="235" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="middle">SOG</text>
+            
+      <!-- Heading indicator at top -->
+      <g v-if="showHeading">
+        <!-- Heading text at top -->
+        <text x="0" y="-230" fill="#ffffff" font-size="16" font-weight="bold" font-family="monospace" text-anchor="middle">{{ props.headingValue }}°</text>
+        <!-- HDT text below heading -->
+        <text x="0" y="-215" fill="#ffffff" font-size="10" font-family="monospace" text-anchor="middle">HDT</text>
+      </g>
+      
+      <!-- COG (Course Over Ground) indicator -->
+      <g v-if="showCog">
+        <g :transform="`rotate(${props.cogValue})`">
+          <!-- COG text closer to circle -->
+          <text x="0" y="-200" fill="#ffffff" font-size="10" font-weight="bold" font-family="monospace" text-anchor="middle">COG</text>
+          <!-- Vertical line below COG -->
+          <line x1="0" y1="-195" x2="0" y2="-185" stroke="#ffffff" stroke-width="2"/>
+        </g>
+      </g>
       
     </svg>
   </div>
 </template>
 
 <script setup>
-import { computed } from "vue";
 
-defineProps({
+const props = defineProps({
   layout: { type: Object, required: false },
   widgets: { type: Object, required: false, default: () => {} },
+  cogValue: { type: Number, default: 90 }, // Course Over Ground in degrees
+  headingValue: { type: Number, default: 0 }, // Heading in degrees
+  showCog: { type: Boolean, default: true }, // Show/hide COG indicator
+  showHeading: { type: Boolean, default: true } // Show/hide heading indicator
 });
 
 const emit = defineEmits(["mounted"]);
@@ -136,11 +199,6 @@ const colors = {
   innerRingTicks: '#2a4a52',
   innerRingMinorTicks: '#4a7a82'
 };
-
-// Filtered degree numbers (exclude cardinal directions)
-const filteredDegreeNumbers = computed(() => {
-  return [30, 60, 120, 150, 210, 240, 300, 330];
-});
 
 // Emit mounted event after component is ready
 setTimeout(() => {
