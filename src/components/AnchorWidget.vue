@@ -23,23 +23,6 @@
         v-if="showGeometry"
       />
 
-      <line
-        v-if="showGeometry && boatPoint && anchorPoint"
-        class="rode-line"
-        :x1="anchorPoint.x"
-        :y1="anchorPoint.y"
-        :x2="boatPoint.x"
-        :y2="boatPoint.y"
-      />
-
-      <circle
-        v-if="showGeometry && anchorPoint"
-        class="anchor-point"
-        :cx="anchorPoint.x"
-        :cy="anchorPoint.y"
-        r="6"
-      />
-
       <g v-if="showGeometry">
         <circle
           v-for="(crumb, index) in breadcrumbPoints"
@@ -48,9 +31,27 @@
           :cx="crumb.x"
           :cy="crumb.y"
           :r="crumb.radius"
-          :opacity="crumb.opacity"
+          :fill="crumb.fill"
+          :stroke="crumb.stroke"
+          :stroke-width="crumb.strokeWidth"
         />
       </g>
+
+      <line
+        v-if="showGeometry && boatPoint"
+        class="rode-line"
+        :x1="CENTER"
+        :y1="CENTER"
+        :x2="boatPoint.x"
+        :y2="boatPoint.y"
+      />
+
+      <circle
+        class="drop-point"
+        :cx="CENTER"
+        :cy="CENTER"
+        r="6"
+      />
 
       <g v-if="showGeometry">
         <circle
@@ -63,13 +64,6 @@
           :opacity="target.opacity"
         />
       </g>
-
-      <circle
-        class="drop-point"
-        :cx="CENTER"
-        :cy="CENTER"
-        r="6"
-      />
 
       <circle
         v-if="showGeometry && boatPoint"
@@ -109,31 +103,25 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted } from "vue";
 import { storeToRefs } from "pinia";
 import {
   useStateDataStore,
   calculateDistanceMeters,
 } from "@/stores/stateDataStore";
+import { usePreferencesStore } from "@/stores/preferences";
 
 const VIEWBOX_SIZE = 300;
 const CENTER = VIEWBOX_SIZE / 2;
 const CRITICAL_DIAMETER_RATIO = 0.8;
 const CRITICAL_RADIUS = (VIEWBOX_SIZE * CRITICAL_DIAMETER_RATIO) / 2;
-const METERS_TO_FEET = 3.28084;
-const BREADCRUMB_MAX_POINTS = 40;
-const BREADCRUMB_MAX_AGE = 1000 * 60 * 30; // 30 minutes
-const BREADCRUMB_MIN_OPACITY = 0.15;
-const AIS_MAX_DISTANCE_FACTOR = 1.5; // allow AIS markers just outside of range
 
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
+const preferencesStore = usePreferencesStore();
 const anchorState = computed(() => state.value.anchor || {});
 const navigationState = computed(() => state.value.navigation || {});
-const breadcrumbsRef = stateStore.breadcrumbs;
-const now = ref(Date.now());
 let stopStateLogging = null;
-const initialHeadingOffset = ref(null);
 
 // onMounted(() => {
 //   clockTimer = window.setInterval(() => {
@@ -195,10 +183,6 @@ function normalizeCoordinates(positionLike) {
   return { lat, lon };
 }
 
-const dropCoordinates = computed(() =>
-  normalizeCoordinates(anchorState.value?.anchorDropLocation)
-);
-
 const anchorCoordinates = computed(() =>
   normalizeCoordinates(anchorState.value?.anchorLocation)
 );
@@ -207,78 +191,16 @@ const boatCoordinates = computed(() =>
   normalizeCoordinates(navigationState.value?.position)
 );
 
-const rodeMeters = computed(() => {
-  const raw = anchorState.value?.rode?.amount ?? anchorState.value?.rode?.value;
-  if (raw == null || !Number.isFinite(raw)) return null;
-  const units = normalizeUnits(
-    anchorState.value?.rode?.units ?? anchorState.value?.rode?.unit,
-    "m"
-  );
-  if (units === "ft") {
-    return raw / METERS_TO_FEET;
-  }
-  return raw;
-});
-
-const distanceFromDropMeters = computed(() => {
-  const drop = dropCoordinates.value;
-  const boat = boatCoordinates.value;
-  if (!drop || !boat) return null;
-  const distance = calculateDistanceMeters(
-    drop.lat,
-    drop.lon,
-    boat.lat,
-    boat.lon,
-    true
-  );
-  return Number.isFinite(distance) ? distance : null;
-});
-
-const displayDistanceMeters = computed(() => {
-  if (rodeMeters.value != null && Number.isFinite(rodeMeters.value)) {
-    return rodeMeters.value;
-  }
-  return distanceFromDropMeters.value;
-});
-
-const boatDistanceRatio = computed(() => {
-  const distance = displayDistanceMeters.value;
-  const range = criticalRangeMeters.value;
-  if (distance == null || range == null || range <= 0) return null;
-  const ratio = distance / range;
-  if (!Number.isFinite(ratio)) return null;
-  return Math.min(ratio, AIS_MAX_DISTANCE_FACTOR);
-});
-
-const rawBoatAngleRadians = computed(() => {
-  const drop = dropCoordinates.value;
-  if (!drop) return null;
-
-  const bearingRad = extractBearingRadians(
-    anchorState.value?.anchorDropLocation?.bearing
-  );
-  if (bearingRad != null) return bearingRad;
-
-  const reference = boatCoordinates.value || anchorCoordinates.value;
-  const coordsAngle = computeAngleFromCoords(reference);
-  if (coordsAngle != null) return coordsAngle;
-
-  return null;
-});
-
-const boatDirectionRadians = computed(() => {
-  const angle = rawBoatAngleRadians.value;
-  return getAdjustedAngle(angle ?? 0);
-});
-
 const criticalRangeMeters = computed(() => {
-  const raw = anchorState.value?.criticalRange?.r ?? anchorState.value?.criticalRange?.value;
+  const raw = anchorState.value?.criticalRange?.r;
   if (raw == null || !Number.isFinite(raw)) return null;
-  const units = anchorState.value?.criticalRange?.units || "m";
-  if (units.toLowerCase().startsWith("ft")) {
-    return raw / METERS_TO_FEET;
-  }
-  return raw;
+  
+  // Check if we're using metric or imperial units
+  const units = anchorState.value?.criticalRange?.units || anchorState.value?.rode?.units || "m";
+  const isMetric = !units.toLowerCase().startsWith("ft");
+  
+  // Convert to meters if in feet (matching AnchorView line 1179)
+  return isMetric ? raw : raw / 3.28084;
 });
 
 const scale = computed(() => {
@@ -295,121 +217,46 @@ function metersPerDegree(lat) {
   return { metersPerLat, metersPerLon };
 }
 
-function normalizeAngle(angle) {
-  if (!Number.isFinite(angle)) return 0;
-  const twoPi = Math.PI * 2;
-  return ((angle % twoPi) + twoPi) % twoPi;
-}
-
-function extractBearingRadians(bearingSource) {
-  if (bearingSource == null) return null;
-  if (typeof bearingSource === "number" && Number.isFinite(bearingSource)) {
-    return (bearingSource * Math.PI) / 180;
-  }
-  if (
-    typeof bearingSource === "object" &&
-    typeof bearingSource.degrees === "number" &&
-    Number.isFinite(bearingSource.degrees)
-  ) {
-    return (bearingSource.degrees * Math.PI) / 180;
-  }
-  if (
-    typeof bearingSource === "object" &&
-    typeof bearingSource.value === "number" &&
-    Number.isFinite(bearingSource.value)
-  ) {
-    return (bearingSource.value * Math.PI) / 180;
-  }
-  return null;
-}
-
-function computeAngleFromCoords(coords) {
-  const drop = dropCoordinates.value;
-  if (!drop || !coords) return null;
-  const { metersPerLat, metersPerLon } = metersPerDegree(drop.lat);
-  const dy = (coords.lat - drop.lat) * metersPerLat;
-  const dx = (coords.lon - drop.lon) * metersPerLon;
-  if (dx === 0 && dy === 0) return null;
-  return Math.atan2(dx, dy);
-}
-
-function getAdjustedAngle(rawAngle) {
-  const base = rawAngle == null ? 0 : rawAngle;
-  const offset = initialHeadingOffset.value ?? 0;
-  return normalizeAngle(base + offset);
-}
-
-function projectPoint(target) {
-  const drop = dropCoordinates.value;
-  if (!drop) return null;
-  const coords = normalizeCoordinates(target);
-  if (!coords) return null;
-
-  const { metersPerLat, metersPerLon } = metersPerDegree(drop.lat);
-  const dyMeters = (coords.lat - drop.lat) * metersPerLat;
-  const dxMeters = (coords.lon - drop.lon) * metersPerLon;
-
-  const currentScale = scale.value;
-  const x = CENTER + dxMeters * currentScale;
-  const y = CENTER - dyMeters * currentScale;
-
-  const offsetX = x - CENTER;
-  const offsetY = y - CENTER;
-  const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
-
-  const maxDistance = CRITICAL_RADIUS * AIS_MAX_DISTANCE_FACTOR;
-  if (distance > maxDistance) {
-    const clampFactor = maxDistance / distance;
-    return {
-      x: CENTER + offsetX * clampFactor,
-      y: CENTER + offsetY * clampFactor,
-    };
-  }
-
-  const offset = initialHeadingOffset.value;
-  if (!offset || distance === 0) {
-    return { x, y };
-  }
-
-  const rawAngle = Math.atan2(offsetX, -offsetY);
-  const adjusted = getAdjustedAngle(rawAngle);
-  const rotatedOffsetX = Math.sin(adjusted) * distance;
-  const rotatedOffsetY = -Math.cos(adjusted) * distance;
-
-  return {
-    x: CENTER + rotatedOffsetX,
-    y: CENTER + rotatedOffsetY,
-  };
-}
-
 const boatPoint = computed(() => {
-  const coordinatePoint = projectPoint(boatCoordinates.value);
-  if (coordinatePoint) {
-    return coordinatePoint;
-  }
-
-  const ratio = boatDistanceRatio.value;
-  if (ratio == null) return null;
-  const angle = boatDirectionRadians.value;
-  if (angle == null) return null;
-
-  const distancePx = ratio * CRITICAL_RADIUS;
+  const boat = boatCoordinates.value;
+  const anchor = anchorCoordinates.value;
+  
+  if (!boat || !anchor) return null;
+  
+  // Calculate actual distance in meters between boat and anchor
+  const distanceMeters = calculateDistanceMeters(
+    anchor.lat,
+    anchor.lon,
+    boat.lat,
+    boat.lon,
+    true
+  );
+  
+  if (distanceMeters == null || !Number.isFinite(distanceMeters)) return null;
+  
+  // Calculate bearing from anchor to boat
+  const { metersPerLat, metersPerLon } = metersPerDegree(anchor.lat);
+  const dyMeters = (boat.lat - anchor.lat) * metersPerLat;
+  const dxMeters = (boat.lon - anchor.lon) * metersPerLon;
+  const bearingRad = Math.atan2(dxMeters, dyMeters);
+  
+  // Scale distance to pixels
+  const currentScale = scale.value;
+  const distancePx = distanceMeters * currentScale;
+  
+  // Position boat relative to center (anchor position)
   return {
-    x: CENTER + Math.sin(angle) * distancePx,
-    y: CENTER - Math.cos(angle) * distancePx,
+    x: CENTER + Math.sin(bearingRad) * distancePx,
+    y: CENTER - Math.cos(bearingRad) * distancePx,
   };
 });
-const anchorPoint = computed(() => {
-  const source = anchorCoordinates.value || dropCoordinates.value;
-  if (!source) return null;
-  return projectPoint(source);
-});
-
 const aisPoints = computed(() => {
   const targets = state.value.aisTargets || {};
-  const drop = dropCoordinates.value;
+  const anchor = anchorCoordinates.value;
   const range = criticalRangeMeters.value;
-  if (!drop || !range || range <= 0) return [];
+  if (!anchor || !range || range <= 0) return [];
+
+  const currentScale = CRITICAL_RADIUS / range;
 
   return Object.entries(targets)
     .map(([id, target]) => {
@@ -417,75 +264,122 @@ const aisPoints = computed(() => {
       if (!coords) return null;
 
       const distance = calculateDistanceMeters(
-        drop.lat,
-        drop.lon,
+        anchor.lat,
+        anchor.lon,
         coords.lat,
         coords.lon,
         true
       );
       if (distance == null || !Number.isFinite(distance)) return null;
 
-      const ratio = Math.min(distance / range, AIS_MAX_DISTANCE_FACTOR);
-      if (!Number.isFinite(ratio)) return null;
+      // Calculate bearing from anchor to AIS target
+      const { metersPerLat, metersPerLon } = metersPerDegree(anchor.lat);
+      const dyMeters = (coords.lat - anchor.lat) * metersPerLat;
+      const dxMeters = (coords.lon - anchor.lon) * metersPerLon;
+      const bearingRad = Math.atan2(dxMeters, dyMeters);
 
-      const rawAngle = computeAngleFromCoords(coords) ?? 0;
-      const angle = getAdjustedAngle(rawAngle);
-
-      const distancePx = ratio * CRITICAL_RADIUS;
+      // Scale distance to pixels
+      const distancePx = distance * currentScale;
 
       return {
         id,
-        x: CENTER + Math.sin(angle) * distancePx,
-        y: CENTER - Math.cos(angle) * distancePx,
+        x: CENTER + Math.sin(bearingRad) * distancePx,
+        y: CENTER - Math.cos(bearingRad) * distancePx,
         opacity: 0.75,
       };
     })
     .filter(Boolean);
 });
 
-watch(
-  [
-    () => anchorState.value?.anchorDeployed,
-    () => dropCoordinates.value,
-    rawBoatAngleRadians,
-  ],
-  ([deployed, drop, angle]) => {
-    if (!deployed || !drop) {
-      initialHeadingOffset.value = null;
-      return;
-    }
-
-    if (initialHeadingOffset.value == null && angle != null) {
-      initialHeadingOffset.value = normalizeAngle(Math.PI - angle);
-    }
-  },
-  { immediate: true }
-);
-
 const breadcrumbPoints = computed(() => {
-  const crumbs = breadcrumbsRef?.value || [];
-  const drop = dropCoordinates.value;
-  if (!drop || !crumbs.length) return [];
+  const history = anchorState.value?.history || [];
+  const anchor = anchorCoordinates.value;
+  const range = criticalRangeMeters.value;
+  
+  if (!anchor || !history.length || !range || range <= 0) return [];
 
-  const latest = crumbs
-    .slice(-BREADCRUMB_MAX_POINTS)
-    .map((entry) => {
-      const projected = projectPoint(entry);
-      if (!projected) return null;
-      const age = now.value - (entry.time || 0);
-      const ratio = Math.min(Math.max(age / BREADCRUMB_MAX_AGE, 0), 1);
-      const opacity = Math.max(1 - ratio, BREADCRUMB_MIN_OPACITY);
-      const radius = 2 + (1 - ratio) * 2;
-      return { ...projected, opacity, radius };
+  const currentScale = CRITICAL_RADIUS / range;
+
+  const validCrumbs = history
+    .filter((crumb) => {
+      if (!crumb) return false;
+      
+      let lat, lon;
+      if (crumb.position) {
+        lat = crumb.position.latitude?.value ?? crumb.position.latitude;
+        lon = crumb.position.longitude?.value ?? crumb.position.longitude;
+      } else {
+        lat = crumb.latitude?.value ?? crumb.latitude;
+        lon = crumb.longitude?.value ?? crumb.longitude;
+      }
+      
+      return typeof lat === "number" && typeof lon === "number";
+    })
+    .map((crumb, idx, array) => {
+      let lat, lon;
+      if (crumb.position) {
+        lat = crumb.position.latitude?.value ?? crumb.position.latitude;
+        lon = crumb.position.longitude?.value ?? crumb.position.longitude;
+      } else {
+        lat = crumb.latitude?.value ?? crumb.latitude;
+        lon = crumb.longitude?.value ?? crumb.longitude;
+      }
+      
+      // Calculate distance from anchor location
+      const distanceMeters = calculateDistanceMeters(
+        anchor.lat,
+        anchor.lon,
+        lat,
+        lon,
+        true
+      );
+      
+      if (distanceMeters == null || !Number.isFinite(distanceMeters)) return null;
+      
+      // Calculate bearing from anchor to breadcrumb
+      const { metersPerLat, metersPerLon } = metersPerDegree(anchor.lat);
+      const dyMeters = (lat - anchor.lat) * metersPerLat;
+      const dxMeters = (lon - anchor.lon) * metersPerLon;
+      const bearingRad = Math.atan2(dxMeters, dyMeters);
+      
+      // Scale distance to pixels
+      const distancePx = distanceMeters * currentScale;
+      
+      // Calculate position
+      const x = CENTER + Math.sin(bearingRad) * distancePx;
+      const y = CENTER - Math.cos(bearingRad) * distancePx;
+      
+      // Calculate opacity based on position in array (matching AnchorView)
+      const age = array.length > 1 ? idx / (array.length - 1) : 0;
+      const opacity = 1.0 - (age * 0.7); // Fade from 1.0 to 0.3
+      
+      // Dynamic color based on dark mode with age-based opacity (matching AnchorView line 1663)
+      const isDark = preferencesStore.darkMode;
+      const fillColor = isDark 
+        ? `rgba(255, 255, 255, ${opacity})`
+        : `rgba(0, 0, 0, ${opacity})`;
+      const strokeColor = isDark
+        ? `rgba(200, 200, 200, ${opacity})`
+        : `rgba(51, 51, 51, ${opacity})`;
+      const strokeWidth = isDark ? 0.75 : 1;
+      
+      return { 
+        x, 
+        y, 
+        radius: 0.5,
+        fill: fillColor,
+        stroke: strokeColor,
+        strokeWidth
+      };
     })
     .filter(Boolean);
 
-  return latest;
+  return validCrumbs;
 });
 
 const showGeometry = computed(() => {
-  const drop = dropCoordinates.value;
-  return !!drop;
+  const anchor = anchorCoordinates.value;
+  return !!anchor;
 });
 
 const placeholderMessage = computed(() =>
@@ -555,7 +449,7 @@ const awsDisplay = computed(() => {
   return formatMeasurement(value, units, { decimals });
 });
 
-const criticalRadiusPx = CRITICAL_RADIUS;
+const criticalRadiusPx = computed(() => CRITICAL_RADIUS);
 
 </script>
 
@@ -618,7 +512,7 @@ const criticalRadiusPx = CRITICAL_RADIUS;
 }
 
 .breadcrumb-point {
-  fill: rgba(255, 255, 255, 0.9);
+  fill: var(--widget-text-color);
   stroke: none;
 }
 

@@ -30,20 +30,20 @@ export const STYLES = {
   BOAT: new Style({
     image: new Icon({
       src: BOAT_ICON_SRC,
-      anchor: [0.5, 0.5],
+      anchor: [0.85, 0.15],
       anchorXUnits: "fraction",
       anchorYUnits: "fraction",
       imgSize: [512, 512],
       scale: 0.06,
-      rotateWithView: true,
+      rotateWithView: false,
     }),
     zIndex: 100,
   }),
   ANCHOR_DROP_LOCATION: createStyle({
     circle: {
-      radius: 7, // 1px smaller than boat
+      radius: 2, // Smaller radius for green drop location
       fill: { color: "rgba(67,160,71,0.5)" }, // More visible green
-      stroke: { color: "rgba(255,255,255,0.5)", width: 2 }, // More visible white stroke
+      stroke: { color: "rgba(255,255,255,0.5)", width: 1 }, // Thinner stroke
     },
     zIndex: 90,
   }),
@@ -76,18 +76,18 @@ export const STYLES = {
   }),
   BOAT_RANGE: new Style({
     stroke: new Stroke({
-      color: "rgba(255,255,255,0.4)", // White color with 0.4 opacity
+      color: "rgba(255,255,255,0.15)", // Lower opacity
       width: 2,
       lineDash: [4, 4], // Dotted line pattern
     }),
     fill: new Fill({
-      color: "rgba(33,150,243,0.4)", // Increased fill opacity to 0.4
+      color: "rgba(33,150,243,0.08)", // Lower opacity
     }),
   }),
   RODE: new Style({
     stroke: new Stroke({
       color: "#FF5722", // Deep orange color for better visibility
-      width: 3,        // Thicker line
+      width: 2,        // Thinner line
       lineDash: [8, 4], // More pronounced dashed line
     }),
     zIndex: 95,       // Higher than anchor points but lower than boat

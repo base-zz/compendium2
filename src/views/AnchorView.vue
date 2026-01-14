@@ -379,6 +379,7 @@ import Polygon from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
 import Circle from "ol/geom/Circle";
 import { defaults as defaultControls } from "ol/control";
+import Zoom from "ol/control/Zoom";
 import Attribution from "ol/control/Attribution";
 import { defaults as defaultInteractions } from "ol/interaction";
 import Collection from "ol/Collection";
@@ -790,21 +791,15 @@ const boatPosition = computed(() => navigationState.value?.position);
 const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
 const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
 
-// Determine if anchor is dragging based on server-calculated state
-const isAnchorDragging = computed(() => {
-  // Use the server's dragging state instead of client-side calculation
-  return anchorState.value?.dragging === true;
-});
-
-console.log("anchorState.value:", anchorState.value);
-console.log("anchorState getter:", anchorState);
+// console.log("anchorState.value:", anchorState.value);
+// console.log("anchorState getter:", anchorState);
 
 const breadcrumbs = computed(() => {
   const history = anchorState.value?.history || [];
-  console.log("=== BREADCRUMB COMPUTED ===");
-  console.log("anchorState.value?.history:", history);
-  console.log("anchorState.value?.history length:", history?.length);
-  console.log("========================");
+  // console.log("=== BREADCRUMB COMPUTED ===");
+  // console.log("anchorState.value?.history:", history);
+  // console.log("anchorState.value?.history length:", history?.length);
+  // console.log("========================");
   return history;
 });
 
@@ -864,31 +859,13 @@ const { saveViewState, restoreViewState } = useMapPersist(map);
 const savedView = restoreViewState();
 
 // Map tools
-const { fitToFeatures, validateCoordinates } = useMapTools(map, vectorSource);
+const { validateCoordinates } = useMapTools(map, vectorSource);
 
 const anchorInfoContainer = ref(null);
 
 const hasCenteredOnBoatThisEntry = ref(null);
 
 // Feature Updates
-const getBoatHeadingDegreesFromState = (state) => {
-  if (!state || !state.navigation || !state.navigation.course) {
-    return 0;
-  }
-
-  const course = state.navigation.course;
-  const trueHeading = course.heading?.true?.value;
-  if (typeof trueHeading === "number" && !Number.isNaN(trueHeading)) {
-    return trueHeading;
-  }
-
-  const magneticHeading = course.heading?.magnetic?.value;
-  if (typeof magneticHeading === "number" && !Number.isNaN(magneticHeading)) {
-    return magneticHeading;
-  }
-
-  return 0;
-};
 
 const updateBoatPosition = debounce(() => {
   // Get the raw state to ensure we're accessing the data directly
@@ -922,16 +899,30 @@ const updateBoatPosition = debounce(() => {
   // Create the map point
   const point = new Point(fromLonLat([lon, lat]));
 
-  // Update the boat feature
-  const headingDegrees = getBoatHeadingDegreesFromState(state);
-  const headingRadians = (headingDegrees * Math.PI) / 180;
-  const correctedHeadingRadians = headingRadians + Math.PI / 2;
+  // Calculate angle from boat to anchor to make boat point toward anchor
   const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
-
+  
   try {
     const img = boatStyle?.getImage?.();
     if (img && typeof img.setRotation === "function") {
-      img.setRotation(correctedHeadingRadians);
+      // Get anchor position
+      const anchorPos = state?.anchor?.anchorLocation?.position;
+      if (anchorPos) {
+        const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+        const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
+        
+        if (typeof anchorLat === 'number' && typeof anchorLon === 'number') {
+          // Calculate angle from boat to anchor
+          const dLon = anchorLon - lon;
+          const dLat = anchorLat - lat;
+          const angleToAnchor = Math.atan2(dLon, dLat);
+          
+          // Subtract offset because icon naturally points upper-right (45 degrees)
+          // We need to rotate it so it points toward the anchor
+          const iconOffset = -Math.PI / 4; // -45 degrees to compensate for icon's natural orientation
+          img.setRotation(angleToAnchor + iconOffset);
+        }
+      }
     }
   } catch (e) {
     // If rotation fails, keep rendering the boat marker without rotation.
@@ -940,10 +931,14 @@ const updateBoatPosition = debounce(() => {
   updateFeature(FEATURE_TYPES.BOAT, point, boatStyle);
 
   // Center map on boat once each time the user enters this view
-  if (map.value && hasCenteredOnBoatThisEntry.value !== true) {
+  const isAnchorDeployed = state?.anchor?.anchorDeployed === true;
+  if (map.value && hasCenteredOnBoatThisEntry.value !== true && isAnchorDeployed !== true) {
     const view = map.value.getView();
     if (view) {
       const coord = fromLonLat([lon, lat]);
+      if (!coord) {
+        return;
+      }
       // Ensure the map has an up-to-date size before computing pixel offsets.
       // Ionic view transitions can leave the map with a stale size for a moment.
       map.value.updateSize();
@@ -1176,7 +1171,7 @@ const createCircleWithRadius = (centerLonLat, radius) => {
   // The scale factor is approximately cos(latitude in radians)
 
   // Convert radius to meters if it's in feet (when isMetric is false)
-  const radiusInMeters = isMetric.value ? radius : radius / 3.28084;
+  const radiusInMeters = radius;
 
   // Get the latitude in radians
   const latRad = (centerLonLat[1] * Math.PI) / 180;
@@ -1250,7 +1245,12 @@ const updateCriticalRangeCircle = debounce(() => {
   const position = anchorState.value.anchorLocation.position;
   const latitude = position.latitude?.value ?? position.latitude;
   const longitude = position.longitude?.value ?? position.longitude;
-  const radiusInMeters = anchorState.value.criticalRange.r;
+  
+  // Convert critical range to meters to match AnchorWidget logic
+  const rawRadius = anchorState.value.criticalRange.r;
+  const units = anchorState.value?.criticalRange?.units || anchorState.value?.rode?.units || "m";
+  const isMetricUnits = !units.toLowerCase().startsWith("ft");
+  const radiusInMeters = isMetricUnits ? rawRadius : rawRadius / 3.28084;
 
   logger.debug("Drawing circle at:", {
     center: [longitude, latitude],
@@ -1261,7 +1261,12 @@ const updateCriticalRangeCircle = debounce(() => {
   const circleGeometry = createCircleWithRadius([longitude, latitude], radiusInMeters);
 
   // Use the circle for the feature
-  updateFeature(FEATURE_TYPES.CIRCLE, circleGeometry, STYLES.CRITICAL_RANGE);
+  const activeAlerts = Array.isArray(alertState.value) ? alertState.value : [];
+  const hasCriticalRangeAlert = activeAlerts.some(
+    (alert) => alert?.trigger === "critical_range" && alert?.status !== "resolved"
+  );
+  const rangeStyle = hasCriticalRangeAlert ? STYLES.CRITICAL_RANGE : STYLES.NORMAL_RANGE;
+  updateFeature(FEATURE_TYPES.CIRCLE, circleGeometry, rangeStyle);
 
   // Calculate distance between boat and anchor for verification
   if (boatPosition.value) {
@@ -1272,7 +1277,7 @@ const updateCriticalRangeCircle = debounce(() => {
       boatLon,
       latitude,
       longitude,
-      isMetric.value
+      isMetricUnits
     );
 
     logger.debug("Distance verification:", {
@@ -1570,51 +1575,25 @@ const updateAisTargets = debounce(() => {
 
     // Update the state
     anchorState.value.aisWarning = hasTargetsInWarningRange;
-
-    // Log the current state of all relevant flags
-    logger.debug("Current anchor state flags:", {
-      anchorDeployed: anchorState.value.anchorDeployed,
-      dragging: anchorState.value.dragging,
-      aisWarning: anchorState.value.aisWarning,
-    });
   }
 
-  // Clear existing AIS features
-  clearFeature(FEATURE_TYPES.AIS);
-
-  // Add each feature to the source directly
-  validTargets.forEach((feature) => {
-    vectorSource.addFeature(feature);
-  });
-
-  // No need to store features manually - they're managed by the vectorSource
-}, 200);
+  updateFeatureGroup(FEATURE_TYPES.AIS, validTargets);
+}, 300);
 
 const updateBreadcrumbs = debounce(() => {
-  // Log breadcrumbs state for debugging
-  console.log("=== BREADCRUMB DEBUG ===");
-  console.log("breadcrumbs.value:", breadcrumbs.value);
-  console.log("breadcrumbs.value length:", breadcrumbs.value?.length);
-  console.log("breadcrumbs.value type:", typeof breadcrumbs.value);
-  console.log("stateStore.breadcrumbs:", stateStore.breadcrumbs);
-  console.log("========================");
-  
   // Skip if no breadcrumbs
   if (!breadcrumbs.value || breadcrumbs.value.length === 0) {
-    console.log("No breadcrumbs found, clearing breadcrumb features");
     clearFeature(FEATURE_TYPES.BREADCRUMB);
     return;
   }
 
   logger.debug(`Updating ${breadcrumbs.value.length} breadcrumbs`);
-  console.log(`Processing ${breadcrumbs.value.length} breadcrumbs`);
 
   // Filter for valid breadcrumbs and create features
   const validCrumbs = breadcrumbs.value
     .filter((crumb) => {
       // Check if crumb has valid coordinates
       if (!crumb) {
-        console.log("Skipping null/undefined crumb");
         return false;
       }
       
@@ -1632,11 +1611,6 @@ const updateBreadcrumbs = debounce(() => {
       }
       
       const isValid = typeof lat === "number" && typeof lon === "number";
-      if (!isValid) {
-        console.log("Skipping invalid crumb:", crumb);
-      } else {
-        console.log("Valid crumb found:", { lat, lon, time: crumb.time });
-      }
       return isValid;
     })
     .map((crumb, idx, array) => {
@@ -1713,9 +1687,12 @@ const initializeMap = () => {
   // If anchor is deployed, center on anchor location
   if (anchor?.anchorDeployed && anchor?.anchorLocation) {
     const anchorLoc = anchor.anchorLocation;
-    if (anchorLoc.latitude?.value != null && anchorLoc.longitude?.value != null) {
-      centerLat = anchorLoc.latitude.value;
-      centerLon = anchorLoc.longitude.value;
+    const anchorPos = anchorLoc.position ?? anchorLoc;
+    const anchorLat = anchorPos?.latitude?.value ?? anchorPos?.latitude;
+    const anchorLon = anchorPos?.longitude?.value ?? anchorPos?.longitude;
+    if (anchorLat != null && anchorLon != null) {
+      centerLat = anchorLat;
+      centerLon = anchorLon;
       hasValidPosition = true;
       logger.debug("Centering on anchor location:", { lat: centerLat, lon: centerLon });
     }
@@ -1757,7 +1734,9 @@ const initializeMap = () => {
       minZoom: 5,
       maxZoom: 22,
     }),
-    controls: defaultControls({ zoom: true, attribution: false }),
+    controls: defaultControls({ zoom: false, attribution: false }).extend([
+      new Zoom({ delta: 0.1 }),
+    ]),
     interactions: defaultInteractions({
       // Start with minimal interactions
       dragPan: true,
@@ -2135,8 +2114,12 @@ const updateBoatRangeCircle = debounce(() => {
   // Get the warning range radius for the boat-centered circle
   const radius = anchorState.value.warningRange?.r ?? 15; // Default to 15 if not set
 
+  const warningUnits = anchorState.value?.warningRange?.units || anchorState.value?.rode?.units || "m";
+  const isWarningMetric = !warningUnits.toLowerCase().startsWith("ft");
+  const warningRadiusMeters = isWarningMetric ? radius : radius / 3.28084;
+
   // Create a circle with the warning range radius centered on the boat
-  const circleGeometry = createCircleWithRadius([lon, lat], radius);
+  const circleGeometry = createCircleWithRadius([lon, lat], warningRadiusMeters);
 
   // Create a feature with the circle geometry
   const feature = new Feature({
@@ -2148,6 +2131,17 @@ const updateBoatRangeCircle = debounce(() => {
   // Add the feature to the vector source
   vectorSource.addFeature(feature);
 }, 200);
+
+// Watch for critical anchor state changes
+watch(
+  () => anchorState.value?.dragging,
+  (isDragging) => {
+    logger.debug("Anchor dragging state changed", {
+      isDragging: isDragging,
+    });
+  },
+  { immediate: true, deep: true }
+);
 
 // Watch for critical anchor state changes
 watch(
@@ -2164,60 +2158,8 @@ watch(
       return;
     }
 
-    // If anchor is deployed, fit the map to show both boat and anchor
-    if (anchorState.value.anchorDeployed) {
-      fitToFeatures([FEATURE_TYPES.BOAT, FEATURE_TYPES.ANCHOR_LOCATION]);
-    }
-
-    // Get the anchor location from the state (not the drop location)
-    // This is where the anchor is currently located, which should be the center of the circle
-    const anchorLoc = anchorState.value.anchorLocation;
-
-    if (
-      !anchorState.value.anchorDeployed ||
-      range === undefined ||
-      !anchorLoc?.position
-    ) {
-      clearFeature(FEATURE_TYPES.CIRCLE);
-      return;
-    }
-
-    // Make sure we have valid coordinates
-    if (!validateCoordinates(anchorLoc.position)) {
-      clearFeature(FEATURE_TYPES.CIRCLE);
-      return;
-    }
-
-    // Get the position coordinates
-    const position = anchorLoc.position;
-    const latitude = position.latitude?.value || position.latitude;
-    const longitude = position.longitude?.value || position.longitude;
-
-    // Get the radius value (range is already the r value from the computed property)
-    const radius = range;
-
-    // Choose the appropriate style based on the dragging state
-    const rangeStyle = isAnchorDragging.value
-      ? STYLES.CRITICAL_RANGE
-      : STYLES.NORMAL_RANGE;
-
-    // Clear any existing critical range circle
-    clearFeature(FEATURE_TYPES.CIRCLE);
-
-    // Create a circle with the correct radius in meters using our accurate function
-    const circleGeometry = createCircleWithRadius([longitude, latitude], radius);
-
-    // Create a new feature with the circle geometry
-    const feature = new Feature({
-      geometry: circleGeometry,
-    });
-    feature.set("type", "critical-range");
-    feature.setStyle(rangeStyle);
-
-    // Add the feature to the vector source
-    vectorSource.addFeature(feature);
-
-    // Also update the boat-centered range circle
+    // Ensure range visuals stay up to date (critical range circle is drawn in updateCriticalRangeCircle)
+    updateCriticalRangeCircle();
     updateBoatRangeCircle();
   },
   { immediate: true, deep: true }
@@ -2254,11 +2196,7 @@ watch(
 );
 
 // Watch for breadcrumbs changes
-watch(breadcrumbs, (newBreadcrumbs) => {
-  console.log("=== BREADCRUMB WATCH TRIGGERED ===");
-  console.log("New breadcrumbs:", newBreadcrumbs);
-  console.log("New breadcrumbs length:", newBreadcrumbs?.length);
-  console.log("================================");
+watch(breadcrumbs, () => {
   updateBreadcrumbs();
 }, { immediate: true });
 
