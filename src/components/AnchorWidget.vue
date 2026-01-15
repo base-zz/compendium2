@@ -47,10 +47,17 @@
       />
 
       <circle
-        class="drop-point"
+        class="anchor-drop-location-point"
         :cx="CENTER"
         :cy="CENTER"
         r="6"
+      />
+
+      <circle
+        class="anchor-location-point"
+        :cx="CENTER"
+        :cy="CENTER"
+        r="4"
       />
 
       <g v-if="showGeometry">
@@ -487,21 +494,22 @@ const criticalRadiusPx = computed(() => CRITICAL_RADIUS);
   stroke-dasharray: 6 4;
 }
 
-.drop-point {
-  fill: #ffcc00;
+
+.anchor-drop-location-point {
+  fill: rgba(67, 160, 71, 0.5);
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 2;
+}
+
+.anchor-location-point {
+  fill: #ffc107;
   stroke: #ffffff;
   stroke-width: 2;
 }
 
-.anchor-point {
-  fill: rgba(255, 255, 255, 0.85);
-  stroke: #00d1ff;
-  stroke-width: 2;
-}
-
 .boat-point {
-  fill: #00ffa3;
-  stroke: #003d26;
+  fill: #ef4444;
+  stroke: #111827;
   stroke-width: 2;
 }
 
@@ -509,11 +517,6 @@ const criticalRadiusPx = computed(() => CRITICAL_RADIUS);
   fill: #ff5555;
   stroke: rgba(255, 255, 255, 0.6);
   stroke-width: 1;
-}
-
-.breadcrumb-point {
-  fill: var(--widget-text-color);
-  stroke: none;
 }
 
 .placeholder {

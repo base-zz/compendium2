@@ -331,6 +331,7 @@ import { useRouter } from "vue-router";
 import {
   useStateDataStore,
   calculateDistanceMeters,
+  calculateDestinationLatLon,
 } from "@/stores/stateDataStore";
 import { usePreferencesStore } from "@/stores/preferences";
 import { UnitConversion } from "@/shared/unitConversion";
@@ -372,6 +373,7 @@ import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import Feature from "ol/Feature";
 import { Style, Stroke, Fill, Text } from "ol/style";
+import Icon from "ol/style/Icon";
 import CircleStyle from "ol/style/Circle";
 import { fromLonLat, toLonLat } from "ol/proj";
 import { Point } from "ol/geom";
@@ -405,6 +407,7 @@ const FEATURE_TYPES = {
   ANCHOR_DROP_LOCATION: "anchor-drop-location",
   ANCHOR_LOCATION: "anchor-location",
   RODE: "rode",
+  WIND: "wind",
   MEASURE_PIN_A: "measure-pin-a",
   MEASURE_PIN_B: "measure-pin-b",
   MEASURE_LINE: "measure-line",
@@ -1211,10 +1214,61 @@ const createCircleWithRadius = (centerLonLat, radius) => {
   return new Polygon([points]);
 };
 
+const getTrueWindAngleDegrees = () => {
+  const windAngle = state.value?.navigation?.wind?.true?.angle;
+  const raw = windAngle?.value ?? windAngle;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+};
+
+const updateWindIndicator = debounce((centerLat, centerLon, radiusInMeters) => {
+  clearFeature(FEATURE_TYPES.WIND);
+
+  if (typeof centerLat !== "number" || typeof centerLon !== "number") return;
+  if (typeof radiusInMeters !== "number" || !Number.isFinite(radiusInMeters) || radiusInMeters <= 0) return;
+
+  const windFromDegrees = getTrueWindAngleDegrees();
+  if (windFromDegrees == null) return;
+
+  let rim;
+  try {
+    rim = calculateDestinationLatLon(centerLat, centerLon, radiusInMeters, windFromDegrees);
+  } catch (e) {
+    return;
+  }
+
+  const rimLat = rim?.latitude;
+  const rimLon = rim?.longitude;
+  if (typeof rimLat !== "number" || typeof rimLon !== "number") return;
+
+  const geometry = new Point(fromLonLat([rimLon, rimLat]));
+
+  const iconOffset = -Math.PI / 4;
+  const dLon = centerLon - rimLon;
+  const dLat = centerLat - rimLat;
+  const angleToCenter = Math.atan2(dLon, dLat);
+
+  const style = new Style({
+    image: new Icon({
+      src: "/img/navigate.svg",
+      anchor: [0.85, 0.15],
+      anchorXUnits: "fraction",
+      anchorYUnits: "fraction",
+      imgSize: [512, 512],
+      scale: 0.035,
+      rotateWithView: false,
+      rotation: angleToCenter + iconOffset,
+    }),
+    zIndex: 96,
+  });
+
+  updateFeature(FEATURE_TYPES.WIND, geometry, style);
+}, 150);
+
 const updateCriticalRangeCircle = debounce(() => {
   // Check if anchorState exists first
   if (!anchorState.value) {
     clearFeature(FEATURE_TYPES.CIRCLE);
+    clearFeature(FEATURE_TYPES.WIND);
     return;
   }
 
@@ -1231,6 +1285,7 @@ const updateCriticalRangeCircle = debounce(() => {
   ) {
     // Clear any existing critical range circle
     clearFeature(FEATURE_TYPES.CIRCLE);
+    clearFeature(FEATURE_TYPES.WIND);
     return;
   }
 
@@ -1268,6 +1323,8 @@ const updateCriticalRangeCircle = debounce(() => {
   const rangeStyle = hasCriticalRangeAlert ? STYLES.CRITICAL_RANGE : STYLES.NORMAL_RANGE;
   updateFeature(FEATURE_TYPES.CIRCLE, circleGeometry, rangeStyle);
 
+  updateWindIndicator(latitude, longitude, radiusInMeters);
+
   // Calculate distance between boat and anchor for verification
   if (boatPosition.value) {
     const boatLat = boatPosition.value.latitude;
@@ -1302,6 +1359,17 @@ const updateCriticalRangeCircle = debounce(() => {
     `Circle created with radius: ${radiusInMeters} meters at latitude ${latitude}`
   );
 }, 50);
+
+watch(
+  () => {
+    const windAngle = state.value?.navigation?.wind?.true?.angle;
+    const raw = windAngle?.value ?? windAngle;
+    return typeof raw === "number" ? raw : null;
+  },
+  () => {
+    updateCriticalRangeCircle();
+  }
+);
 
 const updateRodeLine = debounce(() => {
   // logger.debug('Starting updateRodeLine function');
