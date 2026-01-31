@@ -17,12 +17,21 @@
     <div class="grid-container">
       <div class="grid-row">
         <div class="info-rect-div">
+          <div class="label-div larger">Rode</div>
+          <div class="metric-div larger">{{ anchorState?.rode?.amount }}</div>
+        </div>
+        <div class="info-rect-div">
           <div class="label-div larger">Range</div>
           <div class="metric-div larger clickable" @click="showEditRadiusModal = true">{{ anchorState?.criticalRange?.r }}</div>
         </div>
-        <div class="info-rect-div">
-          <div class="label-div larger">Rode</div>
-          <div class="metric-div larger">{{ anchorState?.rode?.amount }}</div>
+        <div class="info-rect-div" @click="handleHeadingClick">
+          <div class="label-div larger">Heading</div>
+          <div class="metric-div larger">
+            {{ anchorState && anchorState.anchorDeployed
+              ? (anchorState?.anchorDropLocation?.bearing?.degrees == null ? '--' : `${anchorState.anchorDropLocation.bearing.degrees}°`)
+              : (deviceHeadingDegrees == null ? '--' : `${deviceHeadingDegrees}°`)
+            }}
+          </div>
         </div>
       </div>
       <div class="grid-row">
@@ -76,6 +85,7 @@ import { useStateDataStore } from '@/stores/stateDataStore.js';
 import { storeToRefs } from 'pinia';
 import { usePreferencesStore } from '@/stores/preferences';
 import { UnitConversion } from '@/shared/unitConversion';
+import { useDeviceHeading } from '@/composables/useDeviceHeading.js';
 
 const emit = defineEmits(['anchor-dropped']);
 
@@ -87,6 +97,15 @@ const editRadiusValue = ref(0);
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 const anchorState = computed(() => state.value.anchor);
+
+const { headingDegrees: deviceHeadingDegrees, start: startDeviceHeading } = useDeviceHeading();
+
+const handleHeadingClick = async () => {
+  if (!anchorState.value || anchorState.value.anchorDeployed) {
+    return;
+  }
+  await startDeviceHeading();
+};
 
 const preferencesStore = usePreferencesStore();
 const { preferences } = storeToRefs(preferencesStore);

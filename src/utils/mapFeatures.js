@@ -45,6 +45,16 @@ export const useMapFeatures = (vectorSource) => {
   const updateFeatureGroup = (type, featuresData, defaultStyle) => {
     clearFeature(type);
     const newFeatures = featuresData.map(data => {
+      if (data instanceof Feature) {
+        if (data.get('type') !== type) {
+          data.set('type', type);
+        }
+        if (!data.getStyle() && defaultStyle) {
+          data.setStyle(defaultStyle);
+        }
+        return data;
+      }
+
       const feature = new Feature({ geometry: data.geometry });
       feature.set('type', type);
       feature.setStyle(data.style || defaultStyle);

@@ -267,6 +267,13 @@ export function createStateDataModel(unitPreferences = UNIT_PRESETS.IMPERIAL) {
             displayLabel: "Draft",
             description: "Vessel Draft",
           },
+          bowRollerToWater: {
+            value: null,
+            units: unitPreferences.length,
+            label: "Bow Roller",
+            displayLabel: "Bow Roller to Water",
+            description: "Distance from bow roller to water",
+          },
         },
       },
       systems: {

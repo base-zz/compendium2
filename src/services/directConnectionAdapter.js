@@ -337,7 +337,7 @@ class DirectConnectionAdapter {
 
   disconnect() {
     logger.info("Disconnecting WebSocket connection...");
-    this._manualClose = false;
+    this._manualClose = true;
     this._cleanupWebSocket();
     this.connectionState = { status: "disconnected", lastError: null };
   }

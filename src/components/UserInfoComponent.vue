@@ -22,7 +22,7 @@
         <ion-card-title>{{ mode === 'add' ? 'Add Boat' : 'Edit Boat' }}</ion-card-title>
       </ion-card-header>
       <ion-card-content>
-        <form class="custom-form" @submit.prevent="saveInfo">
+        <form class="custom-form" @submit.prevent="handleSubmit">
           <!-- Boat Info Section -->
           <div class="form-group">
             <div class="form-label">Boat Information</div>
@@ -57,7 +57,7 @@
             <ion-input
               class="form-control"
               placeholder="LOA (Length Overall) in feet"
-              v-model="boatInfo.loa"
+              v-model.number="boatInfo.loa"
               type="number"
               required
             ></ion-input>
@@ -66,7 +66,7 @@
             <ion-input
               class="form-control"
               placeholder="Beam in feet"
-              v-model="boatInfo.beam"
+              v-model.number="boatInfo.beam"
               type="number"
               required
             ></ion-input>
@@ -75,7 +75,7 @@
             <ion-input
               class="form-control"
               placeholder="Draft in feet"
-              v-model="boatInfo.draft"
+              v-model.number="boatInfo.draft"
               type="number"
               required
             ></ion-input>
@@ -84,9 +84,17 @@
             <ion-input
               class="form-control"
               placeholder="Air Draft in feet"
-              v-model="boatInfo.airDraft"
+              v-model.number="boatInfo.airDraft"
               type="number"
               required
+            ></ion-input>
+
+            <ion-label position="stacked">Bow Roller to Water ({{ lengthUnitLabel }})</ion-label>
+            <ion-input
+              class="form-control"
+              placeholder="Bow Roller to Water"
+              v-model.number="boatInfo.bowRollerToWater"
+              type="number"
             ></ion-input>
 
             <ion-label position="stacked">MMSI</ion-label>
@@ -109,8 +117,9 @@
 </template>
 
 <script setup>
-import { reactive, computed } from "vue";
+import { reactive, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
+import { usePreferencesStore } from "@/stores/preferences";
 import {
   IonButton,
   IonIcon,
@@ -127,6 +136,8 @@ import {
 import { logInOutline, logOutOutline } from "ionicons/icons";
 
 const router = useRouter();
+const preferencesStore = usePreferencesStore();
+const lengthUnitLabel = computed(() => (preferencesStore?.useImperial?.value ? "ft" : "m"));
 
 // Authentication state
 const isLoggedIn = computed(() => {
@@ -136,7 +147,7 @@ const isLoggedIn = computed(() => {
   return localStorage.getItem('isAuthenticated') === 'true';
 });
 
-const props = defineProps({
+defineProps({
   mode: {
     type: String,
     default: 'edit'
@@ -155,51 +166,119 @@ const boatInfo = reactive({
   beam: null,
   draft: null,
   airDraft: null,
+  bowRollerToWater: null,
   mmsi: ''
 });
 
+const activeBoatId = computed(() => {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("activeBoatId");
+});
+
+onMounted(() => {
+  const id = activeBoatId.value;
+  if (!id) return;
+
+  try {
+    const raw = localStorage.getItem(`boatInfo:${id}`);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return;
+
+    if (typeof parsed.boatName === "string") boatInfo.boatName = parsed.boatName;
+    if (typeof parsed.boatType === "string") boatInfo.boatType = parsed.boatType;
+
+    const parseNullableNumber = (value) => {
+      if (typeof value === "number" && !Number.isNaN(value)) return value;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        const parsedNumber = Number(trimmed);
+        if (!Number.isNaN(parsedNumber)) return parsedNumber;
+      }
+      return null;
+    };
+
+    const loa = parseNullableNumber(parsed.loa);
+    if (loa != null) boatInfo.loa = loa;
+
+    const beam = parseNullableNumber(parsed.beam);
+    if (beam != null) boatInfo.beam = beam;
+
+    const draft = parseNullableNumber(parsed.draft);
+    if (draft != null) boatInfo.draft = draft;
+
+    const airDraft = parseNullableNumber(parsed.airDraft);
+    if (airDraft != null) boatInfo.airDraft = airDraft;
+
+    const bowRollerToWater = parseNullableNumber(parsed.bowRollerToWater);
+    if (bowRollerToWater != null) boatInfo.bowRollerToWater = bowRollerToWater;
+
+    if (typeof parsed.mmsi === "string") boatInfo.mmsi = parsed.mmsi;
+  } catch (error) {
+    // Ignore invalid stored data
+  }
+});
+
 async function handleSubmit() {
-  if (props.mode === 'add') {
-    try {
-      // Get token from your auth store (replace with your actual logic)
-      const token = pb.authStore.token; // or from localStorage, etc.
-      const response = await fetch('/api/boat/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          boatName: boatInfo.boatName,
-          boatType: boatInfo.boatType,
-          loa: boatInfo.loa,
-          beam: boatInfo.beam,
-          draft: boatInfo.draft,
-          airDraft: boatInfo.airDraft,
-          mmsi: boatInfo.mmsi
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to register boat');
+  try {
+    const id = activeBoatId.value;
+    if (!id) {
       const toast = await toastController.create({
-        message: "Boat added successfully!",
-        duration: 2000,
-        position: "bottom",
-        color: "success",
-      });
-      await toast.present();
-      // Optionally reset form fields here
-    } catch (error) {
-      const toast = await toastController.create({
-        message: error.message || "Failed to add boat",
-        duration: 2000,
+        message: "No active boat selected. Please pair a boat first.",
+        duration: 2500,
         position: "bottom",
         color: "danger",
       });
       await toast.present();
+      return;
     }
-  } else {
-    // Implement edit logic if needed
+
+    const bowRollerToWaterValue = boatInfo?.bowRollerToWater;
+    const hasBowRollerToWater =
+      typeof bowRollerToWaterValue === "number" && !Number.isNaN(bowRollerToWaterValue);
+
+    const payload = {
+      boatName: boatInfo.boatName,
+      boatType: boatInfo.boatType,
+      loa: boatInfo.loa,
+      beam: boatInfo.beam,
+      draft: boatInfo.draft,
+      airDraft: boatInfo.airDraft,
+      ...(hasBowRollerToWater ? { bowRollerToWater: bowRollerToWaterValue } : {}),
+      mmsi: boatInfo.mmsi,
+    };
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`boatInfo:${id}`, JSON.stringify(payload));
+    }
+
+    if (hasBowRollerToWater && typeof window !== "undefined") {
+      const storageKey = `boatDimensions:${id}:bowRollerToWater`;
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          value: bowRollerToWaterValue,
+          units: lengthUnitLabel.value,
+        })
+      );
+    }
+
+    const toast = await toastController.create({
+      message: "Boat updated successfully!",
+      duration: 2000,
+      position: "bottom",
+      color: "success",
+    });
+    await toast.present();
+  } catch (error) {
+    const toast = await toastController.create({
+      message: error?.message || "Failed to update boat",
+      duration: 2000,
+      position: "bottom",
+      color: "danger",
+    });
+    await toast.present();
   }
 }
 
@@ -209,7 +288,9 @@ function navigateToLogin() {
 
 async function logoutUser() {
   try {
-    logout();
+    if (typeof window !== "undefined") {
+      localStorage.setItem('isAuthenticated', 'false');
+    }
     const toast = await toastController.create({
       message: "Successfully logged out",
       duration: 2000,
@@ -224,6 +305,7 @@ async function logoutUser() {
     boatInfo.beam = null;
     boatInfo.draft = null;
     boatInfo.airDraft = null;
+    boatInfo.bowRollerToWater = null;
     boatInfo.mmsi = '';
     router.push("/");
   } catch (error) {
@@ -249,7 +331,7 @@ async function logoutUser() {
 
 .dark-card {
   background: var(--ion-background-color);
-  border: 1px solid rgba(var(--ion-color-primary-contrast-rgb), 0.3);
+  border: 1px solid var(--ion-color-step-200);
   border-radius: 8px;
   margin: 1rem;
 }
@@ -259,16 +341,16 @@ async function logoutUser() {
 }
 
 .form-label {
-  color: var(--ion-color-primary-contrast);
+  color: var(--ion-text-color);
   font-weight: 500;
   font-size: 1rem;
   margin-bottom: 0.5rem;
 }
 
 .form-control {
-  --background: rgba(var(--ion-color-primary-contrast-rgb), 0.1);
-  --color: var(--ion-color-primary-contrast);
-  --placeholder-color: rgba(var(--ion-color-primary-contrast-rgb), 0.5);
+  --background: var(--ion-background-color);
+  --color: var(--ion-text-color);
+  --placeholder-color: var(--ion-color-medium);
   --padding-start: 1rem;
   --padding-end: 1rem;
   --border-radius: 4px;
@@ -284,7 +366,7 @@ ion-select.form-control::part(text) {
   flex: unset;
   text-align: left;
   width: 100%;
-  color: var(--ion-color-primary-contrast);
+  color: var(--ion-text-color);
 }
 
 ion-note {
@@ -303,7 +385,7 @@ ion-card-content {
 }
 
 ion-card-title {
-  color: var(--ion-color-primary-contrast);
+  color: var(--ion-text-color);
   font-size: 1.25rem;
   font-weight: 600;
 }
@@ -326,7 +408,7 @@ ion-card-subtitle {
 }
 
 /* Modal Select Styles */
-:root {
+.select-modal {
   --ion-color-step-50: #2a2a2a;
   --ion-color-step-100: #2a2a2a;
   --ion-color-step-150: #2a2a2a;
@@ -335,9 +417,6 @@ ion-card-subtitle {
   --ion-color-step-300: #2a2a2a;
   --ion-color-step-350: #2a2a2a;
   --ion-color-step-400: #2a2a2a;
-}
-
-.select-modal {
   --background: #2a2a2a !important;
   --color: white !important;
 }

@@ -99,6 +99,21 @@
                 >{{ anchorState.anchorDropLocation.bearing?.degrees || "--" }}°</span
               >
             </div>
+            <div class="slider-label" style="margin-top: 6px; text-transform: none; letter-spacing: normal;">
+              <span>Phone:</span>
+              <span class="slider-value" style="font-size: 1.1em;">
+                {{ deviceHeadingDegrees == null ? "--" : `${deviceHeadingDegrees}°` }}
+              </span>
+            </div>
+            <IonButton
+              color="secondary"
+              size="small"
+              style="margin: 6px auto 10px;"
+              :disabled="hasTriedPhoneBearing && deviceHeadingDegrees == null"
+              @click="applyPhoneBearing"
+            >
+              {{ hasTriedPhoneBearing && deviceHeadingDegrees == null ? 'Phone direction unavailable' : 'Use phone direction' }}
+            </IonButton>
             <ion-range
               v-model="anchorState.anchorDropLocation.bearing.degrees"
               :min="0"
@@ -116,7 +131,10 @@
             <div class="recommendation-header">
               <span>Cable Calculator</span>
             </div>
-            <div class="recommendation-details">
+            <div v-if="recommendedScope.missingBowRollerToWater" class="suggestion-note">
+              Set Bow Roller to Water in Boat Info to enable accurate scope recommendations.
+            </div>
+            <div v-else class="recommendation-details">
               <div class="recommendation-row">
                 <span>Current Depth:</span>
                 <span
@@ -164,13 +182,15 @@
                 </div>
               </div>
             </div>
-            <div class="suggestion-note">
+            <div v-if="!recommendedScope.missingBowRollerToWater" class="suggestion-note">
               Based on projected max depth of {{ recommendedScope.maxDepth.toFixed(1)
             }}{{ recommendedScope.unit }} (current depth
             {{ recommendedScope.currentDepth.toFixed(1)
             }}{{ recommendedScope.unit }} +
             {{ recommendedScope.depthIncrease.toFixed(1)
-            }}{{ recommendedScope.unit }} tide rise)
+            }}{{ recommendedScope.unit }} tide rise +
+            {{ recommendedScope.bowRollerToWater.toFixed(1)
+            }}{{ recommendedScope.unit }} bow roller)
             </div>
           </div>
         </div>
@@ -338,6 +358,7 @@ import { UnitConversion } from "@/shared/unitConversion";
 import { debounce } from "lodash-es";
 import { getComputedAnchorLocation } from "@/stores/stateDataStore";
 import { createAisProximityAlert } from "@/utils/anchorAlerts";
+import { useDeviceHeading } from "@/composables/useDeviceHeading.js";
 
 // Component imports
 import AnchorInfoGrid from "@/components/AnchorInfoGrid.vue";
@@ -387,6 +408,8 @@ import { defaults as defaultInteractions } from "ol/interaction";
 import Collection from "ol/Collection";
 import Translate from "ol/interaction/Translate";
 import DragPan from "ol/interaction/DragPan";
+import DragRotate from "ol/interaction/DragRotate";
+import PinchRotate from "ol/interaction/PinchRotate";
 
 import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import ScaleLine from "ol/control/ScaleLine";
@@ -434,6 +457,77 @@ const { preferences } = storeToRefs(preferencesStore);
 const navigationState = computed(() => state.value.navigation);
 const anchorState = computed(() => state.value.anchor);
 const alertState = computed(() => state.value.alerts?.active);
+
+const { headingDegrees: deviceHeadingDegrees, start: startDeviceHeading } = useDeviceHeading();
+
+const hasTriedPhoneBearing = ref(false);
+
+const showPhoneBearingToast = async (message) => {
+  try {
+    const toast = await toastController.create({
+      message,
+      duration: 2500,
+      position: "bottom",
+      color: "warning",
+      cssClass: "phone-bearing-toast",
+    });
+    await toast.present();
+  } catch (e) {
+    logger.error("Error showing phone bearing toast", e);
+  }
+};
+
+const waitForDeviceHeading = async (timeoutMs) => {
+  if (deviceHeadingDegrees.value != null) {
+    return deviceHeadingDegrees.value;
+  }
+
+  return await new Promise((resolve) => {
+    const stopWatch = watch(deviceHeadingDegrees, (val) => {
+      if (val == null) {
+        return;
+      }
+      stopWatch();
+      clearTimeout(timeoutHandle);
+      resolve(val);
+    });
+
+    const timeoutHandle = setTimeout(() => {
+      stopWatch();
+      resolve(null);
+    }, timeoutMs);
+  });
+};
+
+const applyPhoneBearing = async () => {
+  hasTriedPhoneBearing.value = true;
+
+  const started = await startDeviceHeading();
+  if (!started) {
+    await showPhoneBearingToast("Unable to access phone direction.");
+    return;
+  }
+
+  const nextDegrees = await waitForDeviceHeading(1500);
+  if (nextDegrees == null) {
+    await showPhoneBearingToast("No phone direction available. Try moving the phone.");
+    return;
+  }
+
+  if (!anchorState.value) {
+    return;
+  }
+
+  if (!anchorState.value.anchorDropLocation) {
+    return;
+  }
+
+  if (!anchorState.value.anchorDropLocation.bearing) {
+    return;
+  }
+
+  anchorState.value.anchorDropLocation.bearing.degrees = nextDegrees;
+};
 
 const aisTargets = computed(() => {
   const targetsObj = state.value.aisTargets || {};
@@ -902,28 +996,44 @@ const updateBoatPosition = debounce(() => {
   // Create the map point
   const point = new Point(fromLonLat([lon, lat]));
 
-  // Calculate angle from boat to anchor to make boat point toward anchor
+  // Rotate boat icon
   const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
   
   try {
     const img = boatStyle?.getImage?.();
     if (img && typeof img.setRotation === "function") {
-      // Get anchor position
-      const anchorPos = state?.anchor?.anchorLocation?.position;
-      if (anchorPos) {
-        const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
-        const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
-        
-        if (typeof anchorLat === 'number' && typeof anchorLon === 'number') {
-          // Calculate angle from boat to anchor
-          const dLon = anchorLon - lon;
-          const dLat = anchorLat - lat;
-          const angleToAnchor = Math.atan2(dLon, dLat);
-          
-          // Subtract offset because icon naturally points upper-right (45 degrees)
-          // We need to rotate it so it points toward the anchor
-          const iconOffset = -Math.PI / 4; // -45 degrees to compensate for icon's natural orientation
-          img.setRotation(angleToAnchor + iconOffset);
+      const iconOffset = -Math.PI / 4; // -45 degrees to compensate for icon's natural orientation
+
+      const isAnchorDeployed = state?.anchor?.anchorDeployed === true;
+
+      // If anchor is deployed, point the boat toward the anchor location (rode direction)
+      if (isAnchorDeployed) {
+        const anchorPos = state?.anchor?.anchorLocation?.position;
+        if (anchorPos) {
+          const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+          const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
+          if (typeof anchorLat === "number" && typeof anchorLon === "number") {
+            const dLon = anchorLon - lon;
+            const dLat = anchorLat - lat;
+            const angleToAnchor = Math.atan2(dLon, dLat);
+            img.setRotation(angleToAnchor + iconOffset);
+          }
+        }
+      } else {
+        // If anchor is NOT deployed, rotate by heading/COG
+        const headingTrueDeg = state?.navigation?.course?.heading?.true?.value;
+        const cogDeg = state?.navigation?.course?.cog?.value;
+
+        const angleDeg =
+          typeof headingTrueDeg === "number"
+            ? headingTrueDeg
+            : typeof cogDeg === "number"
+              ? cogDeg
+              : null;
+
+        if (typeof angleDeg === "number" && Number.isFinite(angleDeg)) {
+          const headingRad = (angleDeg * Math.PI) / 180;
+          img.setRotation(headingRad + iconOffset);
         }
       }
     }
@@ -993,62 +1103,83 @@ const updateBoatPosition = debounce(() => {
   }
 }, 100);
 
-const recenterMap = () => {
+const getOverlayAwareCenterTargetY = (size) => {
+  if (!Array.isArray(size) || size.length !== 2) return null;
+  const wrapper = anchorInfoContainer.value;
+  const mapEl = mapElement.value;
+  if (!wrapper || !mapEl) return null;
+  if (typeof wrapper.querySelector !== "function") return null;
+  if (typeof mapEl.getBoundingClientRect !== "function") return null;
+
+  const overlayEl = wrapper.querySelector(".anchor-grid-div");
+  if (!overlayEl || typeof overlayEl.getBoundingClientRect !== "function") return null;
+
+  const overlayRect = overlayEl.getBoundingClientRect();
+  const mapRect = mapEl.getBoundingClientRect();
+  const bottom = overlayRect.bottom - mapRect.top;
+  if (typeof bottom !== "number" || Number.isNaN(bottom)) return null;
+
+  const visibleStartY = bottom;
+  const visibleHeight = size[1] - visibleStartY;
+  if (!(visibleStartY >= 0) || !(visibleHeight > 0)) return null;
+
+  const centered = visibleStartY + visibleHeight / 2;
+  const shifted = centered - visibleHeight * 0.1;
+  return shifted < visibleStartY ? visibleStartY : shifted;
+};
+
+const getAnchorCenterCoord = () => {
+  const state = stateStore.state;
+  const anchor = state?.anchor;
+  if (anchor?.anchorDeployed !== true) return null;
+
+  const dropPos = anchor?.anchorDropLocation?.position;
+  const anchorPos = anchor?.anchorLocation?.position;
+  const pos = dropPos ?? anchorPos;
+  if (!pos) return null;
+
+  const lat = pos.latitude?.value ?? pos.latitude;
+  const lon = pos.longitude?.value ?? pos.longitude;
+  if (typeof lat !== "number" || typeof lon !== "number") return null;
+  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  return fromLonLat([lon, lat]);
+};
+
+const getBoatCenterCoord = () => {
   const pos = stateStore.state?.navigation?.position;
-  if (!pos || !pos.latitude || !pos.longitude) return;
-  if (pos.latitude.value == null || pos.longitude.value == null) return;
+  if (!pos || !pos.latitude || !pos.longitude) return null;
+  if (pos.latitude.value == null || pos.longitude.value == null) return null;
 
   const lat = pos.latitude.value;
   const lon = pos.longitude.value;
-  if (typeof lat !== 'number' || typeof lon !== 'number' || Number.isNaN(lat) || Number.isNaN(lon)) return;
+  if (typeof lat !== "number" || typeof lon !== "number") return null;
+  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  return fromLonLat([lon, lat]);
+};
 
+const recenterToAnchorOrBoat = () => {
   if (!map.value) return;
   const view = map.value.getView();
   if (!view) return;
 
-  const coord = fromLonLat([lon, lat]);
+  const anchorCoord = getAnchorCenterCoord();
+  const coord = anchorCoord ?? getBoatCenterCoord();
+  if (!coord) return;
+
   map.value.updateSize();
   const size = map.value.getSize();
-  if (!Array.isArray(size) || size.length !== 2 || typeof size[0] !== 'number' || typeof size[1] !== 'number') {
+
+  const targetY = getOverlayAwareCenterTargetY(size);
+  if (targetY == null || !Array.isArray(size) || size.length !== 2) {
     view.setCenter(coord);
     return;
   }
-
-  const overlayBottomPx = (() => {
-    const wrapper = anchorInfoContainer.value;
-    const mapEl = mapElement.value;
-    if (!wrapper || !mapEl) return null;
-    if (typeof wrapper.querySelector !== 'function') return null;
-    if (typeof mapEl.getBoundingClientRect !== 'function') return null;
-
-    const overlayEl = wrapper.querySelector('.anchor-grid-div');
-    if (!overlayEl || typeof overlayEl.getBoundingClientRect !== 'function') return null;
-
-    const overlayRect = overlayEl.getBoundingClientRect();
-    const mapRect = mapEl.getBoundingClientRect();
-    const bottom = overlayRect.bottom - mapRect.top;
-    return typeof bottom === 'number' && !Number.isNaN(bottom) ? bottom : null;
-  })();
-
-  if (overlayBottomPx == null) {
-    view.setCenter(coord);
-    return;
-  }
-
-  const visibleStartY = overlayBottomPx;
-  const visibleHeight = size[1] - visibleStartY;
-  if (!(visibleStartY >= 0) || !(visibleHeight > 0)) {
-    view.setCenter(coord);
-    return;
-  }
-
-  const targetY = (() => {
-    const centered = visibleStartY + visibleHeight / 2;
-    const shifted = centered - visibleHeight * 0.1;
-    return shifted < visibleStartY ? visibleStartY : shifted;
-  })();
 
   view.centerOn(coord, size, [size[0] / 2, targetY]);
+};
+
+const recenterMap = () => {
+  recenterToAnchorOrBoat();
 };
 
 // Track the last known valid position to prevent flickering
@@ -1778,7 +1909,20 @@ const initializeMap = () => {
     logger.debug("Using default position (0,0)");
   }
 
-  const defaultCenter = fromLonLat([centerLon, centerLat]);
+  const defaultCenter = (() => {
+    const savedCenter = savedView?.center;
+    if (
+      Array.isArray(savedCenter) &&
+      savedCenter.length === 2 &&
+      typeof savedCenter[0] === "number" &&
+      typeof savedCenter[1] === "number" &&
+      !Number.isNaN(savedCenter[0]) &&
+      !Number.isNaN(savedCenter[1])
+    ) {
+      return savedCenter;
+    }
+    return fromLonLat([centerLon, centerLat]);
+  })();
   const defaultZoom = savedView?.zoom || 15;
 
   // Create the map with minimal interactions initially
@@ -1798,7 +1942,8 @@ const initializeMap = () => {
     view: new View({
       center: defaultCenter,
       zoom: defaultZoom,
-      rotation: savedView?.rotation || 0,
+      rotation: 0,
+      enableRotation: false,
       minZoom: 5,
       maxZoom: 22,
     }),
@@ -1809,10 +1954,28 @@ const initializeMap = () => {
       // Start with minimal interactions
       dragPan: true,
       pinchZoom: true,
+      altShiftDragRotate: false,
+      pinchRotate: false,
       mouseWheelZoom: false, // Disable default and add our custom one below
     }),
     pixelRatio: window.devicePixelRatio,
   });
+
+  // Hard lock map rotation (iOS pinch gestures can still rotate under some conditions)
+  try {
+    const view = map.value.getView();
+    if (view && typeof view.setRotation === "function") {
+      view.setRotation(0);
+    }
+
+    map.value.getInteractions().forEach((interaction) => {
+      if (interaction instanceof DragRotate || interaction instanceof PinchRotate) {
+        map.value.removeInteraction(interaction);
+      }
+    });
+  } catch (error) {
+    // Ignore rotation lock failures
+  }
 
   // Fit view to critical range circle when anchor is deployed
   if (anchor?.anchorDeployed && anchor?.criticalRange && hasValidPosition) {
@@ -2277,6 +2440,44 @@ const recommendedScope = computed(() => {
     const reportedDepth = stateStore.state.navigation?.depth?.belowTransducer?.value;
     const tideData = stateStore.state.tides;
 
+    const activeBoatId =
+      typeof window !== "undefined" ? localStorage.getItem("activeBoatId") : null;
+    const storedBowRollerKey = activeBoatId
+      ? `boatDimensions:${activeBoatId}:bowRollerToWater`
+      : "boatDimensions:bowRollerToWater";
+    const storedBowRollerRaw =
+      typeof window !== "undefined" ? localStorage.getItem(storedBowRollerKey) : null;
+
+    const bowRollerFromState =
+      stateStore.state?.vessel?.info?.dimensions?.bowRollerToWater?.value;
+    const bowRollerToWaterPayload = (() => {
+      if (typeof bowRollerFromState === "number" && !Number.isNaN(bowRollerFromState)) {
+        const units = stateStore.state?.vessel?.info?.dimensions?.bowRollerToWater?.units;
+        if (units === "ft" || units === "m") {
+          return { value: bowRollerFromState, units };
+        }
+      }
+
+      if (storedBowRollerRaw) {
+        try {
+          const parsed = JSON.parse(storedBowRollerRaw);
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            typeof parsed.value === "number" &&
+            !Number.isNaN(parsed.value) &&
+            (parsed.units === "ft" || parsed.units === "m")
+          ) {
+            return { value: parsed.value, units: parsed.units };
+          }
+        } catch (error) {
+          return null;
+        }
+      }
+
+      return null;
+    })();
+
     // Debug logging removed for production
 
     if (reportedDepth == null) {
@@ -2285,6 +2486,10 @@ const recommendedScope = computed(() => {
 
     if (!tideData) {
       return null;
+    }
+
+    if (!bowRollerToWaterPayload) {
+      return { missingBowRollerToWater: true };
     }
 
     const now = new Date();
@@ -2363,12 +2568,17 @@ const recommendedScope = computed(() => {
     // Convert depth to meters if it's in feet (assuming the raw depth is in feet if using imperial)
     const depthInMeters = isMetric.value ? reportedDepth : reportedDepth / 3.28084;
 
+    const bowRollerToWaterMeters =
+      bowRollerToWaterPayload.units === "ft"
+        ? bowRollerToWaterPayload.value / 3.28084
+        : bowRollerToWaterPayload.value;
+
     // Calculate depth increase from current level to max future level
     // If we couldn't determine current water level, use the first available data point
     const referenceLevel = currentLevel !== null ? currentLevel : seaLevels[0] || 0;
     const depthIncreaseMeters =
       maxFutureLevel !== -Infinity ? Math.max(0, maxFutureLevel - referenceLevel) : 0;
-    const targetDepthMeters = depthInMeters + depthIncreaseMeters;
+    const targetDepthMeters = depthInMeters + bowRollerToWaterMeters + depthIncreaseMeters;
 
     // Depth increase calculation details are no longer logged to console
 
@@ -2377,6 +2587,7 @@ const recommendedScope = computed(() => {
     const unit = isMetric.value ? "m" : "ft";
 
     return {
+      missingBowRollerToWater: false,
       currentDepth: depthInMeters * unitMultiplier,
       depthIncrease: depthIncreaseMeters * unitMultiplier,
       maxDepth: targetDepthMeters * unitMultiplier,
@@ -2384,6 +2595,7 @@ const recommendedScope = computed(() => {
       scopeLength5to1: targetDepthMeters * 5 * unitMultiplier,
       scopeLength7to1: targetDepthMeters * 7 * unitMultiplier,
       recommendedCableLength: targetDepthMeters * 5 * unitMultiplier,
+      bowRollerToWater: bowRollerToWaterMeters * unitMultiplier,
       unit: unit,
     };
   } catch (error) {
@@ -2396,6 +2608,23 @@ const recommendedScope = computed(() => {
 onIonViewDidEnter(() => {
   hasCenteredOnBoatThisEntry.value = null;
   updateBoatPosition();
+  if (map.value) {
+    map.value.updateSize();
+  }
+});
+
+onMounted(() => {
+  const handleVisibilityChange = () => {
+    if (document.visibilityState !== "visible") return;
+    if (!map.value) return;
+    map.value.updateSize();
+    recenterToAnchorOrBoat();
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  onUnmounted(() => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  });
 });
 
 const showUpdateDialog = ref(false);

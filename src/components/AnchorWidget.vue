@@ -50,14 +50,14 @@
         class="anchor-drop-location-point"
         :cx="CENTER"
         :cy="CENTER"
-        r="6"
+        r="5"
       />
 
       <circle
         class="anchor-location-point"
         :cx="CENTER"
         :cy="CENTER"
-        r="4"
+        r="3"
       />
 
       <g v-if="showGeometry">
@@ -77,7 +77,7 @@
         class="boat-point"
         :cx="boatPoint.x"
         :cy="boatPoint.y"
-        r="8"
+        r="7"
       />
 
       <text
