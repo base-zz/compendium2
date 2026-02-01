@@ -276,16 +276,18 @@
       </div>
     </IonModal>
 
-    <div class="map-wrapper" :class="{ 'dark-mode': isDarkMode }">
-      <div ref="anchorInfoContainer" class="anchor-info-grid">
+    <div class="anchor-view-container" :class="{ 'dark-mode': isDarkMode }">
+      <div ref="anchorInfoContainer" class="anchor-info-section">
         <AnchorInfoGrid
           @anchor-dropped="handleAnchorDropped"
           @update-drop-location="handleUpdateDropLocation"
           @cancel-anchor="handleCancelAnchor"
         />
       </div>
-      <div ref="mapElement" class="openlayers-map"></div>
-      <div ref="attributionContainer" class="map-attribution"></div>
+      <div class="map-section">
+        <div ref="mapElement" class="openlayers-map"></div>
+        <div ref="attributionContainer" class="map-attribution"></div>
+      </div>
 
       <!-- Custom zoom controls -->
       <div class="custom-zoom-controls">
@@ -344,9 +346,6 @@ console.log("=== ANCHOR VIEW SCRIPT SETUP STARTING ===");
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { createLogger } from "@/services/logger";
-
-const logger = createLogger("AnchorView");
-logger.info("Initializing AnchorView component...");
 import { useRouter } from "vue-router";
 import {
   useStateDataStore,
@@ -380,6 +379,7 @@ import {
   IonFooter,
   IonToolbar,
   onIonViewDidEnter,
+  onIonViewDidLeave,
   toastController,
 } from "@ionic/vue";
 import { chevronUpOutline, navigate, resizeOutline } from "ionicons/icons";
@@ -400,7 +400,6 @@ import { fromLonLat, toLonLat } from "ol/proj";
 import { Point } from "ol/geom";
 import Polygon from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
-import Circle from "ol/geom/Circle";
 import { defaults as defaultControls } from "ol/control";
 import Zoom from "ol/control/Zoom";
 import Attribution from "ol/control/Attribution";
@@ -416,9 +415,20 @@ import ScaleLine from "ol/control/ScaleLine";
 import { useMapTools } from "@/utils/mapUtils.js";
 import { useMapFeatures } from "@/utils/mapFeatures";
 import { STYLES } from "@/utils/mapStyles";
-import { useMapPersist } from "@/utils/mapPersist";
 import { relayConnectionBridge } from "@/relay/client/RelayConnectionBridge.js";
 import { directConnectionAdapter } from "@/services/directConnectionAdapter.js";
+
+const getWindIconSrc = (speedValue) => {
+  const speed = speedValue != null ? Math.round(speedValue) : '';
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='68' height='68' viewBox='0 0 68 68'>
+    <path fill='%23007BFF' d='M32 8 L56 48 H8 Z'/>
+    <text x='32' y='48' text-anchor='middle' fill='white' font-size='16' font-weight='bold' font-family='system-ui, -apple-system, sans-serif' transform='rotate(180 32 40)'>${speed}</text>
+  </svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+};
+
+const logger = createLogger("AnchorView");
+logger.info("Initializing AnchorView component...");
 
 // Constants
 const FEATURE_TYPES = {
@@ -435,6 +445,35 @@ const FEATURE_TYPES = {
   MEASURE_PIN_B: "measure-pin-b",
   MEASURE_LINE: "measure-line",
   MEASURE_LABEL: "measure-label",
+};
+
+const hasLoggedFramingDebugThisEntry = ref(false);
+const hasAppliedDefaultFramingThisEntry = ref(false);
+const isMapRenderReady = ref(false);
+const isAnchorViewActive = ref(false);
+
+const attachDefaultFramingListener = () => {
+  if (!map.value) return;
+  if (isMapRenderReady.value !== true) return;
+  if (hasAppliedDefaultFramingThisEntry.value === true) return;
+
+  const attemptApply = () => {
+    if (hasAppliedDefaultFramingThisEntry.value === true) {
+      map.value?.un?.("postrender", attemptApply);
+      return;
+    }
+
+    const applied = applyDefaultFramingOnEnter();
+    if (applied === true) {
+      map.value?.un?.("postrender", attemptApply);
+    }
+  };
+
+  map.value.on("postrender", attemptApply);
+  attemptApply();
+  if (typeof map.value.render === "function") {
+    map.value.render();
+  }
 };
 
 // Main component setup
@@ -881,9 +920,6 @@ const toggleMeasureMode = async () => {
   }
 };
 
-// Derived state
-console.log("=== ANCHOR VIEW SETUP STARTING ===");
-
 const boatPosition = computed(() => navigationState.value?.position);
 const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
 const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
@@ -899,16 +935,6 @@ const breadcrumbs = computed(() => {
   // console.log("========================");
   return history;
 });
-
-// Debug: Log what we're getting from stateStore
-console.log("=== INITIAL BREADCRUMB STATE ===");
-console.log("anchorState.value:", anchorState.value);
-console.log("anchorState.value?.history:", anchorState.value?.history);
-console.log("stateStore:", stateStore);
-console.log("stateStore.state:", stateStore.state);
-console.log("stateStore.state.anchor:", stateStore.state?.anchor);
-console.log("stateStore.state.anchor?.history:", stateStore.state?.anchor?.history);
-console.log("================================");
 
 // Unit system handling
 const isMetric = computed(() => {
@@ -951,16 +977,144 @@ logger.debug("Current state:", state.value);
 logger.debug("Anchor state:", anchorState.value);
 logger.debug("Alert state:", alertState.value);
 
-// View persistence
-const { saveViewState, restoreViewState } = useMapPersist(map);
-const savedView = restoreViewState();
-
 // Map tools
 const { validateCoordinates } = useMapTools(map, vectorSource);
 
 const anchorInfoContainer = ref(null);
 
 const hasCenteredOnBoatThisEntry = ref(null);
+
+const getAnchorTargetCoord = () => {
+  const anchor = anchorState.value;
+  if (anchor?.anchorDeployed !== true) return null;
+
+  const dropPos = anchor?.anchorDropLocation?.position;
+  const anchorPos = anchor?.anchorLocation?.position;
+  const pos = anchorPos ?? dropPos;
+  if (!pos) return null;
+
+  const lat = pos.latitude?.value ?? pos.latitude;
+  const lon = pos.longitude?.value ?? pos.longitude;
+  if (typeof lat !== "number" || typeof lon !== "number") return null;
+  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  return { lon, lat, coord: fromLonLat([lon, lat]) };
+};
+
+const applyDefaultFramingOnEnter = () => {
+  if (!map.value) return false;
+  const view = map.value.getView();
+  if (!view) return false;
+
+  map.value.updateSize();
+  const size = map.value.getSize();
+
+  // Validate map size
+  if (!Array.isArray(size) || size.length !== 2) return false;
+  if (typeof size[0] !== "number" || typeof size[1] !== "number") return false;
+  if (!(size[0] >= 200) || !(size[1] >= 200)) return false;
+
+  const anchor = anchorState.value;
+  const isAnchorDeployed = anchor?.anchorDeployed === true;
+  const anchorTarget = getAnchorTargetCoord();
+
+  // If anchor deployed but no target coord yet, keep retrying
+  if (isAnchorDeployed === true && !anchorTarget) return false;
+
+  if (anchorTarget) {
+    const critical = anchor?.criticalRange;
+    const rawRadius = critical?.r ?? critical?.value;
+    const units = critical?.units || anchor?.rode?.units;
+
+    // Convert radius to meters
+    let radiusMeters = null;
+    if (typeof rawRadius === "number" && !Number.isNaN(rawRadius)) {
+      const u = typeof units === "string" ? units.toLowerCase() : null;
+      if (u && u.startsWith("m")) {
+        radiusMeters = rawRadius;
+      } else if (u && u.startsWith("ft")) {
+        radiusMeters = rawRadius / 3.28084;
+      }
+    }
+
+    if (typeof radiusMeters === "number" && radiusMeters > 0) {
+      // Calculate zoom to fit critical range at 80% of smaller dimension
+      const minDimPx = Math.min(size[0], size[1]);
+      const targetRadiusPx = 0.8 * minDimPx / 2;
+
+      // Account for latitude distortion in Web Mercator
+      const latRad = (anchorTarget.lat * Math.PI) / 180;
+      const scaleFactor = Math.cos(latRad);
+      const projectedRadius = radiusMeters / scaleFactor;
+      const resolution = projectedRadius / targetRadiusPx;
+
+      if (resolution > 0 && Number.isFinite(resolution)) {
+        // Get actual DOM element dimensions and force map to use them
+        const mapEl = mapElement.value;
+        const domRect = mapEl ? mapEl.getBoundingClientRect() : null;
+        
+        if (domRect && domRect.width > 0 && domRect.height > 0) {
+          // Use DOM dimensions for calculations
+          const domWidth = Math.round(domRect.width);
+          const domHeight = Math.round(domRect.height);
+          const domMinDim = Math.min(domWidth, domHeight);
+          const domTargetRadiusPx = 0.8 * domMinDim / 2;
+          const domResolution = projectedRadius / domTargetRadiusPx;
+
+          // Force the map to use the correct size
+          map.value.setSize([domWidth, domHeight]);
+          
+          view.setResolution(domResolution);
+          view.setCenter(anchorTarget.coord);
+          map.value.render();
+          
+          hasAppliedDefaultFramingThisEntry.value = true;
+          return true;
+        }
+      }
+    }
+
+    // Couldn't calculate zoom, just center on anchor
+    view.setCenter(anchorTarget.coord);
+    if (isAnchorDeployed === true) return false;
+
+    hasAppliedDefaultFramingThisEntry.value = true;
+    return true;
+  }
+
+  // No anchor, center on boat
+  const boatCoord = getBoatCenterCoord();
+  if (!boatCoord) return false;
+  view.setCenter(boatCoord);
+  hasAppliedDefaultFramingThisEntry.value = true;
+  return true;
+};
+
+watch(
+  anchorDeployed,
+  (next, prev) => {
+    if (prev === true) return;
+    if (next !== true) return;
+    if (!map.value) return;
+
+    hasAppliedDefaultFramingThisEntry.value = false;
+    const attempt = () => {
+      if (!map.value) return;
+      map.value.updateSize();
+      attachDefaultFramingListener();
+    };
+
+    // In practice, anchor state can flip to deployed before the map is fully render-ready.
+    // Queue a postrender attempt to ensure framing applies using the final map size.
+    map.value.once?.("postrender", attempt);
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(attempt);
+    }
+    if (typeof map.value.render === "function") {
+      map.value.render();
+    }
+  },
+  { immediate: false }
+);
 
 // Feature Updates
 
@@ -1042,108 +1196,7 @@ const updateBoatPosition = debounce(() => {
   }
 
   updateFeature(FEATURE_TYPES.BOAT, point, boatStyle);
-
-  // Center map on boat once each time the user enters this view
-  const isAnchorDeployed = state?.anchor?.anchorDeployed === true;
-  if (map.value && hasCenteredOnBoatThisEntry.value !== true && isAnchorDeployed !== true) {
-    const view = map.value.getView();
-    if (view) {
-      const coord = fromLonLat([lon, lat]);
-      if (!coord) {
-        return;
-      }
-      // Ensure the map has an up-to-date size before computing pixel offsets.
-      // Ionic view transitions can leave the map with a stale size for a moment.
-      map.value.updateSize();
-      const size = map.value.getSize();
-      const overlayBottomPx = (() => {
-        const wrapper = anchorInfoContainer.value;
-        const mapEl = mapElement.value;
-        if (!wrapper || !mapEl) return null;
-        if (typeof wrapper.querySelector !== 'function') return null;
-        if (typeof mapEl.getBoundingClientRect !== 'function') return null;
-
-        const overlayEl = wrapper.querySelector('.anchor-grid-div');
-        if (!overlayEl || typeof overlayEl.getBoundingClientRect !== 'function') return null;
-
-        const overlayRect = overlayEl.getBoundingClientRect();
-        const mapRect = mapEl.getBoundingClientRect();
-
-        const bottom = overlayRect.bottom - mapRect.top;
-        return typeof bottom === 'number' && !Number.isNaN(bottom) ? bottom : null;
-      })();
-
-      // If we can measure the overlay, center within the remaining visible map area.
-      // AnchorInfoGrid is top-anchored, so the visible map area is the space below it.
-      if (
-        Array.isArray(size) &&
-        size.length === 2 &&
-        typeof size[0] === 'number' &&
-        typeof size[1] === 'number' &&
-        overlayBottomPx != null
-      ) {
-        const visibleStartY = overlayBottomPx;
-        const visibleHeight = size[1] - visibleStartY;
-        if (visibleStartY >= 0 && visibleHeight > 0) {
-          const targetY = (() => {
-            const centered = visibleStartY + visibleHeight / 2;
-            const shifted = centered - visibleHeight * 0.1;
-            return shifted < visibleStartY ? visibleStartY : shifted;
-          })();
-          view.centerOn(coord, size, [size[0] / 2, targetY]);
-          hasCenteredOnBoatThisEntry.value = true;
-          return;
-        }
-      }
-
-      // Fallback to normal centering
-      view.setCenter(coord);
-      hasCenteredOnBoatThisEntry.value = true;
-    }
-  }
 }, 100);
-
-const getOverlayAwareCenterTargetY = (size) => {
-  if (!Array.isArray(size) || size.length !== 2) return null;
-  const wrapper = anchorInfoContainer.value;
-  const mapEl = mapElement.value;
-  if (!wrapper || !mapEl) return null;
-  if (typeof wrapper.querySelector !== "function") return null;
-  if (typeof mapEl.getBoundingClientRect !== "function") return null;
-
-  const overlayEl = wrapper.querySelector(".anchor-grid-div");
-  if (!overlayEl || typeof overlayEl.getBoundingClientRect !== "function") return null;
-
-  const overlayRect = overlayEl.getBoundingClientRect();
-  const mapRect = mapEl.getBoundingClientRect();
-  const bottom = overlayRect.bottom - mapRect.top;
-  if (typeof bottom !== "number" || Number.isNaN(bottom)) return null;
-
-  const visibleStartY = bottom;
-  const visibleHeight = size[1] - visibleStartY;
-  if (!(visibleStartY >= 0) || !(visibleHeight > 0)) return null;
-
-  const centered = visibleStartY + visibleHeight / 2;
-  const shifted = centered - visibleHeight * 0.1;
-  return shifted < visibleStartY ? visibleStartY : shifted;
-};
-
-const getAnchorCenterCoord = () => {
-  const state = stateStore.state;
-  const anchor = state?.anchor;
-  if (anchor?.anchorDeployed !== true) return null;
-
-  const dropPos = anchor?.anchorDropLocation?.position;
-  const anchorPos = anchor?.anchorLocation?.position;
-  const pos = dropPos ?? anchorPos;
-  if (!pos) return null;
-
-  const lat = pos.latitude?.value ?? pos.latitude;
-  const lon = pos.longitude?.value ?? pos.longitude;
-  if (typeof lat !== "number" || typeof lon !== "number") return null;
-  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
-  return fromLonLat([lon, lat]);
-};
 
 const getBoatCenterCoord = () => {
   const pos = stateStore.state?.navigation?.position;
@@ -1157,29 +1210,9 @@ const getBoatCenterCoord = () => {
   return fromLonLat([lon, lat]);
 };
 
-const recenterToAnchorOrBoat = () => {
-  if (!map.value) return;
-  const view = map.value.getView();
-  if (!view) return;
-
-  const anchorCoord = getAnchorCenterCoord();
-  const coord = anchorCoord ?? getBoatCenterCoord();
-  if (!coord) return;
-
-  map.value.updateSize();
-  const size = map.value.getSize();
-
-  const targetY = getOverlayAwareCenterTargetY(size);
-  if (targetY == null || !Array.isArray(size) || size.length !== 2) {
-    view.setCenter(coord);
-    return;
-  }
-
-  view.centerOn(coord, size, [size[0] / 2, targetY]);
-};
-
 const recenterMap = () => {
-  recenterToAnchorOrBoat();
+  hasAppliedDefaultFramingThisEntry.value = false;
+  attachDefaultFramingListener();
 };
 
 // Track the last known valid position to prevent flickering
@@ -1373,26 +1406,31 @@ const updateWindIndicator = debounce((centerLat, centerLon, radiusInMeters) => {
 
   const geometry = new Point(fromLonLat([rimLon, rimLat]));
 
-  const iconOffset = -Math.PI / 4;
   const dLon = centerLon - rimLon;
   const dLat = centerLat - rimLat;
   const angleToCenter = Math.atan2(dLon, dLat);
 
-  const style = new Style({
+  // Get apparent wind speed for display inside the triangle
+  const windSpeed = state.value?.navigation?.wind?.apparent?.speed?.value ?? 
+                   state.value?.navigation?.wind?.true?.speed?.value ?? '';
+
+  const windIconSrc = getWindIconSrc(windSpeed);
+
+  const fillStyle = new Style({
     image: new Icon({
-      src: "/img/navigate.svg",
-      anchor: [0.85, 0.15],
+      src: windIconSrc,
+      anchor: [0.5, 0.5],
       anchorXUnits: "fraction",
       anchorYUnits: "fraction",
-      imgSize: [512, 512],
-      scale: 0.035,
+      imgSize: [64, 64],
+      scale: 0.6,
       rotateWithView: false,
-      rotation: angleToCenter + iconOffset,
+      rotation: angleToCenter,
     }),
     zIndex: 96,
   });
 
-  updateFeature(FEATURE_TYPES.WIND, geometry, style);
+  updateFeature(FEATURE_TYPES.WIND, geometry, [fillStyle]);
 }, 150);
 
 const updateCriticalRangeCircle = debounce(() => {
@@ -1495,6 +1533,18 @@ watch(
   () => {
     const windAngle = state.value?.navigation?.wind?.true?.angle;
     const raw = windAngle?.value ?? windAngle;
+    return typeof raw === "number" ? raw : null;
+  },
+  () => {
+    updateCriticalRangeCircle();
+  }
+);
+
+// Watch for wind speed changes to update the wind indicator
+watch(
+  () => {
+    const windSpeed = state.value?.navigation?.wind?.apparent?.speed;
+    const raw = windSpeed?.value ?? windSpeed;
     return typeof raw === "number" ? raw : null;
   },
   () => {
@@ -1883,17 +1933,29 @@ const initializeMap = () => {
   let centerLon = 0;
   let hasValidPosition = false;
 
-  // If anchor is deployed, center on anchor location
-  if (anchor?.anchorDeployed && anchor?.anchorLocation) {
-    const anchorLoc = anchor.anchorLocation;
-    const anchorPos = anchorLoc.position ?? anchorLoc;
+  // If anchor is deployed, center on current anchor location (end of rode)
+  if (anchor?.anchorDeployed) {
+    const anchorLoc = anchor?.anchorLocation;
+    const anchorPos = anchorLoc?.position ?? anchorLoc;
     const anchorLat = anchorPos?.latitude?.value ?? anchorPos?.latitude;
     const anchorLon = anchorPos?.longitude?.value ?? anchorPos?.longitude;
+
     if (anchorLat != null && anchorLon != null) {
       centerLat = anchorLat;
       centerLon = anchorLon;
       hasValidPosition = true;
       logger.debug("Centering on anchor location:", { lat: centerLat, lon: centerLon });
+    } else {
+      const dropLoc = anchor?.anchorDropLocation;
+      const dropPos = dropLoc?.position ?? dropLoc;
+      const dropLat = dropPos?.latitude?.value ?? dropPos?.latitude;
+      const dropLon = dropPos?.longitude?.value ?? dropPos?.longitude;
+      if (dropLat != null && dropLon != null) {
+        centerLat = dropLat;
+        centerLon = dropLon;
+        hasValidPosition = true;
+        logger.debug("Centering on anchor drop location:", { lat: centerLat, lon: centerLon });
+      }
     }
   }
   
@@ -1909,21 +1971,8 @@ const initializeMap = () => {
     logger.debug("Using default position (0,0)");
   }
 
-  const defaultCenter = (() => {
-    const savedCenter = savedView?.center;
-    if (
-      Array.isArray(savedCenter) &&
-      savedCenter.length === 2 &&
-      typeof savedCenter[0] === "number" &&
-      typeof savedCenter[1] === "number" &&
-      !Number.isNaN(savedCenter[0]) &&
-      !Number.isNaN(savedCenter[1])
-    ) {
-      return savedCenter;
-    }
-    return fromLonLat([centerLon, centerLat]);
-  })();
-  const defaultZoom = savedView?.zoom || 15;
+  const defaultCenter = fromLonLat([centerLon, centerLat]);
+  const defaultZoom = 15;
 
   // Create the map with minimal interactions initially
   map.value = new Map({
@@ -1961,6 +2010,22 @@ const initializeMap = () => {
     pixelRatio: window.devicePixelRatio,
   });
 
+  isMapRenderReady.value = false;
+  map.value.once("postrender", () => {
+    // Use requestAnimationFrame to ensure DOM layout is complete
+    requestAnimationFrame(() => {
+      map.value.updateSize();
+      isMapRenderReady.value = true;
+      hasAppliedDefaultFramingThisEntry.value = false;
+      attachDefaultFramingListener();
+    });
+  });
+
+  if (mapElement.value) {
+    mapElement.value.__ol_map__ = map.value;
+  }
+  window.__anchorMap = map.value;
+
   // Hard lock map rotation (iOS pinch gestures can still rotate under some conditions)
   try {
     const view = map.value.getView();
@@ -1975,36 +2040,6 @@ const initializeMap = () => {
     });
   } catch (error) {
     // Ignore rotation lock failures
-  }
-
-  // Fit view to critical range circle when anchor is deployed
-  if (anchor?.anchorDeployed && anchor?.criticalRange && hasValidPosition) {
-    const criticalRangeValue = anchor.criticalRange.r ?? anchor.criticalRange.value;
-    if (criticalRangeValue != null && Number.isFinite(criticalRangeValue)) {
-      // Critical range in meters (convert from feet if needed)
-      let criticalRangeMeters = criticalRangeValue;
-      const units = anchor.criticalRange.units || 'm';
-      if (units.toLowerCase().startsWith('ft')) {
-        criticalRangeMeters = criticalRangeValue / 3.28084;
-      }
-
-      // Create a circle geometry representing the critical range
-      const circleGeom = new Circle(defaultCenter, criticalRangeMeters);
-      const extent = circleGeom.getExtent();
-      
-      // Fit to extent with padding
-      // Top padding accounts for info grid, sides/bottom for 80% width target
-      const screenWidth = window.innerWidth;
-      const screenHeight = window.innerHeight;
-      const infoGridHeight = 150;
-      
-      map.value.getView().fit(extent, {
-        padding: [infoGridHeight, screenWidth * 0.1, screenHeight * 0.1, screenWidth * 0.1],
-        duration: 0
-      });
-      
-      logger.debug("Fitted view to critical range circle");
-    }
   }
 
   // Capture the default DragPan interaction so we can temporarily disable it while dragging measure pins.
@@ -2164,8 +2199,6 @@ const initializeMap = () => {
       })
     );
   }
-  map.value.on("moveend", saveViewState);
-
   // Add click handler for features
   map.value.on("click", handleMapClick);
 
@@ -2406,7 +2439,6 @@ watch(
 );
 
 // Watch for critical range changes
-console.log("AnchorView setup - critical range watch loading...");
 watch(
   () => anchorState.value?.criticalRange?.r,
   (newVal) => {
@@ -2607,10 +2639,45 @@ const recommendedScope = computed(() => {
 
 onIonViewDidEnter(() => {
   hasCenteredOnBoatThisEntry.value = null;
+  hasLoggedFramingDebugThisEntry.value = false;
+  hasAppliedDefaultFramingThisEntry.value = false;
+  isAnchorViewActive.value = true;
   updateBoatPosition();
   if (map.value) {
     map.value.updateSize();
+
+    isMapRenderReady.value = false;
+    map.value.once("postrender", () => {
+      isMapRenderReady.value = true;
+      if (isAnchorViewActive.value === true) {
+        hasAppliedDefaultFramingThisEntry.value = false;
+        attachDefaultFramingListener();
+      }
+    });
+    if (typeof map.value.render === "function") {
+      map.value.render();
+    }
   }
+
+  nextTick(() => {
+    if (!map.value) return;
+    map.value.updateSize();
+
+    attachDefaultFramingListener();
+  });
+});
+
+onIonViewDidLeave(() => {
+  isAnchorViewActive.value = false;
+});
+
+watch(map, (nextMap) => {
+  if (!nextMap) return;
+  if (isAnchorViewActive.value !== true) return;
+  if (hasAppliedDefaultFramingThisEntry.value === true) return;
+  nextTick(() => {
+    attachDefaultFramingListener();
+  });
 });
 
 onMounted(() => {
@@ -2618,7 +2685,7 @@ onMounted(() => {
     if (document.visibilityState !== "visible") return;
     if (!map.value) return;
     map.value.updateSize();
-    recenterToAnchorOrBoat();
+    attachDefaultFramingListener();
   };
 
   document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -3389,14 +3456,17 @@ onMounted(() => {
     window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
     logger.info("Map initialized and event listeners added");
     
-    // Remove OpenLayers attribution element
+    // Make OpenStreetMap attribution translucent and hide after 3 seconds
     setTimeout(() => {
-      const attribution = document.querySelector('#app > ion-app > div > div > div.map-attribution > div');
+      const attribution = document.querySelector('.map-attribution');
       if (attribution) {
-        attribution.remove();
-        logger.info("Map attribution element removed");
+        attribution.style.opacity = 0.3;
+        setTimeout(() => {
+          attribution.style.opacity = 0;
+        }, 3000);
+        logger.info("Map attribution hidden");
       }
-    }, 250);
+    }, 0);
   } catch (error) {
     logger.error("Error during component mount", {
       error: error.message,
@@ -3417,30 +3487,41 @@ onUnmounted(() => {
 
 <style scoped>
 .openlayers-map {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   min-height: 0;
-  /* Ensure these properties are set */
   touch-action: none;
   overscroll-behavior: none;
   position: relative;
   z-index: 0;
 }
-.anchor-info-grid {
-  padding-top: 20px; /* Add padding to move the grid down */
-  position: relative;
-  z-index: 2;
-}
 
-.map-wrapper {
+.openlayers-map canvas {
+  display: block;
+}
+.anchor-view-container {
+  display: flex;
+  flex-direction: column;
   width: 100vw;
-  height: 100vh;
-  min-height: 0;
-  position: fixed; /* Changed from relative to fixed */
-  top: 0;
+  height: calc(100vh - 56px);
+  position: fixed;
+  top: 56px;
   left: 0;
   z-index: 1;
-  /* Ensure these properties are set */
+}
+
+.anchor-info-section {
+  flex-shrink: 0;
+  z-index: 2;
+  overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.map-section {
+  flex: 1;
+  position: relative;
+  min-height: 0;
   touch-action: none;
   overscroll-behavior: none;
 }
@@ -3600,6 +3681,13 @@ ion-page.page-container {
   border: 1px solid var(--app-border-color);
   box-shadow: 0 2px 4px color-mix(in srgb, var(--app-text-color) 16%, transparent);
   line-height: 1.4;
+  opacity: 0.3;
+  transition: opacity 0.5s ease;
+}
+
+.map-attribution.hidden {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .map-attribution a {

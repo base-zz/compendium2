@@ -21,7 +21,7 @@ export const createStyle = (config) => {
 export const STYLES = {
   BREADCRUMB: () => new Style({
     image: new CircleStyle({
-      radius: 6,
+      radius: 7,
       fill: new Fill({ color: '#000000' }),
       stroke: new Stroke({ color: '#333333', width: 1 }),
     }),
@@ -34,26 +34,26 @@ export const STYLES = {
       anchorXUnits: "fraction",
       anchorYUnits: "fraction",
       imgSize: [512, 512],
-      scale: 0.06,
+      scale: 0.08,
       rotateWithView: false,
     }),
     zIndex: 100,
   }),
   ANCHOR_DROP_LOCATION: createStyle({
     circle: {
-      radius: 2, // Smaller radius for green drop location
-      fill: { color: "rgba(67,160,71,0.5)" }, // More visible green
-      stroke: { color: "rgba(255,255,255,0.5)", width: 1 }, // Thinner stroke
+      radius: 3,
+      fill: { color: "rgba(67,160,71,0.5)" },
+      stroke: { color: "rgba(255,255,255,0.5)", width: 1 },
     },
     zIndex: 90,
   }),
   ANCHOR_LOCATION: createStyle({
     circle: {
-      radius: 7, // 1px smaller than boat
-      fill: { color: "#FFC107" }, // Amber color for current anchor position
+      radius: 9,
+      fill: { color: "#FFC107" },
       stroke: { color: "#fff", width: 2 },
     },
-    zIndex: 90,
+    zIndex: 110,
   }),
   CRITICAL_RANGE: new Style({
     stroke: new Stroke({
@@ -94,7 +94,7 @@ export const STYLES = {
   }),
   AIS_VESSEL: createStyle({
     circle: {
-      radius: 6,
+      radius: 8,
       fill: { color: "#4CAF50" }, // Green for vessels
       stroke: { color: "#FFFFFF", width: 2 },
     },
@@ -102,7 +102,7 @@ export const STYLES = {
   }),
   AIS_HAZARD: createStyle({
     circle: {
-      radius: 6,
+      radius: 8,
       fill: { color: "#4CAF50" }, // Green for all AIS targets
       stroke: { color: "#FFFFFF", width: 2 },
     },
@@ -110,7 +110,7 @@ export const STYLES = {
   }),
   AIS_DEFAULT: createStyle({
     circle: {
-      radius: 6,
+      radius: 8,
       fill: { color: "#4CAF50" }, // Green for all AIS targets
       stroke: { color: "#FFFFFF", width: 2 },
     },
@@ -118,7 +118,7 @@ export const STYLES = {
   }),
   AIS_WARNING: createStyle({
     circle: {
-      radius: 7, // Larger radius for targets in warning range
+      radius: 9, // Larger radius for targets in warning range
       fill: { color: "#F44336" }, // Red for targets in warning range
       stroke: { color: "#FFFFFF", width: 2 },
     },

@@ -1,52 +1,52 @@
 <template>
   <div class="anchor-grid-div">
-    <div
-      v-if="anchorState && !anchorState.anchorDeployed"
-      class="info-rect-div drop-anchor-rect"
-      @click="handleDropAnchor">
-      <img
-        src="/img/anchor2.svg"
-        alt="Anchor Icon"
-        class="drop-anchor-icon"
-      />
-      <span class="drop-anchor-label">Drop Anchor</span>
-    </div>
-    <h2 v-else class="title-div" :class="titleClass">
-      {{ title }}
-    </h2>
-    <div class="grid-container">
-      <div class="grid-row">
-        <div class="info-rect-div">
-          <div class="label-div larger">Rode</div>
-          <div class="metric-div larger">{{ anchorState?.rode?.amount }}</div>
-        </div>
-        <div class="info-rect-div">
-          <div class="label-div larger">Range</div>
-          <div class="metric-div larger clickable" @click="showEditRadiusModal = true">{{ anchorState?.criticalRange?.r }}</div>
-        </div>
-        <div class="info-rect-div" @click="handleHeadingClick">
-          <div class="label-div larger">Heading</div>
-          <div class="metric-div larger">
-            {{ anchorState && anchorState.anchorDeployed
-              ? (anchorState?.anchorDropLocation?.bearing?.degrees == null ? '--' : `${anchorState.anchorDropLocation.bearing.degrees}°`)
-              : (deviceHeadingDegrees == null ? '--' : `${deviceHeadingDegrees}°`)
-            }}
-          </div>
+    <div class="values-row">
+      <div class="info-cell">
+        <div class="label-div">Rode</div>
+        <div class="metric-div">{{ anchorState?.rode?.amount ?? '--' }}</div>
+      </div>
+      <div class="info-cell" @click="showEditRadiusModal = true">
+        <div class="label-div">Range</div>
+        <div class="metric-div clickable">{{ anchorState?.criticalRange?.r ?? '--' }}</div>
+      </div>
+      <div class="info-cell" @click="handleHeadingClick">
+        <div class="label-div">Heading</div>
+        <div class="metric-div">
+          {{ anchorState && anchorState.anchorDeployed
+            ? (anchorState?.anchorDropLocation?.bearing?.degrees == null ? '--' : `${anchorState.anchorDropLocation.bearing.degrees}°`)
+            : (deviceHeadingDegrees == null ? '--' : `${deviceHeadingDegrees}°`)
+          }}
         </div>
       </div>
-      <div class="grid-row">
-        <div class="info-rect-div">
-          <div class="label-div">Depth</div>
-          <div class="metric-div">{{ stateStore.state.navigation?.depth?.belowTransducer?.value || '--' }}</div>
-        </div>
-        <div class="info-rect-div">
-          <div class="label-div">Wind Speed</div>
-          <div class="metric-div">{{ stateStore.state.navigation?.wind?.apparent?.speed?.value || '--' }}</div>
-        </div>
-        <div class="info-rect-div">
-          <div class="label-div">Current Speed</div>
-          <div class="metric-div">{{ stateStore.state.environment?.current?.speed?.value || '--' }}</div>
-        </div>
+      <div class="info-cell">
+        <div class="label-div">Depth</div>
+        <div class="metric-div">{{ stateStore.state.navigation?.depth?.belowTransducer?.value ?? '--' }}</div>
+      </div>
+      <div class="info-cell">
+        <div class="label-div">Wind</div>
+        <div class="metric-div">{{ stateStore.state.navigation?.wind?.apparent?.speed?.value ?? '--' }}</div>
+      </div>
+      <!--
+      <div class="info-cell">
+        <div class="label-div">Current</div>
+        <div class="metric-div">{{ stateStore.state.environment?.current?.speed?.value ?? '--' }}</div>
+      </div>
+      -->
+    </div>
+    <div class="status-row">
+      <div
+        v-if="anchorState && !anchorState.anchorDeployed"
+        class="drop-anchor-btn"
+        @click="handleDropAnchor">
+        <img
+          src="/img/anchor2.svg"
+          alt="Anchor Icon"
+          class="drop-anchor-icon"
+        />
+        <span class="drop-anchor-label">Drop Anchor</span>
+      </div>
+      <div v-else class="status-badge" :class="titleClass">
+        {{ title }}
       </div>
     </div>
     <!-- anchor-btn-row removed: no extra action buttons needed when anchor is deployed -->
@@ -360,50 +360,33 @@ const handleDropAnchor = () => {
 
 <style scoped>
 .anchor-grid-div {
-  position: absolute;
-  top: calc(var(--ion-safe-area-top, 0) + 56px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 2000;
-  width: 92vw;
-  max-width: 420px;
+  width: 100%;
   background: var(--app-surface-color);
   color: var(--app-text-color);
+  border-bottom: 1px solid var(--app-border-color);
+  padding: 8px 12px;
+}
+
+.values-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.info-cell {
+  flex: 1 1 auto;
+  min-width: 70px;
+  max-width: 120px;
+  background: color-mix(in srgb, var(--app-surface-color) 88%, var(--app-background-color) 12%);
   border: 1px solid var(--app-border-color);
-  border-radius: 14px;
-  box-shadow: 0 18px 36px color-mix(in srgb, var(--app-text-color) 14%, transparent);
-  padding: 16px 20px 14px;
+  border-radius: 8px;
+  padding: 6px 8px;
   text-align: center;
 }
 
-.grid-container {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.grid-row {
-  display: flex;
-  gap: 10px;
-}
-
-.info-rect-div {
-  flex: 1;
-  background: color-mix(in srgb, var(--app-surface-color) 88%, var(--app-background-color) 12%);
-  border: 1px solid var(--app-border-color);
-  border-radius: 10px;
-  padding: 10px 6px;
-  min-width: 46px;
-  min-height: 40px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-}
-
 .label-div {
-  font-size: 0.82em;
+  font-size: 0.7em;
   font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--app-muted-text-color);
@@ -411,70 +394,64 @@ const handleDropAnchor = () => {
 }
 
 .metric-div {
-  font-size: 1.05em;
+  font-size: 1em;
   font-weight: 600;
   color: var(--app-text-color);
 }
 
 .metric-div.clickable {
   cursor: pointer;
-  color: var(--app-text-color);
 }
 
-.larger {
-  font-size: 1.12em;
+.status-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 8px;
 }
 
-.drop-anchor-rect {
+.drop-anchor-btn {
   cursor: pointer;
-  width: 90%;
-  height: 52px;
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
-  margin: 0 auto 18px auto;
-  padding: 0 14px;
+  padding: 8px 16px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--app-accent-soft-color) 85%, transparent);
   border: 1px solid var(--app-accent-color);
-  gap: 12px;
+  gap: 8px;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.drop-anchor-label {
-  white-space: nowrap;
-}
-
-.drop-anchor-rect:hover {
+.drop-anchor-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--app-accent-color) 18%, transparent);
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--app-accent-color) 18%, transparent);
 }
 
 .drop-anchor-icon {
-  height: 1.7em;
-  width: 1.7em;
+  height: 1.4em;
+  width: 1.4em;
   filter: var(--app-icon-filter, none);
 }
 
 .drop-anchor-label {
-  font-size: 1.2em;
+  font-size: 1em;
   font-weight: 600;
   color: var(--app-accent-color);
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.title-div {
+.status-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  padding: 6px 20px;
-  border-radius: 20px;
-  font-size: 1.05em;
+  padding: 6px 16px;
+  border-radius: 16px;
+  font-size: 0.9em;
   font-weight: 700;
   letter-spacing: 0.03em;
-  margin-bottom: 6px;
   border: 1px solid transparent;
 }
 
@@ -502,6 +479,17 @@ const handleDropAnchor = () => {
   color: #ffffff;
   border-color: #b91c1c;
   animation: blink 1s infinite;
+}
+
+@media (min-width: 600px) {
+  .values-row {
+    flex-wrap: nowrap;
+  }
+  
+  .info-cell {
+    min-width: 80px;
+    max-width: 150px;
+  }
 }
 
 .scope-suggestion {
@@ -641,9 +629,8 @@ const handleDropAnchor = () => {
 
 @media (max-width: 480px) {
   .anchor-grid-div {
-    top: calc(var(--ion-safe-area-top, 0) + 48px);
-    width: 90vw;
-    padding: 12px;
+    width: 100%;
+    padding: 8px 12px;
   }
 
   .grid-row {
