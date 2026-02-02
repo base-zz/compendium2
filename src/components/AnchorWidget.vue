@@ -16,7 +16,7 @@
       />
 
       <circle
-        class="critical-range"
+        :class="criticalRangeClass"
         :cx="CENTER"
         :cy="CENTER"
         :r="criticalRadiusPx"
@@ -64,7 +64,7 @@
         <circle
           v-for="target in aisPoints"
           :key="target.id"
-          class="ais-point"
+          :class="target.class"
           :cx="target.x"
           :cy="target.y"
           r="4"
@@ -128,6 +128,7 @@ const { state } = storeToRefs(stateStore);
 const preferencesStore = usePreferencesStore();
 const anchorState = computed(() => state.value.anchor || {});
 const navigationState = computed(() => state.value.navigation || {});
+const alertState = computed(() => state.value.alerts?.active || []);
 let stopStateLogging = null;
 
 // onMounted(() => {
@@ -293,6 +294,7 @@ const aisPoints = computed(() => {
         x: CENTER + Math.sin(bearingRad) * distancePx,
         y: CENTER - Math.cos(bearingRad) * distancePx,
         opacity: 0.75,
+        class: hasAisAlert.value ? "ais-point-alert" : "ais-point",
       };
     })
     .filter(Boolean);
@@ -456,7 +458,27 @@ const awsDisplay = computed(() => {
   return formatMeasurement(value, units, { decimals });
 });
 
+const hasCriticalRangeAlert = computed(() => {
+  const alerts = alertState.value;
+  if (!Array.isArray(alerts)) return false;
+  return alerts.some(
+    (alert) => alert?.trigger === "critical_range" && alert?.status !== "resolved"
+  );
+});
+
+const hasAisAlert = computed(() => {
+  const alerts = alertState.value;
+  if (!Array.isArray(alerts)) return false;
+  return alerts.some(
+    (alert) => alert?.trigger === "ais_proximity" && alert?.status !== "resolved"
+  );
+});
+
 const criticalRadiusPx = computed(() => CRITICAL_RADIUS);
+
+const criticalRangeClass = computed(() => {
+  return hasCriticalRangeAlert.value ? "critical-range-alert" : "critical-range";
+});
 
 </script>
 
@@ -483,9 +505,48 @@ const criticalRadiusPx = computed(() => CRITICAL_RADIUS);
 }
 
 .critical-range {
-  fill: rgba(0, 150, 255, 0.08);
-  stroke: rgba(0, 150, 255, 0.65);
+  fill: rgba(76, 175, 80, 0.15);
+  stroke: rgba(76, 175, 80, 0.85);
   stroke-width: 2;
+}
+
+.critical-range-alert {
+  fill: rgba(239, 68, 68, 0.15);
+  stroke: rgba(239, 68, 68, 0.9);
+  animation: pulse-stroke 1s ease-in-out infinite;
+}
+
+@keyframes pulse-stroke {
+  0%, 100% {
+    stroke-width: 2;
+  }
+  50% {
+    stroke-width: 4;
+  }
+}
+
+.ais-point {
+  fill: #4caf50;
+  stroke: rgba(255, 255, 255, 0.6);
+  stroke-width: 1;
+}
+
+.ais-point-alert {
+  fill: #ef4444;
+  stroke: rgba(255, 255, 255, 0.8);
+  stroke-width: 2;
+  animation: pulse-ais 1s ease-in-out infinite;
+}
+
+@keyframes pulse-ais {
+  0%, 100% {
+    r: 4;
+    opacity: 0.75;
+  }
+  50% {
+    r: 5;
+    opacity: 1;
+  }
 }
 
 .rode-line {
@@ -511,12 +572,6 @@ const criticalRadiusPx = computed(() => CRITICAL_RADIUS);
   fill: #ef4444;
   stroke: #111827;
   stroke-width: 2;
-}
-
-.ais-point {
-  fill: #ff5555;
-  stroke: rgba(255, 255, 255, 0.6);
-  stroke-width: 1;
 }
 
 .placeholder {

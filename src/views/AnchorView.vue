@@ -414,18 +414,9 @@ import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import ScaleLine from "ol/control/ScaleLine";
 import { useMapTools } from "@/utils/mapUtils.js";
 import { useMapFeatures } from "@/utils/mapFeatures";
-import { STYLES } from "@/utils/mapStyles";
+import { STYLES, getWindIconSrc } from "@/utils/mapStyles";
 import { relayConnectionBridge } from "@/relay/client/RelayConnectionBridge.js";
 import { directConnectionAdapter } from "@/services/directConnectionAdapter.js";
-
-const getWindIconSrc = (speedValue) => {
-  const speed = speedValue != null ? Math.round(speedValue) : '';
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='68' height='68' viewBox='0 0 68 68'>
-    <path fill='%23007BFF' d='M32 8 L56 48 H8 Z'/>
-    <text x='32' y='48' text-anchor='middle' fill='white' font-size='16' font-weight='bold' font-family='system-ui, -apple-system, sans-serif' transform='rotate(180 32 40)'>${speed}</text>
-  </svg>`;
-  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-};
 
 const logger = createLogger("AnchorView");
 logger.info("Initializing AnchorView component...");
@@ -1414,7 +1405,10 @@ const updateWindIndicator = debounce((centerLat, centerLon, radiusInMeters) => {
   const windSpeed = state.value?.navigation?.wind?.apparent?.speed?.value ?? 
                    state.value?.navigation?.wind?.true?.speed?.value ?? '';
 
-  const windIconSrc = getWindIconSrc(windSpeed);
+  const windIconSrc = getWindIconSrc(windSpeed, isDarkMode.value);
+
+  // Responsive scale: smaller on mobile, larger on desktop
+  const windIconScale = window.innerWidth < 768 ? 0.6 : 1.0;
 
   const fillStyle = new Style({
     image: new Icon({
@@ -1423,7 +1417,7 @@ const updateWindIndicator = debounce((centerLat, centerLon, radiusInMeters) => {
       anchorXUnits: "fraction",
       anchorYUnits: "fraction",
       imgSize: [64, 64],
-      scale: 0.6,
+      scale: windIconScale,
       rotateWithView: false,
       rotation: angleToCenter,
     }),
@@ -3508,6 +3502,7 @@ onUnmounted(() => {
   top: 56px;
   left: 0;
   z-index: 1;
+  padding-top: env(safe-area-inset-top, 0);
 }
 
 .anchor-info-section {
@@ -3516,6 +3511,7 @@ onUnmounted(() => {
   overflow: visible;
   width: 100%;
   box-sizing: border-box;
+  margin-top: 8px;
 }
 
 .map-section {

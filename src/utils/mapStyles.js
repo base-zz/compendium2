@@ -3,6 +3,16 @@ import CircleStyle from "ol/style/Circle";
 
 const BOAT_ICON_SRC = "/img/navigate.svg";
 
+export const getWindIconSrc = (speedValue, isDarkMode = false) => {
+  const speed = speedValue != null ? Math.round(speedValue) : '';
+  const windColor = isDarkMode ? '#64B5F6' : '#007BFF';
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='68' height='68' viewBox='0 0 68 68'>
+    <path fill='${encodeURIComponent(windColor)}' d='M32 8 L56 48 H8 Z'/>
+    <text x='32' y='48' text-anchor='middle' fill='white' font-size='16' font-weight='bold' font-family='system-ui, -apple-system, sans-serif' transform='rotate(180 32 40)'>${speed}</text>
+  </svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+};
+
 export const createStyle = (config) => {
   return new Style({
     image: config.circle
@@ -57,21 +67,21 @@ export const STYLES = {
   }),
   CRITICAL_RANGE: new Style({
     stroke: new Stroke({
-      color: "rgba(255,0,0,0.8)",
-      width: 3,
+      color: "rgba(239, 68, 68, 0.9)",
+      width: 4,
     }),
     fill: new Fill({
-      color: "rgba(255,0,0,0.1)",
+      color: "rgba(239, 68, 68, 0.15)",
     }),
   }),
   NORMAL_RANGE: new Style({
     stroke: new Stroke({
-      color: "rgba(76,175,80,0.6)", // Light green with 0.6 opacity
-      width: 2,
-      lineDash: [4, 4], // Dotted line pattern
+      color: "rgba(76,175,80,0.85)",
+      width: 3,
+      lineDash: [4, 4],
     }),
     fill: new Fill({
-      color: "rgba(76,175,80,0.1)", // Very subtle green fill
+      color: "rgba(76,175,80,0.2)",
     }),
   }),
   BOAT_RANGE: new Style({

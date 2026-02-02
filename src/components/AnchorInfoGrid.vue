@@ -3,28 +3,23 @@
     <div class="values-row">
       <div class="info-cell">
         <div class="label-div">Rode</div>
-        <div class="metric-div">{{ anchorState?.rode?.amount ?? '--' }}</div>
+        <div class="metric-div">{{ stateStore.state.anchor?.rode?.amount != null ? stateStore.state.anchor.rode.amount : '--' }}</div>
       </div>
       <div class="info-cell" @click="showEditRadiusModal = true">
         <div class="label-div">Range</div>
-        <div class="metric-div clickable">{{ anchorState?.criticalRange?.r ?? '--' }}</div>
+        <div class="metric-div clickable">{{ stateStore.state.anchor?.criticalRange?.r != null ? stateStore.state.anchor.criticalRange.r : '--' }}</div>
       </div>
       <div class="info-cell" @click="handleHeadingClick">
         <div class="label-div">Heading</div>
-        <div class="metric-div">
-          {{ anchorState && anchorState.anchorDeployed
-            ? (anchorState?.anchorDropLocation?.bearing?.degrees == null ? '--' : `${anchorState.anchorDropLocation.bearing.degrees}°`)
-            : (deviceHeadingDegrees == null ? '--' : `${deviceHeadingDegrees}°`)
-          }}
-        </div>
+        <div class="metric-div">{{ stateStore.state.anchor?.anchorDeployed ? (stateStore.state.anchor?.anchorDropLocation?.bearing?.degrees != null ? stateStore.state.anchor.anchorDropLocation.bearing.degrees + '°' : '--') : (deviceHeadingDegrees != null ? deviceHeadingDegrees + '°' : '--') }}</div>
       </div>
       <div class="info-cell">
         <div class="label-div">Depth</div>
-        <div class="metric-div">{{ stateStore.state.navigation?.depth?.belowTransducer?.value ?? '--' }}</div>
+        <div class="metric-div">{{ stateStore.state.navigation?.depth?.belowTransducer?.value != null ? stateStore.state.navigation.depth.belowTransducer.value : '--' }}</div>
       </div>
       <div class="info-cell">
         <div class="label-div">Wind</div>
-        <div class="metric-div">{{ stateStore.state.navigation?.wind?.apparent?.speed?.value ?? '--' }}</div>
+        <div class="metric-div">{{ stateStore.state.navigation?.wind?.apparent?.speed?.value != null ? stateStore.state.navigation.wind.apparent.speed.value : '--' }}</div>
       </div>
       <!--
       <div class="info-cell">
@@ -99,6 +94,8 @@ const { state } = storeToRefs(stateStore);
 const anchorState = computed(() => state.value.anchor);
 
 const { headingDegrees: deviceHeadingDegrees, start: startDeviceHeading } = useDeviceHeading();
+// eslint-disable-next-line no-unused-vars
+const _unused = deviceHeadingDegrees;
 
 const handleHeadingClick = async () => {
   if (!anchorState.value || anchorState.value.anchorDeployed) {
@@ -368,20 +365,23 @@ const handleDropAnchor = () => {
 }
 
 .values-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
+  display: block;
+  text-align: center;
+  padding: 4px 0;
 }
 
 .info-cell {
-  flex: 1 1 auto;
-  min-width: 70px;
-  max-width: 120px;
+  display: inline-block;
+  vertical-align: top;
+  width: 18%;
+  min-width: 58px;
+  max-width: 110px;
+  min-height: 44px;
   background: color-mix(in srgb, var(--app-surface-color) 88%, var(--app-background-color) 12%);
   border: 1px solid var(--app-border-color);
   border-radius: 8px;
-  padding: 6px 8px;
+  padding: 8px 4px;
+  margin: 2px;
   text-align: center;
 }
 
@@ -391,12 +391,22 @@ const handleDropAnchor = () => {
   letter-spacing: 0.02em;
   color: var(--app-muted-text-color);
   text-transform: uppercase;
+  display: block;
+  line-height: 1.2;
+  visibility: visible;
+  overflow: visible;
 }
 
 .metric-div {
   font-size: 1em;
   font-weight: 600;
   color: var(--app-text-color);
+  display: block;
+  line-height: 1.3;
+  margin-top: 2px;
+  visibility: visible;
+  overflow: visible;
+  min-height: 1em;
 }
 
 .metric-div.clickable {
