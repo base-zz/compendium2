@@ -108,10 +108,15 @@ const preferencesStore = usePreferencesStore();
 const { preferences } = storeToRefs(preferencesStore);
 
 const preferredLengthUnit = computed(() => {
-  const unit = preferences.value?.units?.length;
-  if (unit === 'm' || unit === 'ft') {
-    return unit;
+  // Use useImperial boolean from preferences (length property doesn't exist)
+  const useImperial = preferences.value?.units?.useImperial;
+  if (useImperial === true) {
+    return 'ft';
   }
+  if (useImperial === false) {
+    return 'm';
+  }
+  // Fallback to current criticalRange units if preferences not set
   const current = anchorState.value?.criticalRange?.units;
   if (current === 'm' || current === 'ft') {
     return current;
@@ -150,12 +155,8 @@ function convertLengthFromPreferred(value, preferredUnits) {
   if (value == null) {
     return 0;
   }
-  if (preferredUnits === 'm') {
-    return value;
-  }
-  if (preferredUnits === 'ft') {
-    return UnitConversion.ftToM(value);
-  }
+  // The value is already in preferred units, just return it
+  // No conversion needed - we store in the user's preferred units
   return value;
 }
 
@@ -173,11 +174,23 @@ const radiusMin = computed(() => (isMetric.value ? 5 : 15));
 const radiusMax = computed(() => (isMetric.value ? 150 : 500));
 
 function confirmEditRadius() {
+  console.log('[AnchorInfoGrid] confirmEditRadius called', { 
+    editRadiusValue: editRadiusValue.value, 
+    preferredLengthUnit: preferredLengthUnit.value,
+    isMetric: isMetric.value
+  });
   if (anchorState.value && anchorState.value.criticalRange) {
     const preferredUnits = preferredLengthUnit.value;
     const baseValue = convertLengthFromPreferred(editRadiusValue.value, preferredUnits);
+    console.log('[AnchorInfoGrid] Setting critical range:', { baseValue, preferredUnits });
     anchorState.value.criticalRange.r = baseValue;
     anchorState.value.criticalRange.units = preferredUnits;
+    
+    // Send update to server via state store
+    const { sendMessageToServer } = stateStore;
+    if (sendMessageToServer) {
+      sendMessageToServer('anchor:update', anchorState.value);
+    }
   }
   showEditRadiusModal.value = false;
 }

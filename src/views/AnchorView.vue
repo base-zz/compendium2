@@ -200,7 +200,7 @@
           <div class="modal-actions">
             <IonButton
               color="primary"
-              @click="anchorState?.anchorDeployed ? handleSaveAnchorParameters() : handleSetAnchor()"
+              @click="() => { console.log('[AnchorView] Button clicked', { anchorDeployed: anchorState?.anchorDeployed }); anchorState?.anchorDeployed ? handleSaveAnchorParameters() : handleSetAnchor(); }"
             >
               {{ anchorState?.anchorDeployed ? "Save Changes" : "Set Anchor" }}
             </IonButton>
@@ -944,12 +944,12 @@ const breadcrumbs = computed(() => {
 
 // Unit system handling
 const isMetric = computed(() => {
-  const preferredLength = preferences.value?.units?.length;
-  if (preferredLength === "m") {
-    return true;
+  const useImperial = preferences.value?.units?.useImperial;
+  if (useImperial === false) {
+    return true; // Metric
   }
-  if (preferredLength === "ft") {
-    return false;
+  if (useImperial === true) {
+    return false; // Imperial
   }
   // Fallback to current rode units if preferences missing
   const rodeUnits = state.value.anchor?.rode?.units;
@@ -2467,7 +2467,8 @@ watch(
 // Watch for critical range changes
 watch(
   () => anchorState.value?.criticalRange?.r,
-  (newVal) => {
+  (newVal, oldVal) => {
+    console.log("[AnchorView] Critical range changed:", { newVal, oldVal, units: anchorState.value?.criticalRange?.units });
     logger.debug("Critical range changed:", newVal);
     logger.debug("Anchor drop location:", anchorDropLocation.value);
     logger.debug("Anchor deployed:", anchorDeployed.value);
@@ -2726,6 +2727,7 @@ const showUpdateDropConfirm = ref(false);
 const locationRequestFailed = ref(false);
 
 const handleSaveAnchorParameters = () => {
+  console.log("[AnchorView] handleSaveAnchorParameters called");
   if (!anchorState.value) {
     logger.warn("Cannot save anchor parameters - anchorState is missing");
     showSetAnchorDialog.value = false;
@@ -2742,6 +2744,14 @@ const handleSaveAnchorParameters = () => {
   const critical = anchorState.value.criticalRange?.r;
   const warning = anchorState.value.warningRange?.r;
 
+  logger.debug("Saving anchor parameters - raw values:", {
+    rodeAmount,
+    critical,
+    warning,
+    criticalUnits: anchorState.value.criticalRange?.units,
+    preferredUnits: preferences.value?.units?.length || anchorState.value.rode?.units,
+  });
+
   if (typeof rodeAmount !== "number" || Number.isNaN(rodeAmount)) {
     logger.warn("Cannot save anchor parameters - invalid rode amount", { rodeAmount });
     return;
@@ -2755,7 +2765,7 @@ const handleSaveAnchorParameters = () => {
     return;
   }
 
-  const preferredUnits = preferences.value?.units?.length || anchorState.value.rode?.units;
+  const preferredUnits = isMetric.value ? "m" : "ft";
   if (preferredUnits !== "m" && preferredUnits !== "ft") {
     logger.warn("Cannot save anchor parameters - missing/invalid preferred length units", {
       preferredUnits,
@@ -2871,6 +2881,14 @@ const handleSaveAnchorParameters = () => {
     }
 
     try {
+      console.log("[AnchorView] Sending to server - exact payload:", {
+        messageType: "anchor:update",
+        data: updatedAnchorState,
+        criticalRange: updatedAnchorState.criticalRange,
+        warningRange: updatedAnchorState.warningRange,
+        rode: updatedAnchorState.rode,
+      });
+      
       stateStore
         .sendMessageToServer("anchor:update", updatedAnchorState, {
           source: "AnchorView.handleSaveAnchorParameters",
@@ -2878,6 +2896,13 @@ const handleSaveAnchorParameters = () => {
         })
         .then((response) => {
           logger.info("Server acknowledged anchor parameter update", response);
+          logger.debug("Server response data:", {
+            responseCriticalRange: response?.data?.criticalRange,
+            responseCriticalR: response?.data?.criticalRange?.r,
+            responseCriticalUnits: response?.data?.criticalRange?.units,
+            localCriticalR: updatedAnchorState.criticalRange?.r,
+            localCriticalUnits: updatedAnchorState.criticalRange?.units,
+          });
           const merged = { ...updatedAnchorState, ...(response?.data || {}) };
 
           if (merged?.warningRange?.r === 0) {
