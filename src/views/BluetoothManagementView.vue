@@ -54,7 +54,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import {
   IonPage, IonContent, IonCard, IonCardHeader, IonCardTitle, IonCardSubtitle,
   IonCardContent, IonIcon, modalController
@@ -66,6 +66,12 @@ import BluetoothDeviceList from '../components/BluetoothDeviceList.vue';
 import BluetoothDeviceSettingsModal from '../components/BluetoothDeviceSettingsModal.vue';
 
 const stateStore = useStateDataStore();
+
+// Debug logging for bluetooth state
+console.log('[BluetoothManagementView] Full state:', stateStore.state);
+console.log('[BluetoothManagementView] Bluetooth state:', stateStore.state.bluetooth);
+console.log('[BluetoothManagementView] Bluetooth devices:', stateStore.state.bluetooth?.devices);
+console.log('[BluetoothManagementView] Bluetooth selectedDevices:', stateStore.state.bluetooth?.selectedDevices);
 
 // Computed properties for Bluetooth state
 const bluetooth = computed(() => stateStore.state.bluetooth || {
@@ -99,6 +105,17 @@ const selectedCount = computed(() => Object.keys(selectedDevices.value).length);
 
 // Get the selected devices' data - now directly from selectedDevices object
 const selectedDevicesData = computed(() => selectedDevices.value);
+
+// Watch for changes in bluetooth state
+watch(
+  () => stateStore.state.bluetooth,
+  (newBluetooth) => {
+    console.log('[BluetoothManagementView] Bluetooth state changed:', newBluetooth);
+    console.log('[BluetoothManagementView] Devices count:', Object.keys(newBluetooth?.devices || {}).length);
+    console.log('[BluetoothManagementView] Selected devices count:', Object.keys(newBluetooth?.selectedDevices || {}).length);
+  },
+  { immediate: true, deep: true }
+);
 
 const selectDevice = async (deviceId) => {
   try {

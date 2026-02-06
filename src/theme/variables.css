@@ -67,3 +67,103 @@ body.dark ion-back-button {
 .anchor-reset-toast {
   opacity: 0.75 !important;
 }
+
+/* Dark mode for action-sheet interface (used by ion-select) */
+body.dark ion-action-sheet {
+  --background: #1f2933;
+  --background-selected: rgba(56, 128, 255, 0.25);
+  --background-hover: rgba(248, 250, 252, 0.08);
+  --color: #f8fafc;
+  --color-selected: #f8fafc;
+  --button-background: #1f2933;
+  --button-background-selected: rgba(56, 128, 255, 0.25);
+  --button-color: #f8fafc;
+  --button-color-selected: #f8fafc;
+  --title-color: #f8fafc;
+}
+
+body.dark ion-action-sheet .action-sheet-container {
+  background: #1f2933;
+}
+
+body.dark ion-action-sheet .action-sheet-group {
+  background: #1f2933;
+}
+
+body.dark ion-action-sheet .action-sheet-button {
+  color: #f8fafc;
+  background: #1f2933;
+}
+
+body.dark ion-action-sheet .action-sheet-title {
+  color: #f8fafc;
+  background: #1f2933;
+}
+
+body.dark ion-action-sheet .action-sheet-cancel {
+  color: #f8fafc;
+  background: #1f2933;
+}
+
+body.dark ion-action-sheet .action-sheet-selected {
+  color: var(--ion-color-primary);
+}
+
+/* Dark mode for alert interface (used by ion-select on desktop) */
+body.dark ion-alert {
+  --background: #1f2933;
+  --color: #f8fafc;
+}
+
+body.dark ion-alert .alert-wrapper {
+  background: #1f2933;
+}
+
+body.dark ion-alert .alert-head {
+  background: #1f2933;
+}
+
+body.dark ion-alert .alert-title {
+  color: #f8fafc;
+}
+
+body.dark ion-alert .alert-message {
+  color: rgba(248, 250, 252, 0.7);
+}
+
+body.dark ion-alert .alert-radio-group {
+  background: #1f2933;
+  border-top: 1px solid rgba(248, 250, 252, 0.12);
+  border-bottom: 1px solid rgba(248, 250, 252, 0.12);
+}
+
+body.dark ion-alert .alert-checkbox-group {
+  background: #1f2933;
+  border-top: 1px solid rgba(248, 250, 252, 0.12);
+  border-bottom: 1px solid rgba(248, 250, 252, 0.12);
+}
+
+body.dark ion-alert .alert-radio-label {
+  color: #f8fafc;
+}
+
+body.dark ion-alert .alert-checkbox-label {
+  color: #f8fafc;
+}
+
+body.dark ion-alert .alert-button {
+  color: var(--ion-color-primary);
+  background: transparent;
+}
+
+body.dark ion-alert .alert-button-inner {
+  color: var(--ion-color-primary);
+}
+
+body.dark ion-alert .alert-radio-inner {
+  border-color: var(--ion-color-primary);
+}
+
+body.dark ion-alert [aria-checked="true"] .alert-radio-label {
+  color: var(--ion-color-primary);
+}

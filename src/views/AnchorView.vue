@@ -314,7 +314,7 @@
         </div>
       </div>
 
-      <div class="anchor-fab-container">
+      <div class="anchor-fab-container" :class="{ 'faded': fabsFaded }">
         <ion-fab-button
           color="secondary"
           @click="showSetAnchorDialog = true"
@@ -442,6 +442,21 @@ const hasLoggedFramingDebugThisEntry = ref(false);
 const hasAppliedDefaultFramingThisEntry = ref(false);
 const isMapRenderReady = ref(false);
 const isAnchorViewActive = ref(false);
+
+// FAB fade state
+const fabsFaded = ref(false);
+let fadeTimeout = null;
+
+// Reset fade timer
+function resetFadeTimer() {
+  fabsFaded.value = false;
+  if (fadeTimeout) {
+    clearTimeout(fadeTimeout);
+  }
+  fadeTimeout = setTimeout(() => {
+    fabsFaded.value = true;
+  }, 3000); // Fade after 3 seconds
+}
 
 const attachDefaultFramingListener = () => {
   if (!map.value) return;
@@ -1369,9 +1384,10 @@ const createCircleWithRadius = (centerLonLat, radius) => {
   return new Polygon([points]);
 };
 
-const getTrueWindAngleDegrees = () => {
-  const windAngle = state.value?.navigation?.wind?.true?.angle;
-  const raw = windAngle?.value ?? windAngle;
+const getTrueWindDirectionDegrees = () => {
+  // Use True Wind Direction (TWD) - North-up reference, not relative to boat
+  const windDirection = state.value?.navigation?.wind?.true?.direction;
+  const raw = windDirection?.degrees ?? windDirection?.value ?? windDirection;
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 };
 
@@ -1381,7 +1397,7 @@ const updateWindIndicator = debounce((centerLat, centerLon, radiusInMeters) => {
   if (typeof centerLat !== "number" || typeof centerLon !== "number") return;
   if (typeof radiusInMeters !== "number" || !Number.isFinite(radiusInMeters) || radiusInMeters <= 0) return;
 
-  const windFromDegrees = getTrueWindAngleDegrees();
+  const windFromDegrees = getTrueWindDirectionDegrees();
   if (windFromDegrees == null) return;
 
   let rim;
@@ -1525,16 +1541,24 @@ const updateCriticalRangeCircle = debounce(() => {
 
 watch(
   () => {
-    const windAngle = state.value?.navigation?.wind?.true?.angle;
-    const raw = windAngle?.value ?? windAngle;
+    // Use True Wind Direction (TWD) - North-up reference
+    const windDirection = state.value?.navigation?.wind?.true?.direction;
+    const raw = windDirection?.degrees ?? windDirection?.value ?? windDirection;
     return typeof raw === "number" ? raw : null;
   },
   () => {
-    updateCriticalRangeCircle();
+    if (!anchorState.value?.position) return;
+    const { latitude, longitude } = anchorState.value.position;
+    const criticalRadius = anchorState.value.criticalRange;
+    const rodeLengthMeters = convertRodeToMeters(
+      anchorState.value.rode,
+      anchorState.value.rodeUnit
+    );
+    const radiusInMeters = rodeLengthMeters > 0 ? rodeLengthMeters : criticalRadius;
+    updateWindIndicator(latitude, longitude, radiusInMeters);
   }
 );
 
-// Watch for wind speed changes to update the wind indicator
 watch(
   () => {
     const windSpeed = state.value?.navigation?.wind?.apparent?.speed;
@@ -1679,7 +1703,15 @@ const updateRodeLine = debounce(() => {
 
     // logger.debug('Rode line created with direct approach');
   } catch (error) {
-    logger.error("Error creating rode line", { error });
+    logger.error("Error creating rode line", { 
+      error: error.message,
+      boatLat,
+      boatLon,
+      anchorLat,
+      anchorLon,
+      startCoord,
+      endCoord
+    });
   }
 }, 100);
 
@@ -3450,6 +3482,13 @@ onMounted(() => {
     window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
     logger.info("Map initialized and event listeners added");
     
+    // Start fade timer for FAB buttons
+    resetFadeTimer();
+    
+    // Reset fade timer on any touch/click
+    document.addEventListener('touchstart', resetFadeTimer);
+    document.addEventListener('click', resetFadeTimer);
+    
     // Make OpenStreetMap attribution translucent and hide after 3 seconds
     setTimeout(() => {
       const attribution = document.querySelector('.map-attribution');
@@ -3475,6 +3514,13 @@ onUnmounted(() => {
   map.value?.dispose();
   window.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
   document.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
+  
+  // Clean up fade timer and event listeners
+  if (fadeTimeout) {
+    clearTimeout(fadeTimeout);
+  }
+  document.removeEventListener('touchstart', resetFadeTimer);
+  document.removeEventListener('click', resetFadeTimer);
 });
 
 </script>
@@ -3648,11 +3694,27 @@ ion-page.page-container {
   flex-direction: column;
   gap: 10px;
   z-index: 1000;
+  transition: opacity 0.5s ease;
+  opacity: 1;
+}
+
+.anchor-fab-container.faded {
+  opacity: 0.3;
+}
+
+.anchor-fab-container.faded:hover {
+  opacity: 1;
 }
 
 .custom-fab-size {
   --size: 56px;
   margin: 5px;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.custom-fab-size[disabled] {
+  opacity: 0.35;
 }
 
 .custom-icon {

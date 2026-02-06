@@ -79,9 +79,18 @@ const { state } = storeToRefs(stateStore);
 
 // Use true wind data from navigation state
 const windData = computed(() => state.value?.navigation?.wind?.true || null);
+const apparentWindData = computed(() => state.value?.navigation?.wind?.apparent || null);
+
+// Get heading data - prefer true heading, fallback to magnetic or COG
+const headingData = computed(() => {
+  const nav = state.value?.navigation;
+  return nav?.course?.heading?.true || nav?.course?.heading?.magnetic || nav?.course?.cog || null;
+});
 
 const speedData = computed(() => windData.value?.speed || null);
-const angleData = computed(() => windData.value?.angle || null);
+const directionData = computed(() => windData.value?.direction || null);
+const trueWindAngleData = computed(() => windData.value?.angle || null);
+const apparentWindAngleData = computed(() => apparentWindData.value?.angle || null);
 
 const speedValue = computed(() => {
   const explicit = speedData.value?.value ?? props.widgetData?.value;
@@ -106,9 +115,27 @@ const displayLabel = computed(() =>
 );
 
 const angleValue = computed(() => {
-  // Get direction value (degrees from north)
-  const raw = angleData.value?.value ?? angleData.value;
-  return typeof raw === "number" ? raw : null;
+  // Priority 1: Use True Wind Direction if available directly (already North-up)
+  // Use .degrees if available, otherwise fall back to .value
+  const twd = directionData.value?.degrees ?? directionData.value?.value ?? directionData.value;
+  if (typeof twd === "number") {
+    return twd;
+  }
+
+  // Priority 2: Calculate from Heading + True Wind Angle
+  const heading = headingData.value?.degrees ?? headingData.value?.value ?? headingData.value;
+  const twa = trueWindAngleData.value?.degrees ?? trueWindAngleData.value?.value ?? trueWindAngleData.value;
+  if (typeof heading === "number" && typeof twa === "number") {
+    return heading + twa;
+  }
+
+  // Priority 3: Calculate from Heading + Apparent Wind Angle (approximation)
+  const awa = apparentWindAngleData.value?.degrees ?? apparentWindAngleData.value?.value ?? apparentWindAngleData.value;
+  if (typeof heading === "number" && typeof awa === "number") {
+    return (heading + awa) % 360;
+  }
+
+  return null;
 });
 
 const formattedSpeed = computed(() => {

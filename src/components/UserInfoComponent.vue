@@ -53,37 +53,37 @@
               <ion-select-option value="other">Other</ion-select-option>
             </ion-select>
 
-            <ion-label position="stacked">LOA (Length Overall) in feet</ion-label>
+            <ion-label position="stacked">LOA (Length Overall) ({{ lengthUnitLabel }})</ion-label>
             <ion-input
               class="form-control"
-              placeholder="LOA (Length Overall) in feet"
+              placeholder="LOA"
               v-model.number="boatInfo.loa"
               type="number"
               required
             ></ion-input>
 
-            <ion-label position="stacked">Beam in feet</ion-label>
+            <ion-label position="stacked">Beam ({{ lengthUnitLabel }})</ion-label>
             <ion-input
               class="form-control"
-              placeholder="Beam in feet"
+              placeholder="Beam"
               v-model.number="boatInfo.beam"
               type="number"
               required
             ></ion-input>
 
-            <ion-label position="stacked">Draft in feet</ion-label>
+            <ion-label position="stacked">Draft ({{ lengthUnitLabel }})</ion-label>
             <ion-input
               class="form-control"
-              placeholder="Draft in feet"
+              placeholder="Draft"
               v-model.number="boatInfo.draft"
               type="number"
               required
             ></ion-input>
 
-            <ion-label position="stacked">Air Draft in feet</ion-label>
+            <ion-label position="stacked">Air Draft ({{ lengthUnitLabel }})</ion-label>
             <ion-input
               class="form-control"
-              placeholder="Air Draft in feet"
+              placeholder="Air Draft"
               v-model.number="boatInfo.airDraft"
               type="number"
               required
@@ -137,7 +137,7 @@ import { logInOutline, logOutOutline } from "ionicons/icons";
 
 const router = useRouter();
 const preferencesStore = usePreferencesStore();
-const lengthUnitLabel = computed(() => (preferencesStore?.useImperial?.value ? "ft" : "m"));
+const lengthUnitLabel = computed(() => (preferencesStore?.useImperial ? "ft" : "m"));
 
 // Authentication state
 const isLoggedIn = computed(() => {
