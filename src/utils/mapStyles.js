@@ -5,12 +5,16 @@ const BOAT_ICON_SRC = "/img/navigate.svg";
 
 export const getWindIconSrc = (speedValue, isDarkMode = false) => {
   const speed = speedValue != null ? Math.round(speedValue) : '';
-  const windColor = isDarkMode ? '#64B5F6' : '#007BFF';
+  const windColor = isDarkMode ? '#FFFFFF' : '#007BFF';
+  const textColor = isDarkMode ? '#000000' : 'white';
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='68' height='68' viewBox='0 0 68 68'>
-    <path fill='${encodeURIComponent(windColor)}' d='M32 8 L56 48 H8 Z'/>
-    <text x='32' y='48' text-anchor='middle' fill='white' font-size='16' font-weight='bold' font-family='system-ui, -apple-system, sans-serif' transform='rotate(180 32 40)'>${speed}</text>
+    <path fill='${windColor}' d='M32 8 L56 48 H8 Z'/>
+    <text x='32' y='48' text-anchor='middle' fill='${textColor}' font-size='16' font-weight='bold' font-family='system-ui, -apple-system, sans-serif' transform='rotate(180 32 40)'>${speed}</text>
   </svg>`;
-  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  // Add timestamp cache-busting so OpenLayers always regenerates the icon
+  const timestamp = Date.now();
+  const mode = isDarkMode ? 'dark' : 'light';
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}#${mode}-${timestamp}`;
 };
 
 export const createStyle = (config) => {

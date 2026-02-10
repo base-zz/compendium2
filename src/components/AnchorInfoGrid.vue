@@ -1,17 +1,17 @@
 <template>
   <div class="anchor-grid-div">
     <div class="values-row">
-      <div class="info-cell">
+      <div class="info-cell" @click="showEditRodeModal = true">
         <div class="label-div">Rode</div>
-        <div class="metric-div">{{ stateStore.state.anchor?.rode?.amount != null ? stateStore.state.anchor.rode.amount : '--' }}</div>
+        <div class="metric-div clickable">{{ stateStore.state.anchor?.rode?.amount != null ? stateStore.state.anchor.rode.amount : '--' }}</div>
       </div>
       <div class="info-cell" @click="showEditRadiusModal = true">
         <div class="label-div">Range</div>
         <div class="metric-div clickable">{{ stateStore.state.anchor?.criticalRange?.r != null ? stateStore.state.anchor.criticalRange.r : '--' }}</div>
       </div>
-      <div class="info-cell" @click="handleHeadingClick">
+      <div class="info-cell" @click="showEditHeadingModal = true">
         <div class="label-div">Heading</div>
-        <div class="metric-div">{{ stateStore.state.anchor?.anchorDeployed ? (stateStore.state.anchor?.anchorDropLocation?.bearing?.degrees != null ? stateStore.state.anchor.anchorDropLocation.bearing.degrees + '°' : '--') : (deviceHeadingDegrees != null ? deviceHeadingDegrees + '°' : '--') }}</div>
+        <div class="metric-div clickable">{{ stateStore.state.anchor?.anchorDeployed ? (stateStore.state.anchor?.anchorDropLocation?.bearing?.degrees != null ? stateStore.state.anchor.anchorDropLocation.bearing.degrees + '°' : '--') : (deviceHeadingDegrees != null ? deviceHeadingDegrees + '°' : '--') }}</div>
       </div>
       <div class="info-cell">
         <div class="label-div">Depth</div>
@@ -70,6 +70,56 @@
         </div>
       </div>
     </ion-modal>
+    <ion-modal :is-open="showEditRodeModal" @didDismiss="showEditRodeModal = false">
+      <div class="modal-content enhanced-modal">
+        <h3>Edit Rode Length</h3>
+        <div class="slider-label">
+          <strong>Rode:</strong>
+          <span class="slider-value">
+            {{ formattedRode }} {{ isMetric ? 'm' : 'ft' }}
+          </span>
+        </div>
+        <ion-range
+          v-model="editRodeValue"
+          :min="rodeMin"
+          :max="rodeMax"
+          :step="rodeStep"
+          ticks="true"
+          color="primary"
+          class="modal-range modal-range-center"
+          style="margin-bottom: 18px; width: 80%"
+        />
+        <div class="modal-actions">
+          <ion-button color="primary" @click="confirmEditRode">Confirm</ion-button>
+          <ion-button @click="showEditRodeModal = false">Cancel</ion-button>
+        </div>
+      </div>
+    </ion-modal>
+    <ion-modal :is-open="showEditHeadingModal" @didDismiss="showEditHeadingModal = false">
+      <div class="modal-content enhanced-modal">
+        <h3>Edit Heading</h3>
+        <div class="slider-label">
+          <strong>Heading:</strong>
+          <span class="slider-value">
+            {{ formattedHeading }}°
+          </span>
+        </div>
+        <ion-range
+          v-model="editHeadingValue"
+          :min="0"
+          :max="359"
+          :step="1"
+          ticks="true"
+          color="primary"
+          class="modal-range modal-range-center"
+          style="margin-bottom: 18px; width: 80%"
+        />
+        <div class="modal-actions">
+          <ion-button color="primary" @click="confirmEditHeading">Confirm</ion-button>
+          <ion-button @click="showEditHeadingModal = false">Cancel</ion-button>
+        </div>
+      </div>
+    </ion-modal>
   </div>
 </template>
 
@@ -88,6 +138,10 @@ const emit = defineEmits(['anchor-dropped']);
 
 const showEditRadiusModal = ref(false);
 const editRadiusValue = ref(0);
+const showEditRodeModal = ref(false);
+const editRodeValue = ref(0);
+const showEditHeadingModal = ref(false);
+const editHeadingValue = ref(0);
 
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
@@ -168,21 +222,42 @@ watch(showEditRadiusModal, (val) => {
   }
 });
 
+watch(showEditRodeModal, (val) => {
+  if (val && anchorState.value?.rode?.amount) {
+    const currentRode = anchorState.value.rode.amount;
+    const currentUnits = anchorState.value.rode.units || 'm';
+    editRodeValue.value = convertLengthToPreferred(currentRode, currentUnits);
+  }
+});
+
+watch(showEditHeadingModal, (val) => {
+  if (val) {
+    if (anchorState.value?.anchorDeployed && anchorState.value?.anchorDropLocation?.bearing?.degrees != null) {
+      editHeadingValue.value = anchorState.value.anchorDropLocation.bearing.degrees;
+    } else if (deviceHeadingDegrees.value != null) {
+      editHeadingValue.value = deviceHeadingDegrees.value;
+    } else {
+      editHeadingValue.value = 0;
+    }
+  }
+});
+
 const formattedRadius = computed(() => Math.round(editRadiusValue.value));
 const radiusStep = computed(() => (isMetric.value ? 1 : 5));
 const radiusMin = computed(() => (isMetric.value ? 5 : 15));
 const radiusMax = computed(() => (isMetric.value ? 150 : 500));
 
+const formattedRode = computed(() => Math.round(editRodeValue.value));
+const rodeStep = computed(() => (isMetric.value ? 1 : 5));
+const rodeMin = computed(() => (isMetric.value ? 5 : 15));
+const rodeMax = computed(() => (isMetric.value ? 100 : 330));
+
+const formattedHeading = computed(() => Math.round(editHeadingValue.value));
+
 function confirmEditRadius() {
-  console.log('[AnchorInfoGrid] confirmEditRadius called', { 
-    editRadiusValue: editRadiusValue.value, 
-    preferredLengthUnit: preferredLengthUnit.value,
-    isMetric: isMetric.value
-  });
   if (anchorState.value && anchorState.value.criticalRange) {
     const preferredUnits = preferredLengthUnit.value;
     const baseValue = convertLengthFromPreferred(editRadiusValue.value, preferredUnits);
-    console.log('[AnchorInfoGrid] Setting critical range:', { baseValue, preferredUnits });
     anchorState.value.criticalRange.r = baseValue;
     anchorState.value.criticalRange.units = preferredUnits;
     
@@ -193,6 +268,41 @@ function confirmEditRadius() {
     }
   }
   showEditRadiusModal.value = false;
+}
+
+function confirmEditRode() {
+  if (anchorState.value && anchorState.value.rode) {
+    const preferredUnits = preferredLengthUnit.value;
+    const baseValue = convertLengthFromPreferred(editRodeValue.value, preferredUnits);
+    anchorState.value.rode.amount = baseValue;
+    anchorState.value.rode.units = preferredUnits;
+    
+    // Send update to server via state store
+    const { sendMessageToServer } = stateStore;
+    if (sendMessageToServer) {
+      sendMessageToServer('anchor:update', anchorState.value);
+    }
+  }
+  showEditRodeModal.value = false;
+}
+
+function confirmEditHeading() {
+  if (anchorState.value) {
+    if (!anchorState.value.anchorDropLocation) {
+      anchorState.value.anchorDropLocation = {};
+    }
+    if (!anchorState.value.anchorDropLocation.bearing) {
+      anchorState.value.anchorDropLocation.bearing = {};
+    }
+    anchorState.value.anchorDropLocation.bearing.degrees = editHeadingValue.value;
+    
+    // Send update to server via state store
+    const { sendMessageToServer } = stateStore;
+    if (sendMessageToServer) {
+      sendMessageToServer('anchor:update', anchorState.value);
+    }
+  }
+  showEditHeadingModal.value = false;
 }
 
 // Alert cycling state

@@ -1570,6 +1570,13 @@ watch(
   }
 );
 
+watch(
+  isDarkMode,
+  () => {
+    updateCriticalRangeCircle();
+  }
+);
+
 const updateRodeLine = debounce(() => {
   // logger.debug('Starting updateRodeLine function');
 
@@ -1633,10 +1640,13 @@ const updateRodeLine = debounce(() => {
     return;
   }
 
+  let startCoord;
+  let endCoord;
+
   try {
     // Create a direct feature without using the helper functions
-    const startCoord = fromLonLat([boatLon, boatLat]);
-    const endCoord = fromLonLat([anchorLon, anchorLat]);
+    startCoord = fromLonLat([boatLon, boatLat]);
+    endCoord = fromLonLat([anchorLon, anchorLat]);
 
     // Calculate the actual distance between boat and anchor - useful for debugging
     // const actualDistance = calculateDistanceMeters(
@@ -2467,8 +2477,7 @@ watch(
 // Watch for critical range changes
 watch(
   () => anchorState.value?.criticalRange?.r,
-  (newVal, oldVal) => {
-    console.log("[AnchorView] Critical range changed:", { newVal, oldVal, units: anchorState.value?.criticalRange?.units });
+  (newVal) => {
     logger.debug("Critical range changed:", newVal);
     logger.debug("Anchor drop location:", anchorDropLocation.value);
     logger.debug("Anchor deployed:", anchorDeployed.value);

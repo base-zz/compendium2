@@ -80,6 +80,27 @@
         r="7"
       />
 
+      <g v-if="showGeometry && windIndicator">
+        <g :transform="`translate(${windIndicator.x} ${windIndicator.y}) rotate(${windIndicator.rotation})`">
+          <path
+            class="wind-indicator"
+            :fill="windIndicatorFill"
+            d="M0 -16 L12 10 L-12 10 Z"
+          />
+          <text
+            v-if="windSpeedLabel"
+            class="wind-indicator-text"
+            x="0"
+            y="6"
+            text-anchor="middle"
+            :fill="windIndicatorTextFill"
+            :transform="`rotate(${-windIndicator.rotation})`"
+          >
+            {{ windSpeedLabel }}
+          </text>
+        </g>
+      </g>
+
       <text
         v-if="!showGeometry"
         class="placeholder"
@@ -129,6 +150,8 @@ const preferencesStore = usePreferencesStore();
 const anchorState = computed(() => state.value.anchor || {});
 const navigationState = computed(() => state.value.navigation || {});
 const alertState = computed(() => state.value.alerts?.active || []);
+
+const isDarkMode = computed(() => preferencesStore.darkMode === true);
 let stopStateLogging = null;
 
 // onMounted(() => {
@@ -476,6 +499,40 @@ const hasAisAlert = computed(() => {
 
 const criticalRadiusPx = computed(() => CRITICAL_RADIUS);
 
+const windFromDegrees = computed(() => {
+  const windDirection = navigationState.value?.wind?.true?.direction;
+  const raw = windDirection?.degrees ?? windDirection?.value ?? windDirection;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+});
+
+const windSpeedValue = computed(() => {
+  const apparent = navigationState.value?.wind?.apparent?.speed;
+  const trueWind = navigationState.value?.wind?.true?.speed;
+  const raw = apparent?.value ?? apparent ?? trueWind?.value ?? trueWind;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+});
+
+const windSpeedLabel = computed(() => {
+  const value = windSpeedValue.value;
+  return value == null ? null : String(Math.round(value));
+});
+
+const windIndicatorFill = computed(() => (isDarkMode.value ? "#FFFFFF" : "#007BFF"));
+const windIndicatorTextFill = computed(() => (isDarkMode.value ? "#000000" : "#FFFFFF"));
+
+const windIndicator = computed(() => {
+  const degrees = windFromDegrees.value;
+  const radius = criticalRadiusPx.value;
+  if (degrees == null) return null;
+  if (typeof radius !== "number" || !Number.isFinite(radius) || radius <= 0) return null;
+
+  const rad = (degrees * Math.PI) / 180;
+  const x = CENTER + Math.sin(rad) * radius;
+  const y = CENTER - Math.cos(rad) * radius;
+  const rotation = degrees + 180;
+  return { x, y, rotation };
+});
+
 const criticalRangeClass = computed(() => {
   return hasCriticalRangeAlert.value ? "critical-range-alert" : "critical-range";
 });
@@ -572,6 +629,12 @@ const criticalRangeClass = computed(() => {
   fill: #ef4444;
   stroke: #111827;
   stroke-width: 2;
+}
+
+.wind-indicator-text {
+  font-size: 11px;
+  font-weight: 700;
+  dominant-baseline: middle;
 }
 
 .placeholder {

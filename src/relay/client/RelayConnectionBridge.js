@@ -192,12 +192,159 @@ export class RelayConnectionBridge {
     this.heartbeatInterval = null;
     this.isReconnecting = false;
 
+    this._manualClose = false;
+    this._staleAfterMs = 90000;
+    this._lastMessageAt = null;
+    this._stalenessTimer = null;
+
+    this._reconnectBaseDelayMs = 1000;
+    this._reconnectMaxDelayMs = 30000;
+    this._reconnectTimeout = null;
+
     this.dataHandlers = {
       navigation: this._handleNavigationData.bind(this),
       vessel: this._handleVesselData.bind(this),
       alert: this._handleAlertData.bind(this),
       environment: this._handleEnvironmentData.bind(this),
     };
+  }
+
+  _markActivity() {
+    this._lastMessageAt = Date.now();
+    this._startStalenessTimer();
+  }
+
+  _startStalenessTimer() {
+    this._clearStalenessTimer();
+    if (typeof this._lastMessageAt !== 'number' || !Number.isFinite(this._lastMessageAt)) {
+      return;
+    }
+    const delayMs = this._staleAfterMs;
+    if (typeof delayMs !== 'number' || !Number.isFinite(delayMs) || delayMs <= 0) {
+      return;
+    }
+    this._stalenessTimer = setTimeout(() => {
+      const now = Date.now();
+      if (typeof this._lastMessageAt !== 'number' || !Number.isFinite(this._lastMessageAt)) {
+        return;
+      }
+      const ageMs = now - this._lastMessageAt;
+      if (ageMs < this._staleAfterMs) {
+        this._startStalenessTimer();
+        return;
+      }
+      this._handleStaleConnection(ageMs);
+    }, delayMs);
+  }
+
+  _clearStalenessTimer() {
+    clearTimeout(this._stalenessTimer);
+    this._stalenessTimer = null;
+  }
+
+  _handleStaleConnection(ageMs) {
+    this._log("WARN", `WebSocket stale: no inbound activity for ${ageMs}ms. Closing socket and reconnecting.`);
+
+    this._stopHeartbeat();
+    this._clearStalenessTimer();
+
+    const socket = this.socket;
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      try {
+        socket.close();
+      } catch (e) {
+        this._log("ERROR", "Error closing stale WebSocket", { error: e?.message || e });
+      }
+    }
+
+    this._scheduleReconnectWithOptions({ immediate: true });
+  }
+
+  _scheduleReconnect() {
+    this._scheduleReconnectWithOptions({ immediate: false });
+  }
+
+  _scheduleReconnectWithOptions({ immediate }) {
+    if (this._manualClose) {
+      return;
+    }
+
+    if (this._reconnectTimeout) {
+      return;
+    }
+
+    this.reconnectAttempts += 1;
+
+    this.isReconnecting = true;
+    this.connectionState = {
+      status: "reconnecting",
+      lastError: null,
+    };
+    this.emit("connection-status", this.connectionState);
+    this.emit("vps-connection-status", { status: "reconnecting" });
+
+    const baseDelayMs = this._reconnectBaseDelayMs;
+    const maxDelayMs = this._reconnectMaxDelayMs;
+    if (
+      typeof baseDelayMs !== 'number' ||
+      !Number.isFinite(baseDelayMs) ||
+      baseDelayMs <= 0 ||
+      typeof maxDelayMs !== 'number' ||
+      !Number.isFinite(maxDelayMs) ||
+      maxDelayMs <= 0
+    ) {
+      this._log("ERROR", "Invalid reconnect delay configuration", {
+        baseDelayMs,
+        maxDelayMs,
+      });
+      return;
+    }
+
+    const shouldBeImmediate = immediate === true && this.reconnectAttempts === 1;
+    const exponent = shouldBeImmediate
+      ? 0
+      : immediate
+          ? Math.max(0, this.reconnectAttempts - 2)
+          : Math.max(0, this.reconnectAttempts - 1);
+
+    const delayWithoutJitterMs = shouldBeImmediate
+      ? 0
+      : Math.min(baseDelayMs * Math.pow(2, exponent), maxDelayMs);
+
+    const jitterMaxMs = shouldBeImmediate ? 0 : Math.min(1000, delayWithoutJitterMs);
+    const jitterMs = jitterMaxMs > 0 ? Math.floor(Math.random() * jitterMaxMs) : 0;
+    const delayMs = delayWithoutJitterMs + jitterMs;
+
+    this._log(
+      "INFO",
+      `Scheduling reconnect attempt ${this.reconnectAttempts} in ${delayMs}ms`
+    );
+
+    // Clean up any existing socket
+    if (this.socket) {
+      try {
+        this.socket.close();
+      } catch (e) {
+        this._log("WARN", "Error closing socket during reconnect", {
+          error: e?.message || e,
+        });
+      }
+      this.socket = null;
+    }
+
+    this._reconnectTimeout = setTimeout(() => {
+      this._reconnectTimeout = null;
+      try {
+        this.connect();
+      } catch (error) {
+        this._log("ERROR", "Error during reconnection attempt", {
+          error: error?.message,
+          stack: error?.stack,
+          attempt: this.reconnectAttempts,
+        });
+        this._scheduleReconnect();
+      }
+    }, delayMs);
   }
 
   /**
@@ -291,8 +438,13 @@ export class RelayConnectionBridge {
     // Enhanced logging for connection attempt
     remoteLogger.log(
       "RELAY-CLIENT",
-      `====== ATTEMPTING RELAY CONNECTION at ${new Date().toISOString()} ======`
+      `Attempting to connect to relay server at ${this.config.relayServerUrl}`
     );
+
+    this._manualClose = false;
+    clearTimeout(this._reconnectTimeout);
+    this._reconnectTimeout = null;
+    this._clearStalenessTimer();
     remoteLogger.log(
       "RELAY-CLIENT",
       `Connection state: ${this.connectionState?.status || "initializing"}`
@@ -471,6 +623,7 @@ export class RelayConnectionBridge {
             this.connectionState.lastError = null;
             this.reconnectAttempts = 0;
             this.isReconnecting = false;
+            this._markActivity();
             this.emit("connection-status", this.connectionState);
             this.emit("vps-connection-status", { status: "connected" });
 
@@ -498,6 +651,7 @@ export class RelayConnectionBridge {
             try {
               // Reset reconnect attempts on successful message
               this.reconnectAttempts = 0;
+              this._markActivity();
 
               // Log basic info about the received data
               const dataType =
@@ -637,15 +791,15 @@ export class RelayConnectionBridge {
 
             // Clear heartbeat interval
             this._stopHeartbeat();
+            this._clearStalenessTimer();
 
             // Only change connection state if we're not already reconnecting
-            if (!this.isReconnecting) {
-              this.connectionState.status = "disconnected";
-              this.emit("connection-status", this.connectionState);
-              this.emit("vps-connection-status", { status: "disconnected" });
+            this.connectionState.status = "disconnected";
+            this.emit("connection-status", this.connectionState);
+            this.emit("vps-connection-status", { status: "disconnected" });
 
-              // Attempt to reconnect
-              this._attemptReconnect();
+            if (!this._manualClose) {
+              this._scheduleReconnectWithOptions({ immediate: true });
             }
           };
 
@@ -688,6 +842,13 @@ export class RelayConnectionBridge {
               error: error.message,
             });
 
+            this._stopHeartbeat();
+            this._clearStalenessTimer();
+
+            if (!this._manualClose) {
+              this._scheduleReconnectWithOptions({ immediate: true });
+            }
+
             // If we're still in the connecting state, reject the promise
             if (this.connectionState.status === "connecting") {
               reject(error);
@@ -717,100 +878,7 @@ export class RelayConnectionBridge {
    * @private
    */
   _attemptReconnect() {
-    this._log("DEBUG", "Attempting to reconnect to relay server");
-    this._log(
-      "DEBUG",
-      `Current reconnect attempt: ${this.reconnectAttempts + 1}/${
-        this.config.maxReconnectAttempts
-      }`
-    );
-
-    // Prevent multiple reconnection attempts
-    if (this.isReconnecting) {
-      this._log("DEBUG", "Reconnection already in progress");
-      return;
-    }
-
-    // Ensure config values are valid
-    const reconnectDelay =
-      typeof this.config.reconnectDelay === "number" &&
-      !isNaN(this.config.reconnectDelay)
-        ? this.config.reconnectDelay
-        : 3000;
-
-    const maxReconnectAttempts =
-      typeof this.config.maxReconnectAttempts === "number" &&
-      !isNaN(this.config.maxReconnectAttempts)
-        ? this.config.maxReconnectAttempts
-        : 5;
-
-    this.isReconnecting = true;
-    this.connectionState = {
-      status: "reconnecting",
-      lastError: null,
-    };
-    this.emit("connection-status", this.connectionState);
-    this.emit("vps-connection-status", { status: "reconnecting" });
-
-    if (this.reconnectAttempts < maxReconnectAttempts) {
-      this.reconnectAttempts++;
-
-      this._log(
-        "INFO",
-        `Attempting to reconnect (${this.reconnectAttempts}/${maxReconnectAttempts}) in ${reconnectDelay}ms`
-      );
-
-      // Clean up any existing socket
-      if (this.socket) {
-        try {
-          this.socket.close();
-        } catch (e) {
-          this._log("WARN", "Error closing socket during reconnect", {
-            error: e,
-          });
-        }
-        this.socket = null;
-      }
-
-      // Set up reconnection timer
-      setTimeout(() => {
-        try {
-          this._log("DEBUG", "Initiating new connection attempt");
-          this.connect();
-        } catch (error) {
-          this._log("ERROR", "Error during reconnection attempt", {
-            error: error?.message,
-            stack: error?.stack,
-            attempt: this.reconnectAttempts,
-            maxAttempts: maxReconnectAttempts,
-          });
-
-          // Update connection state
-          this.connectionState = {
-            status: "error",
-            lastError: `Reconnection failed: ${error?.message}`,
-          };
-          this.emit("connection-status", this.connectionState);
-
-          // Try again if we haven't reached max attempts
-          if (this.reconnectAttempts < maxReconnectAttempts) {
-            this._attemptReconnect();
-          }
-        }
-      }, reconnectDelay);
-    } else {
-      this._log("ERROR", "Max reconnection attempts reached", {
-        maxAttempts: maxReconnectAttempts,
-        lastError: this.connectionState.lastError,
-      });
-
-      this.connectionState = {
-        status: "error",
-        lastError: "Max reconnection attempts reached",
-      };
-      this.emit("connection-status", this.connectionState);
-      this.isReconnecting = false;
-    }
+    this._scheduleReconnect();
   }
 
   /**
@@ -1741,6 +1809,11 @@ export class RelayConnectionBridge {
   disconnect() {
     // Stop heartbeat
     this._stopHeartbeat();
+
+    this._manualClose = true;
+    clearTimeout(this._reconnectTimeout);
+    this._reconnectTimeout = null;
+    this._clearStalenessTimer();
 
     if (this.socket) {
       try {

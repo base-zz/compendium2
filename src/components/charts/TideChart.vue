@@ -787,6 +787,14 @@ onUnmounted(() => {
   fill: color-mix(in srgb, var(--app-accent-color) 90%, var(--app-text-color) 10%);
 }
 
+:global(body.dark) .indicator-line {
+  stroke: #fbbf24 !important;
+}
+
+:global(body.dark) .indicator-label {
+  fill: #fbbf24 !important;
+}
+
 .cursor-line {
   stroke: color-mix(in srgb, var(--app-accent-color) 70%, transparent);
 }
@@ -829,5 +837,13 @@ onUnmounted(() => {
 /* Unscoped dark mode override for tide line */
 body.dark .tide-line {
   stroke: #f8fafc !important;
+}
+
+body.dark .indicator-line {
+  stroke: #fbbf24 !important;
+}
+
+body.dark .indicator-label {
+  fill: #fbbf24 !important;
 }
 </style>

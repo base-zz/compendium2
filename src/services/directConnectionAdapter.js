@@ -35,14 +35,18 @@ class DirectConnectionAdapter {
     this.connectionState = { status: "disconnected", lastError: null };
     this.ws = null;
     this._reconnectAttempts = 0;
-    this._maxReconnects = 10;
-    this._reconnectDelay = 2000;
+    this._maxReconnects = null;
+    this._reconnectBaseDelayMs = 1000;
+    this._reconnectMaxDelayMs = 30000;
     this._manualClose = false;
     this._wsUrl = getWebSocketUrl();
     this._heartbeatInterval = 30000;
     this._heartbeatTimer = null;
     this._connectPromise = null;
     this._reconnectTimeout = null;
+    this._staleAfterMs = 90000;
+    this._lastMessageAt = null;
+    this._stalenessTimer = null;
   }
 
   getReadyStateName(state) {
@@ -93,6 +97,60 @@ class DirectConnectionAdapter {
     logger.debug("Clearing heartbeat timers...");
     clearInterval(this._heartbeatTimer);
     this._heartbeatTimer = null;
+  }
+
+  _markActivity() {
+    this._lastMessageAt = Date.now();
+    this._startStalenessTimer();
+  }
+
+  _startStalenessTimer() {
+    this._clearStalenessTimer();
+    if (typeof this._lastMessageAt !== 'number' || !Number.isFinite(this._lastMessageAt)) {
+      return;
+    }
+    const delayMs = this._staleAfterMs;
+    if (typeof delayMs !== 'number' || !Number.isFinite(delayMs) || delayMs <= 0) {
+      return;
+    }
+    this._stalenessTimer = setTimeout(() => {
+      const now = Date.now();
+      if (typeof this._lastMessageAt !== 'number' || !Number.isFinite(this._lastMessageAt)) {
+        return;
+      }
+      const ageMs = now - this._lastMessageAt;
+      if (ageMs < this._staleAfterMs) {
+        this._startStalenessTimer();
+        return;
+      }
+      this._handleStaleConnection(ageMs);
+    }, delayMs);
+  }
+
+  _clearStalenessTimer() {
+    clearTimeout(this._stalenessTimer);
+    this._stalenessTimer = null;
+  }
+
+  _handleStaleConnection(ageMs) {
+    logger.warn(`WebSocket stale: no inbound activity for ${ageMs}ms. Closing socket and reconnecting.`);
+    this._clearHeartbeat();
+    this._clearStalenessTimer();
+
+    const ws = this.ws;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      try {
+        if (typeof ws.terminate === 'function') {
+          ws.terminate();
+        } else {
+          ws.close();
+        }
+      } catch (e) {
+        logger.error('Error closing stale WebSocket:', e);
+      }
+    }
+
+    this._scheduleReconnectWithOptions({ immediate: true });
   }
 
   _handlePingPong(msg) {
@@ -149,7 +207,10 @@ class DirectConnectionAdapter {
           logger.info(`✅ WebSocket connection established to: ${this._wsUrl}`);
           this.connectionState.status = 'connected';
           this._reconnectAttempts = 0;
+          clearTimeout(this._reconnectTimeout);
+          this._reconnectTimeout = null;
           this._setupHeartbeat();
+          this._markActivity();
           this.emit('connect');
           this._sendIdentity().catch(err => logger.error('Failed to send identity on connect', err));
           resolve();
@@ -159,13 +220,18 @@ class DirectConnectionAdapter {
           logger.error("❌ WebSocket connection error:", event);
           this.connectionState = { status: "disconnected", lastError: error };
           this.emit('error', error);
+          if (!this._manualClose) {
+            this._scheduleReconnectWithOptions({ immediate: true });
+          }
           reject(error);
         };
         this.ws.onclose = (event) => {
           logger.warn(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
           this.connectionState.status = 'disconnected';
+          this._clearHeartbeat();
+          this._clearStalenessTimer();
           if (!this._manualClose) {
-            this._scheduleReconnect();
+            this._scheduleReconnectWithOptions({ immediate: true });
           }
         };
         this.ws.onmessage = this.onmessage.bind(this);
@@ -180,6 +246,7 @@ class DirectConnectionAdapter {
 
   onmessage(event) {
     try {
+      this._markActivity();
       let msg = event.data;
       const rawData = event.data;
       
@@ -306,19 +373,58 @@ class DirectConnectionAdapter {
   }
 
   _scheduleReconnect() {
-    if (this._reconnectAttempts >= this._maxReconnects) {
+    this._scheduleReconnectWithOptions({ immediate: false });
+  }
+
+  _scheduleReconnectWithOptions({ immediate }) {
+    if (this._manualClose) {
+      return;
+    }
+    if (this._reconnectTimeout) {
+      return;
+    }
+
+    if (
+      typeof this._maxReconnects === 'number' &&
+      Number.isFinite(this._maxReconnects) &&
+      this._reconnectAttempts >= this._maxReconnects
+    ) {
       logger.error("Max reconnect attempts reached. Giving up.");
       return;
     }
+
     this._reconnectAttempts++;
-    const delay = this._reconnectDelay * Math.pow(2, this._reconnectAttempts - 1);
-    logger.info(`Scheduling reconnect attempt ${this._reconnectAttempts} in ${delay}ms`);
+
+    const baseDelayMs = this._reconnectBaseDelayMs;
+    const maxDelayMs = this._reconnectMaxDelayMs;
+
+    const shouldBeImmediate = immediate === true && this._reconnectAttempts === 1;
+    const exponent = shouldBeImmediate
+      ? 0
+      : immediate
+          ? Math.max(0, this._reconnectAttempts - 2)
+          : Math.max(0, this._reconnectAttempts - 1);
+
+    const delayWithoutJitterMs = shouldBeImmediate
+      ? 0
+      : Math.min(baseDelayMs * Math.pow(2, exponent), maxDelayMs);
+
+    const jitterMaxMs = shouldBeImmediate ? 0 : Math.min(1000, delayWithoutJitterMs);
+    const jitterMs = jitterMaxMs > 0 ? Math.floor(Math.random() * jitterMaxMs) : 0;
+    const delayMs = delayWithoutJitterMs + jitterMs;
+
+    logger.info(
+      `Scheduling reconnect attempt ${this._reconnectAttempts} in ${delayMs}ms`
+    );
+
     this._reconnectTimeout = setTimeout(() => {
+      this._reconnectTimeout = null;
       logger.info(`Attempting to reconnect... (attempt ${this._reconnectAttempts})`);
       this.connect().catch(err => {
-        logger.error(`Reconnection attempt ${this._reconnectAttempts} failed:`, err.message);
+        logger.error(`Reconnection attempt failed:`, err?.message || err);
+        this._scheduleReconnectWithOptions({ immediate: false });
       });
-    }, delay);
+    }, delayMs);
   }
 
   _cleanupWebSocket() {
@@ -333,11 +439,14 @@ class DirectConnectionAdapter {
     }
     this.ws = null;
     this._clearHeartbeat();
+    this._clearStalenessTimer();
   }
 
   disconnect() {
     logger.info("Disconnecting WebSocket connection...");
     this._manualClose = true;
+    clearTimeout(this._reconnectTimeout);
+    this._reconnectTimeout = null;
     this._cleanupWebSocket();
     this.connectionState = { status: "disconnected", lastError: null };
   }
