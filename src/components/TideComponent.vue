@@ -128,6 +128,71 @@
           </div>
         </div>
       </div>
+
+      <!-- Current Data Comparison (Real vs Imputed) -->
+      <div v-if="hasAnyCurrentData" class="current-comparison">
+        <h3 class="section-title">Current Data Comparison</h3>
+        <div class="comparison-grid">
+          <!-- Real NOAA Data -->
+          <div class="comparison-card" :class="{ 'no-data': !hasRealCurrentData }">
+            <div class="comparison-header">
+              <span class="source-badge real">NOAA Station</span>
+              <span v-if="currentStationDistance" class="distance-badge">{{ currentStationDistance }} km</span>
+            </div>
+            <div v-if="hasRealCurrentData" class="comparison-data">
+              <div class="data-row">
+                <span class="data-value">{{ realCurrentData.velocity }}</span>
+                <span class="data-unit">kt</span>
+              </div>
+              <div class="data-row secondary">
+                <span class="data-direction">{{ realCurrentData.direction }}°</span>
+                <span class="data-dir-name">{{ getDirectionName(realCurrentData.direction) }}</span>
+              </div>
+              <div class="data-type">{{ realCurrentData.type }}</div>
+            </div>
+            <div v-else class="no-data-message">
+              No nearby station
+            </div>
+          </div>
+
+          <!-- Imputed Open-Meteo Data -->
+          <div class="comparison-card">
+            <div class="comparison-header">
+              <span class="source-badge imputed">Open-Meteo</span>
+              <span class="model-badge">Model</span>
+            </div>
+            <div class="comparison-data">
+              <div class="data-row">
+                <span class="data-value">{{ imputedCurrentData.velocity }}</span>
+                <span class="data-unit">kt</span>
+              </div>
+              <div class="data-row secondary">
+                <span class="data-direction">{{ imputedCurrentData.direction }}°</span>
+                <span class="data-dir-name">{{ getDirectionName(imputedCurrentData.direction) }}</span>
+              </div>
+              <div class="data-type">{{ imputedCurrentData.type }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comparison Stats (only when both available) -->
+        <div v-if="hasRealCurrentData && hasImputedCurrentData" class="comparison-stats">
+          <div class="stat-row">
+            <span class="stat-label">Velocity Diff:</span>
+            <span class="stat-value" :class="comparisonStats.velocityClass">{{ comparisonStats.velocityDiff }} kt</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Direction Diff:</span>
+            <span class="stat-value" :class="comparisonStats.directionClass">{{ comparisonStats.directionDiff }}°</span>
+          </div>
+          <div class="accuracy-bar">
+            <div class="accuracy-label">Match: {{ comparisonStats.accuracy }}%</div>
+            <div class="accuracy-track">
+              <div class="accuracy-fill" :style="{ width: comparisonStats.accuracy + '%' }" :class="comparisonStats.accuracyClass"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -379,6 +444,113 @@ const currentConditions = computed(() => {
     seaSurfaceTemperature: typeof values.seaSurfaceTemperature === 'number' ? values.seaSurfaceTemperature.toFixed(1) : '--',
     oceanCurrentVelocity: typeof values.oceanCurrentVelocity === 'number' ? values.oceanCurrentVelocity.toFixed(2) : '--',
     oceanCurrentDirection: typeof values.oceanCurrentDirection === 'number' ? values.oceanCurrentDirection : '--'
+  };
+});
+
+// Current data comparison computed properties
+const hasRealCurrentData = computed(() => {
+  const events = tideData.value?.currentEvents;
+  if (!events || typeof events !== 'object') return false;
+  const predictions = events.predictions;
+  return Array.isArray(predictions) && predictions.length > 0;
+});
+
+const hasImputedCurrentData = computed(() => {
+  const imputed = tideData.value?.imputedCurrent;
+  if (!imputed || typeof imputed !== 'object') return false;
+  const predictions = imputed.predictions;
+  return Array.isArray(predictions) && predictions.length > 0;
+});
+
+const hasAnyCurrentData = computed(() => hasRealCurrentData.value || hasImputedCurrentData.value);
+
+const currentStationDistance = computed(() => {
+  const distance = tideData.value?.metadata?.currentStation?.distanceKm;
+  return typeof distance === 'number' ? Math.round(distance) : null;
+});
+
+const realCurrentData = computed(() => {
+  const events = tideData.value?.currentEvents;
+  const predictions = events?.predictions;
+  if (!Array.isArray(predictions) || predictions.length === 0) {
+    return { velocity: '--', direction: '--', type: '--' };
+  }
+  
+  const now = new Date();
+  const current = predictions.find(p => {
+    const t = p?.time ? new Date(p.time) : null;
+    if (!t || Number.isNaN(t.getTime())) return false;
+    // Find prediction within 1 hour of now
+    return Math.abs(t.getTime() - now.getTime()) < 3600000;
+  }) || predictions[0];
+  
+  return {
+    velocity: typeof current?.velocity === 'number' ? current.velocity.toFixed(2) : '--',
+    direction: typeof current?.direction === 'number' ? Math.round(current.direction) : '--',
+    type: typeof current?.type === 'string' ? current.type.charAt(0).toUpperCase() + current.type.slice(1) : '--'
+  };
+});
+
+const imputedCurrentData = computed(() => {
+  const imputed = tideData.value?.imputedCurrent;
+  const predictions = imputed?.predictions;
+  if (!Array.isArray(predictions) || predictions.length === 0) {
+    return { velocity: '--', direction: '--', type: '--' };
+  }
+  
+  const now = new Date();
+  const current = predictions.find(p => {
+    const t = p?.time ? new Date(p.time) : null;
+    if (!t || Number.isNaN(t.getTime())) return false;
+    return Math.abs(t.getTime() - now.getTime()) < 3600000;
+  }) || predictions[0];
+  
+  return {
+    velocity: typeof current?.velocity === 'number' ? current.velocity.toFixed(2) : '--',
+    direction: typeof current?.direction === 'number' ? Math.round(current.direction) : '--',
+    type: typeof current?.type === 'string' ? current.type.charAt(0).toUpperCase() + current.type.slice(1) : '--'
+  };
+});
+
+const comparisonStats = computed(() => {
+  if (!hasRealCurrentData.value || !hasImputedCurrentData.value) {
+    return { velocityDiff: '--', directionDiff: '--', accuracy: 0, velocityClass: '', directionClass: '', accuracyClass: '' };
+  }
+  
+  const real = realCurrentData.value;
+  const imputed = imputedCurrentData.value;
+  
+  const realVel = parseFloat(real.velocity);
+  const impVel = parseFloat(imputed.velocity);
+  const realDir = parseFloat(real.direction);
+  const impDir = parseFloat(imputed.direction);
+  
+  if (Number.isNaN(realVel) || Number.isNaN(impVel) || Number.isNaN(realDir) || Number.isNaN(impDir)) {
+    return { velocityDiff: '--', directionDiff: '--', accuracy: 0, velocityClass: '', directionClass: '', accuracyClass: '' };
+  }
+  
+  const velocityDiff = (impVel - realVel).toFixed(2);
+  
+  // Calculate smallest direction difference (handles 350° vs 10° case)
+  let directionDiff = Math.abs(impDir - realDir);
+  if (directionDiff > 180) directionDiff = 360 - directionDiff;
+  
+  // Calculate accuracy percentage
+  const velAccuracy = Math.max(0, 1 - Math.abs(velocityDiff) / Math.max(realVel, 0.1));
+  const dirAccuracy = Math.max(0, 1 - directionDiff / 90);
+  const accuracy = Math.round(((velAccuracy + dirAccuracy) / 2) * 100);
+  
+  const velocityClass = Math.abs(parseFloat(velocityDiff)) < 0.3 ? 'good' : Math.abs(parseFloat(velocityDiff)) < 0.6 ? 'warning' : 'bad';
+  const directionClass = directionDiff < 15 ? 'good' : directionDiff < 30 ? 'warning' : 'bad';
+  const accuracyClass = accuracy >= 80 ? 'good' : accuracy >= 60 ? 'warning' : 'bad';
+  
+  return {
+    velocityDiff: velocityDiff > 0 ? `+${velocityDiff}` : velocityDiff,
+    directionDiff: directionDiff,
+    accuracy,
+    velocityClass,
+    directionClass,
+    accuracyClass
   };
 });
 
@@ -930,5 +1102,210 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
   --color: var(--app-text-color);
   --placeholder-color: var(--app-muted-text-color);
   --icon-color: var(--app-text-color);
+}
+
+/* Current Data Comparison Styles */
+.current-comparison {
+  margin: 6px 8px 0;
+  padding: 10px 12px;
+  background: var(--app-surface-color);
+  border: 1px solid var(--app-border-color);
+  border-radius: 12px;
+}
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.comparison-card {
+  background: color-mix(in srgb, var(--app-surface-color) 80%, var(--app-background-color) 20%);
+  border: 1px solid var(--app-border-color);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comparison-card.no-data {
+  opacity: 0.7;
+}
+
+.comparison-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.source-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.source-badge.real {
+  background: var(--app-accent-color);
+  color: var(--app-accent-contrast-color);
+}
+
+.source-badge.imputed {
+  background: color-mix(in srgb, var(--app-accent-color) 30%, var(--app-surface-color) 70%);
+  color: var(--app-text-color);
+  border: 1px solid var(--app-border-color);
+}
+
+.distance-badge,
+.model-badge {
+  font-size: 0.65rem;
+  color: var(--app-muted-text-color);
+  background: var(--app-background-color);
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+
+.comparison-data {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.data-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.data-row.secondary {
+  font-size: 0.85rem;
+  color: var(--app-muted-text-color);
+}
+
+.data-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--app-text-color);
+}
+
+.data-unit {
+  font-size: 0.8rem;
+  color: var(--app-muted-text-color);
+  font-weight: 500;
+}
+
+.data-direction {
+  font-weight: 600;
+}
+
+.data-dir-name {
+  font-size: 0.75rem;
+}
+
+.data-type {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--app-accent-color);
+  text-transform: capitalize;
+  margin-top: 2px;
+}
+
+.no-data-message {
+  font-size: 0.9rem;
+  color: var(--app-muted-text-color);
+  text-align: center;
+  padding: 16px 8px;
+  font-style: italic;
+}
+
+.comparison-stats {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--app-border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.stat-label {
+  color: var(--app-muted-text-color);
+  font-weight: 500;
+}
+
+.stat-value {
+  font-weight: 600;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.stat-value.good {
+  color: #22c55e;
+}
+
+.stat-value.warning {
+  color: #f59e0b;
+}
+
+.stat-value.bad {
+  color: #ef4444;
+}
+
+.accuracy-bar {
+  margin-top: 4px;
+}
+
+.accuracy-label {
+  font-size: 0.75rem;
+  color: var(--app-muted-text-color);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.accuracy-track {
+  height: 8px;
+  background: var(--app-background-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.accuracy-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.accuracy-fill.good {
+  background: #22c55e;
+}
+
+.accuracy-fill.warning {
+  background: #f59e0b;
+}
+
+.accuracy-fill.bad {
+  background: #ef4444;
+}
+
+@media (max-width: 480px) {
+  .comparison-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .comparison-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
 }
 </style>

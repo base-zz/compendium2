@@ -221,7 +221,11 @@
         </div>
       </div>
     </IonModal>
-    <IonModal :is-open="showCancelDialog" @didDismiss="showCancelDialog = false">
+    <IonModal 
+      :is-open="showCancelDialog" 
+      @didDismiss="showCancelDialog = false"
+      css-class="cancel-anchor-modal"
+    >
       <div class="modal-content">
         <h3>Cancel Anchor</h3>
 
@@ -287,7 +291,7 @@
       </ion-content>
       <ion-footer class="tide-modal-footer">
         <ion-toolbar class="tide-modal-toolbar">
-          <IonButton @click="showTideModal = false" slot="end">Close</IonButton>
+          <IonButton @click="showTideModal = false" slot="end" color="primary">Close</IonButton>
         </ion-toolbar>
       </ion-footer>
     </IonModal>
@@ -3997,6 +4001,35 @@ ion-page.page-container {
   border-top: 1px solid var(--app-border-color);
 }
 
+.set-anchor-footer .modal-toolbar {
+  --padding-start: 16px;
+  --padding-end: 16px;
+  --padding-top: 12px;
+  --padding-bottom: calc(var(--ion-safe-area-bottom, 0px) + 12px);
+  --background: var(--app-surface-color);
+  min-height: 56px;
+}
+
+.set-anchor-footer .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  width: 100%;
+}
+
+.set-anchor-footer .modal-actions ion-button {
+  --padding-top: 12px !important;
+  --padding-bottom: 12px !important;
+  --padding-start: 20px !important;
+  --padding-end: 20px !important;
+  --border-radius: 8px !important;
+  font-size: 1em !important;
+  font-weight: 600 !important;
+  height: 44px !important;
+  margin: 0 !important;
+  min-height: 44px !important;
+}
+
 .modal-toolbar {
   --padding-start: 24px;
   --padding-end: 24px;
@@ -4032,30 +4065,7 @@ ion-page.page-container {
 
 /* Modal action buttons */
 .modal-actions ion-button {
-  --padding-top: 4px !important; /* Increased from 2px */
-  --padding-bottom: 4px !important; /* Increased from 2px */
-  --padding-start: 6px !important; /* Increased from 4px */
-  --padding-end: 6px !important; /* Increased from 4px */
-  --height: 26.4px !important; /* 24px + 10% */
   margin: 0 !important;
-  font-size: 0.66em !important; /* 0.6em + 10% */
-  line-height: 1.1 !important; /* Slightly increased */
-  min-height: 26.4px !important; /* 24px + 10% */
-  height: 26.4px !important; /* 24px + 10% */
-}
-
-/* Target the inner button elements */
-.modal-actions ion-button::part(native) {
-  min-height: 22px !important; /* 20px + 10% */
-  height: 22px !important; /* 20px + 10% */
-  padding: 0 9px !important; /* 8px + ~10% */
-}
-
-/* Target the button text */
-.modal-actions ion-button .button-text {
-  font-size: 0.77em !important; /* 0.7em + 10% */
-  line-height: 1.1 !important; /* Slightly increased */
-  padding: 0 !important;
 }
 
 h3 {
@@ -4297,12 +4307,88 @@ body.dark .slider-value {
   color: #f8fafc !important;
 }
 
-/* Hide OpenLayers attribution control - GLOBAL */
+/* Cancel anchor modal button styling */
+:deep(.cancel-anchor-modal::part(content)) {
+  --max-width: 100%;
+  --width: 100%;
+  --height: 100%;
+  --max-height: 100%;
+  --border-radius: 0;
+  margin: 0;
+  padding-top: var(--ion-safe-area-top, 0);
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+:deep(.cancel-anchor-modal .modal-content) {
+  padding-top: calc(var(--ion-safe-area-top, 0) + 20px);
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+:deep(.cancel-anchor-modal .modal-actions) ion-button {
+  --padding-top: 12px !important;
+  --padding-bottom: 12px !important;
+  --padding-start: 20px !important;
+  --padding-end: 20px !important;
+  --border-radius: 8px !important;
+  font-size: 1em !important;
+  font-weight: 600 !important;
+  height: 44px !important;
+  margin: 0 !important;
+  min-height: 44px !important;
+}
 .ol-attribution,
 .ol-attribution.ol-uncollapsible,
 .ol-rotate {
   visibility: hidden !important;
   display: none !important;
+}
+
+/* Tide Modal Styles - Safe area handling */
+:deep(.tide-modal-root::part(content)) {
+  --max-width: 100%;
+  --width: 100%;
+  --height: 100%;
+  --max-height: 100%;
+  --border-radius: 0;
+  margin: 0;
+  padding-top: var(--ion-safe-area-top, 0);
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+.tide-modal-content {
+  --padding-top: calc(var(--ion-safe-area-top, 0) + 16px);
+  --padding-bottom: var(--ion-safe-area-bottom, 0);
+  --padding-start: 0;
+  --padding-end: 0;
+}
+
+.tide-modal-footer {
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+.tide-modal-toolbar {
+  --padding-start: 16px;
+  --padding-end: 16px;
+  --padding-top: 12px;
+  --padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 12px);
+  --background: var(--app-surface-color);
+  border-top: 1px solid var(--app-border-color);
+  min-height: 56px;
+}
+
+.tide-modal-toolbar ion-button {
+  --padding-top: 12px !important;
+  --padding-bottom: 12px !important;
+  --padding-start: 20px !important;
+  --padding-end: 20px !important;
+  --border-radius: 8px !important;
+  font-size: 1em !important;
+  font-weight: 600 !important;
+  height: 44px !important;
+  margin: 0 !important;
+  min-height: 44px !important;
 }
 
 body.dark ion-fab-button[color="secondary"] {
