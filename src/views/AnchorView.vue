@@ -276,6 +276,22 @@
       </div>
     </IonModal>
 
+    <!-- Tide information modal -->
+    <IonModal
+      :is-open="showTideModal"
+      @didDismiss="showTideModal = false"
+      css-class="tide-modal-root"
+    >
+      <ion-content class="tide-modal-content">
+        <TideComponent />
+      </ion-content>
+      <ion-footer class="tide-modal-footer">
+        <ion-toolbar class="tide-modal-toolbar">
+          <IonButton @click="showTideModal = false" slot="end">Close</IonButton>
+        </ion-toolbar>
+      </ion-footer>
+    </IonModal>
+
     <div class="anchor-view-container" :class="{ 'dark-mode': isDarkMode }">
       <div ref="anchorInfoContainer" class="anchor-info-section">
         <AnchorInfoGrid
@@ -284,57 +300,69 @@
           @cancel-anchor="handleCancelAnchor"
         />
       </div>
+
+      <!-- Floating anchor status under the grid -->
+      <div class="floating-anchor-status" :class="anchorStatusClass">
+        {{ anchorStatusText }}
+      </div>
       <div class="map-section">
         <div ref="mapElement" class="openlayers-map"></div>
-        <div ref="attributionContainer" class="map-attribution"></div>
       </div>
 
-      <!-- Custom zoom controls -->
-      <div class="custom-zoom-controls">
-        <button @click="recenterMap" class="zoom-button recenter-button" data-label="Recenter">
+      <!-- Map footer toolbar -->
+      <div class="map-footer-toolbar">
+        <button @click="recenterMap" class="toolbar-button" data-label="Recenter">
           <ion-icon :icon="navigate" size="small" />
         </button>
 
         <button
           @click="toggleMeasureMode"
-          class="zoom-button measure-toggle"
+          class="toolbar-button measure-toggle"
           :class="{ 'measure-toggle-active': measureModeEnabled }"
           :data-label="measureModeEnabled ? 'Measure (On)' : 'Measure (Off)'"
         >
           <ion-icon :icon="resizeOutline" size="small" aria-hidden="true" />
         </button>
 
-        <div class="zoom-compact" aria-label="Zoom Controls">
-          <button @click="zoomIn" class="zoom-compact-button zoom-compact-in" data-label="Zoom In">
-            +
+        <div class="toolbar-zoom-group" aria-label="Zoom Controls">
+          <button @click="zoomIn" class="toolbar-button toolbar-zoom-in" data-label="Zoom In">
+            <ion-icon :icon="addOutline" size="small" />
           </button>
-          <button @click="zoomOut" class="zoom-compact-button zoom-compact-out" data-label="Zoom Out">
-            −
+          <button @click="zoomOut" class="toolbar-button toolbar-zoom-out" data-label="Zoom Out">
+            <ion-icon :icon="removeOutline" size="small" />
           </button>
         </div>
-      </div>
 
-      <div class="anchor-fab-container" :class="{ 'faded': fabsFaded }">
-        <ion-fab-button
-          color="secondary"
+        <button
+          @click="showTideModal = true"
+          class="toolbar-button toolbar-tide"
+          data-label="Tides"
+        >
+          <i class="fas fa-water toolbar-fa-icon"></i>
+        </button>
+
+        <div class="toolbar-divider"></div>
+
+        <button
           @click="showSetAnchorDialog = true"
-          class="custom-fab-size"
+          class="toolbar-button toolbar-anchor-set"
+          data-label="Set Anchor"
         >
           <img
             src="/img/anchor2.svg"
             alt="Set Anchor"
-            class="custom-icon anchor-fab-icon"
-            style="width: 24px; height: 24px"
+            class="toolbar-icon"
           />
-        </ion-fab-button>
-        <ion-fab-button
-          color="danger"
+        </button>
+
+        <button
           @click="showCancelDialog = true"
-          class="custom-fab-size"
+          class="toolbar-button toolbar-anchor-cancel"
           :disabled="!anchorState?.anchorDeployed"
+          data-label="Cancel Anchor"
         >
-          <ion-icon :icon="chevronUpOutline" size="large" />
-        </ion-fab-button>
+          <ion-icon :icon="chevronUpOutline" size="small" />
+        </button>
       </div>
     </div>
     <GenericHeader title="Anchor"></GenericHeader>
@@ -362,6 +390,7 @@ import { useDeviceHeading } from "@/composables/useDeviceHeading.js";
 // Component imports
 import AnchorInfoGrid from "@/components/AnchorInfoGrid.vue";
 import GenericHeader from "@/components/GenericHeader.vue";
+import TideComponent from "@/components/TideComponent.vue";
 
 // Router setup
 const router = useRouter();
@@ -374,7 +403,6 @@ import {
   IonContent,
   IonRange,
   IonSpinner,
-  IonFabButton,
   IonIcon,
   IonFooter,
   IonToolbar,
@@ -382,7 +410,7 @@ import {
   onIonViewDidLeave,
   toastController,
 } from "@ionic/vue";
-import { chevronUpOutline, navigate, resizeOutline } from "ionicons/icons";
+import { chevronUpOutline, navigate, resizeOutline, addOutline, removeOutline } from "ionicons/icons";
 
 // OpenLayers imports
 import Map from "ol/Map";
@@ -401,8 +429,6 @@ import { Point } from "ol/geom";
 import Polygon from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
 import { defaults as defaultControls } from "ol/control";
-import Zoom from "ol/control/Zoom";
-import Attribution from "ol/control/Attribution";
 import { defaults as defaultInteractions } from "ol/interaction";
 import Collection from "ol/Collection";
 import Translate from "ol/interaction/Translate";
@@ -411,7 +437,6 @@ import DragRotate from "ol/interaction/DragRotate";
 import PinchRotate from "ol/interaction/PinchRotate";
 
 import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
-import ScaleLine from "ol/control/ScaleLine";
 import { useMapTools } from "@/utils/mapUtils.js";
 import { useMapFeatures } from "@/utils/mapFeatures";
 import { STYLES, getWindIconSrc } from "@/utils/mapStyles";
@@ -484,7 +509,6 @@ const attachDefaultFramingListener = () => {
 
 // Main component setup
 const mapElement = ref(null);
-const attributionContainer = ref(null);
 const map = ref(null);
 const vectorSource = new VectorSource();
 const {
@@ -583,6 +607,23 @@ const aisTargets = computed(() => {
 
 const isDarkMode = computed(() => preferences.value?.display?.darkMode || false);
 
+// Floating anchor status computed properties
+const anchorStatusText = computed(() => {
+  if (!anchorState.value) return 'Not Anchored';
+  if (anchorState.value.dragging) return 'DRAGGING';
+  if (anchorState.value.aisWarning) return 'AIS PROXIMITY WARNING';
+  if (anchorState.value.anchorDeployed) return 'Anchored';
+  return 'Not Anchored';
+});
+
+const anchorStatusClass = computed(() => {
+  if (!anchorState.value) return 'status-not-anchored';
+  if (anchorState.value.dragging) return 'status-dragging';
+  if (anchorState.value.aisWarning) return 'status-ais-warning';
+  if (anchorState.value.anchorDeployed) return 'status-anchored';
+  return 'status-not-anchored';
+});
+
 const measureModeEnabled = ref(false);
 const measurePinAFollowsBoat = ref(false);
 const measurePinBFollowsBoat = ref(false);
@@ -594,7 +635,6 @@ const measureLabel = ref(null);
 const measureSnapDistanceMeters = 5;
 
 let modifyInteraction;
-let scaleLineControl;
 let dragPanInteraction;
 
 const getMeasurePinStyle = (labelText, isSnappedToBoat) => {
@@ -963,16 +1003,7 @@ const isMetric = computed(() => {
   return false;
 });
 
-watch(
-  isMetric,
-  (next) => {
-    if (!scaleLineControl || typeof scaleLineControl.setUnits !== "function") {
-      return;
-    }
-    scaleLineControl.setUnits(next ? "metric" : "imperial");
-  },
-  { immediate: true }
-);
+// ScaleLine watch removed - no longer using this control
 
 // Dynamic range bounds based on unit system
 const criticalRangeMax = computed(() => (isMetric.value ? 100 : 300)); // 300m ≈ 1000ft
@@ -1269,7 +1300,8 @@ watch(hasValidPosition, (isValid) => {
   }
 }, { immediate: true });
 
-// Computed property for location modal visibility
+// Modal visibility state
+const showTideModal = ref(false);
 const showLocationModal = computed(() => {
   // Only show the modal if we've never had a valid position OR
   // if we haven't had a valid position for more than 10 seconds
@@ -2018,9 +2050,9 @@ const initializeMap = () => {
         source: isDarkMode.value 
           ? new XYZ({
               url: 'https://{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-              attributions: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, © <a href="https://carto.com/attributions">CARTO</a>'
+              attributions: null
             })
-          : new OSM()
+          : new OSM({ attributions: null })
       }),
       new VectorLayer({ source: vectorSource, zIndex: 5 }),
     ],
@@ -2032,9 +2064,7 @@ const initializeMap = () => {
       minZoom: 5,
       maxZoom: 22,
     }),
-    controls: defaultControls({ zoom: false, attribution: false }).extend([
-      new Zoom({ delta: 0.1 }),
-    ]),
+    controls: defaultControls({ zoom: false, attribution: false }),
     interactions: defaultInteractions({
       // Start with minimal interactions
       dragPan: true,
@@ -2225,16 +2255,15 @@ const initializeMap = () => {
   });
   map.value.addInteraction(mouseWheelZoom);
 
-  scaleLineControl = new ScaleLine({ units: isMetric.value ? "metric" : "imperial" });
-  map.value.addControl(scaleLineControl);
-  if (attributionContainer.value) {
-    map.value.addControl(
-      new Attribution({
-        collapsible: false,
-        target: attributionContainer.value,
-      })
-    );
-  }
+  // Hide OpenLayers attribution control
+  setTimeout(() => {
+    const attributionElements = document.querySelectorAll('.ol-attribution, .ol-attribution-button, .ol-attribution ul');
+    attributionElements.forEach(el => {
+      el.style.visibility = 'hidden';
+      el.style.display = 'none';
+    });
+  }, 100);
+
   // Add click handler for features
   map.value.on("click", handleMapClick);
 
@@ -3522,18 +3551,6 @@ onMounted(() => {
     // Reset fade timer on any touch/click
     document.addEventListener('touchstart', resetFadeTimer);
     document.addEventListener('click', resetFadeTimer);
-    
-    // Make OpenStreetMap attribution translucent and hide after 3 seconds
-    setTimeout(() => {
-      const attribution = document.querySelector('.map-attribution');
-      if (attribution) {
-        attribution.style.opacity = 0.3;
-        setTimeout(() => {
-          attribution.style.opacity = 0;
-        }, 3000);
-        logger.info("Map attribution hidden");
-      }
-    }, 0);
   } catch (error) {
     logger.error("Error during component mount", {
       error: error.message,
@@ -3594,6 +3611,56 @@ onUnmounted(() => {
   margin-top: 8px;
 }
 
+/* Floating anchor status under the grid */
+.floating-anchor-status {
+  position: fixed;
+  top: calc(var(--ion-safe-area-top, 0) + 155px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 0.9em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--app-text-color) 15%, transparent);
+  transition: all 0.3s ease;
+}
+
+.status-anchored {
+  background: color-mix(in srgb, var(--app-accent-soft-color) 90%, transparent);
+  color: var(--app-accent-color);
+  border: 1px solid var(--app-accent-color);
+}
+
+.status-not-anchored {
+  background: color-mix(in srgb, var(--app-surface-color) 85%, var(--app-background-color) 15%);
+  color: var(--app-muted-text-color);
+  border: 1px solid var(--app-border-color);
+}
+
+.status-dragging {
+  background: color-mix(in srgb, var(--app-accent-color) 55%, var(--app-text-color) 45%);
+  color: var(--app-accent-contrast-color);
+  border: 1px solid color-mix(in srgb, var(--app-accent-color) 70%, var(--app-text-color) 30%);
+  animation: blink 1s infinite;
+}
+
+.status-ais-warning {
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid #b91c1c;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.55; }
+  100% { opacity: 1; }
+}
+
 .map-section {
   flex: 1;
   position: relative;
@@ -3602,28 +3669,27 @@ onUnmounted(() => {
   overscroll-behavior: none;
 }
 
-/* Custom zoom controls */
-.custom-zoom-controls {
+/* Map footer toolbar */
+.map-footer-toolbar {
   position: fixed;
-  left: 20px;
-  bottom: 70px; /* Aligned with the anchor-fab-container */
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
-  z-index: 1000; /* Same z-index as anchor-fab-container */
-
-  padding: 8px;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--app-surface-color) 70%, transparent);
-  border: 1px solid color-mix(in srgb, var(--app-border-color) 70%, transparent);
-  box-shadow: 0 10px 22px color-mix(in srgb, var(--app-text-color) 18%, transparent);
+  gap: 16px;
+  padding: 8px 16px;
+  z-index: 1000;
+  background: var(--app-background-color);
+  border-top: 1px solid color-mix(in srgb, var(--app-border-color) 50%, transparent);
+  box-shadow: 0 -2px 10px color-mix(in srgb, var(--app-text-color) 8%, transparent);
 }
 
-.zoom-button {
+.toolbar-button {
   width: 44px;
   height: 44px;
-  margin: 0;
   border-radius: 50%;
   background-color: var(--app-accent-color);
   color: var(--app-accent-contrast-color);
@@ -3698,6 +3764,66 @@ onUnmounted(() => {
 
 .zoom-compact-button:active {
   filter: brightness(0.92);
+}
+
+.toolbar-zoom-group {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  background: color-mix(in srgb, var(--app-surface-color) 70%, transparent);
+  border-radius: 22px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--app-border-color) 50%, transparent);
+}
+
+.toolbar-zoom-group .toolbar-button {
+  width: 40px;
+  height: 40px;
+  background-color: transparent;
+  color: var(--app-text-color);
+  box-shadow: none;
+}
+
+.toolbar-zoom-group .toolbar-button:hover {
+  background-color: color-mix(in srgb, var(--app-accent-color) 15%, transparent);
+  filter: none;
+}
+
+.toolbar-zoom-group .toolbar-button:active {
+  filter: brightness(0.9);
+}
+
+/* Hide zoom buttons on touch devices (phones/tablets) - pinch-to-zoom is available */
+@media (hover: none) and (pointer: coarse) {
+  .toolbar-zoom-group {
+    display: none;
+  }
+}
+
+/* Toolbar divider between map controls and anchor controls */
+.toolbar-divider {
+  width: 1px;
+  height: 32px;
+  background: color-mix(in srgb, var(--app-border-color) 70%, transparent);
+  margin: 0 8px;
+}
+
+/* Toolbar icon image sizing */
+.toolbar-icon {
+  width: 22px;
+  height: 22px;
+  filter: brightness(0) invert(1);
+}
+
+/* Font Awesome icon in toolbar */
+.toolbar-fa-icon {
+  font-size: 20px;
+  color: #ffffff;
+}
+
+.toolbar-anchor-cancel:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 ion-page.page-container {
@@ -4171,6 +4297,14 @@ body.dark .slider-value {
   color: #f8fafc !important;
 }
 
+/* Hide OpenLayers attribution control - GLOBAL */
+.ol-attribution,
+.ol-attribution.ol-uncollapsible,
+.ol-rotate {
+  visibility: hidden !important;
+  display: none !important;
+}
+
 body.dark ion-fab-button[color="secondary"] {
   --background: rgba(248, 250, 252, 0.85) !important;
   --color: #1f2933 !important;
@@ -4185,15 +4319,38 @@ body.dark .modal-actions ion-button[color="primary"] {
   --background-hover: rgba(248, 250, 252, 0.9) !important;
 }
 
-body.dark .zoom-button {
+body.dark .toolbar-button {
   background-color: #1f2933 !important;
   color: #f8fafc !important;
 }
 
-body.dark .zoom-button.measure-toggle-active {
+body.dark .toolbar-button.measure-toggle-active {
   background-color: #facc15 !important;
   background: #facc15 !important;
   color: #111827 !important;
+}
+
+body.dark .toolbar-button:hover {
+  background-color: #2d3748 !important;
+}
+
+body.dark .toolbar-button:active {
+  background-color: #1a202c !important;
+}
+
+body.dark .toolbar-zoom-group {
+  background: color-mix(in srgb, #1f2933 70%, transparent) !important;
+  border-color: color-mix(in srgb, #4a5568 50%, transparent) !important;
+}
+
+body.dark .toolbar-zoom-group .toolbar-button {
+  background-color: transparent !important;
+  color: #f8fafc !important;
+}
+
+body.dark .zoom-button {
+  background-color: #1f2933 !important;
+  color: #f8fafc !important;
 }
 
 body.dark .zoom-button:hover {
@@ -4202,5 +4359,16 @@ body.dark .zoom-button:hover {
 
 body.dark .zoom-button:active {
   background-color: #1a202c !important;
+}
+
+body.dark .toolbar-icon {
+  filter: brightness(0) invert(1);
+}
+
+/* Hide OpenLayers attribution control */
+.ol-attribution,
+.ol-attribution.ol-uncollapsible {
+  visibility: hidden !important;
+  display: none !important;
 }
 </style>

@@ -28,22 +28,6 @@
       </div>
       -->
     </div>
-    <div class="status-row">
-      <div
-        v-if="anchorState && !anchorState.anchorDeployed"
-        class="drop-anchor-btn"
-        @click="handleDropAnchor">
-        <img
-          src="/img/anchor2.svg"
-          alt="Anchor Icon"
-          class="drop-anchor-icon"
-        />
-        <span class="drop-anchor-label">Drop Anchor</span>
-      </div>
-      <div v-else class="status-badge" :class="titleClass">
-        {{ title }}
-      </div>
-    </div>
     <!-- anchor-btn-row removed: no extra action buttons needed when anchor is deployed -->
     <ion-modal :is-open="showEditRadiusModal" @didDismiss="showEditRadiusModal = false">
       <div class="modal-content enhanced-modal">
@@ -484,13 +468,13 @@ const handleDropAnchor = () => {
   background: var(--app-surface-color);
   color: var(--app-text-color);
   border-bottom: 1px solid var(--app-border-color);
-  padding: 8px 12px;
+  padding: 2px 12px;
 }
 
 .values-row {
   display: block;
   text-align: center;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .info-cell {
@@ -504,7 +488,7 @@ const handleDropAnchor = () => {
   border: 1px solid var(--app-border-color);
   border-radius: 8px;
   padding: 8px 4px;
-  margin: 2px;
+  margin: 1px;
   text-align: center;
 }
 
@@ -763,7 +747,7 @@ const handleDropAnchor = () => {
 @media (max-width: 480px) {
   .anchor-grid-div {
     width: 100%;
-    padding: 8px 12px;
+    padding: 2px 12px;
   }
 
   .grid-row {
