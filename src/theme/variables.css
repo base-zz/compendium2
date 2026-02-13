@@ -2,11 +2,11 @@
 http://ionicframework.com/docs/theming/ */
 
 :root {
-  --widget-surface-color: var(--ion-color-primary);
+  --widget-surface-color: var(--app-surface-color);
   --widget-surface-elevated-color: rgba(var(--ion-color-primary-rgb, 10, 48, 83), 0.55);
   --widget-border-color: rgba(var(--ion-color-primary-contrast-rgb, 255, 255, 255), 0.12);
-  --widget-text-color: var(--ion-color-primary-contrast);
-  --widget-muted-text-color: rgba(var(--ion-color-primary-contrast-rgb, 255, 255, 255), 0.7);
+  --widget-text-color: var(--app-text-color);
+  --widget-muted-text-color: var(--app-muted-text-color);
 
   --app-background-color: #f1f5f9;
   --app-surface-color: #ffffff;

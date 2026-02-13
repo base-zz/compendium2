@@ -8,7 +8,7 @@
       align-items: center;
       padding: 0;
       margin: 0;
-      background-color: var(--ion-color-primary);
+      background-color: var(--widget-surface-color);
       border-radius: 8px;
       -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
       -webkit-touch-callout: none !important;
@@ -58,6 +58,7 @@
               'battery-warning': alertSeverity === 'warning',
               'battery-critical': alertSeverity === 'critical'
             }"
+            fill="var(--widget-surface-color)"
             x="30"
             y="40"
             width="80"

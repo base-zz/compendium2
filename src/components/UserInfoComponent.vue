@@ -80,6 +80,14 @@
               required
             ></ion-input>
 
+            <ion-label position="stacked">Safe Anchoring Depth ({{ lengthUnitLabel }})</ion-label>
+            <ion-input
+              class="form-control"
+              placeholder="Safe Anchoring Depth"
+              v-model.number="boatInfo.safeAnchoringDepth"
+              type="number"
+            ></ion-input>
+
             <ion-label position="stacked">Air Draft ({{ lengthUnitLabel }})</ion-label>
             <ion-input
               class="form-control"
@@ -87,6 +95,14 @@
               v-model.number="boatInfo.airDraft"
               type="number"
               required
+            ></ion-input>
+
+            <ion-label position="stacked">Safe Air Draft Clearance ({{ lengthUnitLabel }})</ion-label>
+            <ion-input
+              class="form-control"
+              placeholder="Safe Air Draft Clearance"
+              v-model.number="boatInfo.safeAirDraftClearance"
+              type="number"
             ></ion-input>
 
             <ion-label position="stacked">Bow Roller to Water ({{ lengthUnitLabel }})</ion-label>
@@ -165,7 +181,9 @@ const boatInfo = reactive({
   loa: null,
   beam: null,
   draft: null,
+  safeAnchoringDepth: null,
   airDraft: null,
+  safeAirDraftClearance: null,
   bowRollerToWater: null,
   mmsi: ''
 });
@@ -208,8 +226,14 @@ onMounted(() => {
     const draft = parseNullableNumber(parsed.draft);
     if (draft != null) boatInfo.draft = draft;
 
+    const safeAnchoringDepth = parseNullableNumber(parsed.safeAnchoringDepth);
+    if (safeAnchoringDepth != null) boatInfo.safeAnchoringDepth = safeAnchoringDepth;
+
     const airDraft = parseNullableNumber(parsed.airDraft);
     if (airDraft != null) boatInfo.airDraft = airDraft;
+
+    const safeAirDraftClearance = parseNullableNumber(parsed.safeAirDraftClearance);
+    if (safeAirDraftClearance != null) boatInfo.safeAirDraftClearance = safeAirDraftClearance;
 
     const bowRollerToWater = parseNullableNumber(parsed.bowRollerToWater);
     if (bowRollerToWater != null) boatInfo.bowRollerToWater = bowRollerToWater;
@@ -244,7 +268,9 @@ async function handleSubmit() {
       loa: boatInfo.loa,
       beam: boatInfo.beam,
       draft: boatInfo.draft,
+      safeAnchoringDepth: boatInfo.safeAnchoringDepth,
       airDraft: boatInfo.airDraft,
+      safeAirDraftClearance: boatInfo.safeAirDraftClearance,
       ...(hasBowRollerToWater ? { bowRollerToWater: bowRollerToWaterValue } : {}),
       mmsi: boatInfo.mmsi,
     };
@@ -304,7 +330,9 @@ async function logoutUser() {
     boatInfo.loa = null;
     boatInfo.beam = null;
     boatInfo.draft = null;
+    boatInfo.safeAnchoringDepth = null;
     boatInfo.airDraft = null;
+    boatInfo.safeAirDraftClearance = null;
     boatInfo.bowRollerToWater = null;
     boatInfo.mmsi = '';
     router.push("/");

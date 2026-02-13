@@ -519,7 +519,7 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   height: 100%;
-  background: var(--app-background-color);
+  background: var(--widget-surface-color);
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   transition: all 0.3s ease;

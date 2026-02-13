@@ -168,7 +168,7 @@
           <!-- Imputed Open-Meteo Data -->
           <div class="comparison-card">
             <div class="comparison-header">
-              <span class="source-badge imputed">Open-Meteo</span>
+              <span class="source-badge imputed">IMPUTED</span>
               <span class="model-badge">Model</span>
             </div>
             <div class="comparison-data">
@@ -238,7 +238,12 @@ const props = defineProps({
   },
   anchorDepth: {
     type: Number,
-    default: null // Depth in feet/meters at anchor location
+    default: null // Depth in user's preferred units
+  },
+  depthUnits: {
+    type: String,
+    default: 'ft', // 'ft' or 'm' - units of anchorDepth
+    validator: (value) => ['ft', 'm'].includes(value)
   }
 });
 
@@ -510,17 +515,24 @@ const tideExtremesTable = computed(() => {
     }
     
     // Format values - adjust for anchor depth if in anchor mode
+    // Tide data from NOAA is always in feet, so convert if needed
     const formatValue = (height, time) => {
       if (height == null) return '--';
       const t = time ? formatTime(time) : '';
       
       if (isAnchorMode && anchorDepth != null) {
+        // Convert tide height to depth units if needed (NOAA tide is in feet)
+        let tideHeightInDepthUnits = height;
+        if (props.depthUnits === 'm') {
+          tideHeightInDepthUnits = height * 0.3048; // Convert feet to meters
+        }
+        
         // Show actual water depth at anchor location
-        const waterDepth = (anchorDepth + height).toFixed(1);
-        return `${waterDepth}${seaLevelUnitLabel.value} -- ${t}`;
+        const waterDepth = (anchorDepth + tideHeightInDepthUnits).toFixed(1);
+        return `${waterDepth}${props.depthUnits === 'm' ? 'm' : 'ft'} -- ${t}`;
       } else {
-        // Show tide height relative to chart datum
-        return `${height.toFixed(1)}${seaLevelUnitLabel.value} -- ${t}`;
+        // Show tide height relative to chart datum (always in feet from NOAA)
+        return `${height.toFixed(1)}ft -- ${t}`;
       }
     };
     

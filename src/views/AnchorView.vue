@@ -287,11 +287,88 @@
       css-class="tide-modal-root"
     >
       <ion-content class="tide-modal-content">
-        <TideComponent view-mode="anchor" :anchor-depth="anchorDepthMeters" />
+        <TideComponent view-mode="anchor" :anchor-depth="anchorDepthWithUnits.depth" :depth-units="anchorDepthWithUnits.units" />
       </ion-content>
       <ion-footer class="tide-modal-footer">
         <ion-toolbar class="tide-modal-toolbar">
           <IonButton @click="showTideModal = false" slot="end" color="primary">Close</IonButton>
+        </ion-toolbar>
+      </ion-footer>
+    </IonModal>
+
+    <!-- AIS Target Detail Modal -->
+    <IonModal
+      :is-open="showAISModal"
+      @didDismiss="closeAISModal"
+      css-class="ais-modal-root"
+    >
+      <ion-content style="--background: var(--app-surface-color); background: var(--app-surface-color);">
+        <div class="ais-modal-content">
+          <div class="ais-modal-header">
+            <h2 class="ais-vessel-name">{{ selectedAISTarget?.name || 'Unknown Vessel' }}</h2>
+            <p class="ais-vessel-mmsi">MMSI: {{ selectedAISTarget?.mmsi || 'N/A' }}</p>
+          </div>
+          
+          <div class="ais-section">
+            <h3 class="ais-section-title">Position</h3>
+            <div class="ais-grid">
+              <div class="ais-field">
+                <span class="ais-label">Latitude</span>
+                <div class="ais-value">{{ formatCoordinate(selectedAISTarget?.latitude) }}</div>
+              </div>
+              <div class="ais-field">
+                <span class="ais-label">Longitude</span>
+                <div class="ais-value">{{ formatCoordinate(selectedAISTarget?.longitude) }}</div>
+              </div>
+              <div class="ais-field">
+                <span class="ais-label">SOG</span>
+                <div class="ais-value">{{ selectedAISTarget?.sog || 'N/A' }}</div>
+              </div>
+              <div class="ais-field">
+                <span class="ais-label">COG</span>
+                <div class="ais-value">{{ selectedAISTarget?.cog || 'N/A' }}</div>
+              </div>
+              <div v-if="selectedAISTarget?.heading" class="ais-field">
+                <span class="ais-label">Heading</span>
+                <div class="ais-value">{{ selectedAISTarget.heading }}</div>
+              </div>
+              <div v-if="selectedAISTarget?.distance" class="ais-field">
+                <span class="ais-label">Distance</span>
+                <div class="ais-value">{{ selectedAISTarget.distance }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ais-section" v-if="selectedAISTarget?.callsign || selectedAISTarget?.vesselType || selectedAISTarget?.length || selectedAISTarget?.beam">
+            <h3 class="ais-section-title">Vessel Info</h3>
+            <div class="ais-grid">
+              <div v-if="selectedAISTarget?.callsign" class="ais-field">
+                <span class="ais-label">Callsign</span>
+                <div class="ais-value">{{ selectedAISTarget.callsign }}</div>
+              </div>
+              <div v-if="selectedAISTarget?.vesselType" class="ais-field">
+                <span class="ais-label">Type</span>
+                <div class="ais-value">{{ selectedAISTarget.vesselType }}</div>
+              </div>
+              <div v-if="selectedAISTarget?.length" class="ais-field">
+                <span class="ais-label">Length</span>
+                <div class="ais-value">{{ selectedAISTarget.length }}</div>
+              </div>
+              <div v-if="selectedAISTarget?.beam" class="ais-field">
+                <span class="ais-label">Beam</span>
+                <div class="ais-value">{{ selectedAISTarget.beam }}</div>
+              </div>
+              <div v-if="selectedAISTarget?.draft" class="ais-field">
+                <span class="ais-label">Draft</span>
+                <div class="ais-value">{{ selectedAISTarget.draft }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </ion-content>
+      <ion-footer class="ais-modal-footer">
+        <ion-toolbar class="ais-modal-toolbar">
+          <IonButton @click="closeAISModal" slot="end" color="primary">Close</IonButton>
         </ion-toolbar>
       </ion-footer>
     </IonModal>
@@ -303,6 +380,29 @@
           @update-drop-location="handleUpdateDropLocation"
           @cancel-anchor="handleCancelAnchor"
         />
+      </div>
+
+      <!-- Tide Extremes Overlay - shown when not anchored -->
+      <div v-if="!anchorState?.anchorDeployed && tideExtremesTable" class="tide-extremes-overlay">
+        <div class="tide-extremes-card">
+          <h4 class="tide-extremes-title">Tide Extremes</h4>
+          <table class="tide-extremes-table">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>Low</th>
+                <th>High</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in tideExtremesTable" :key="row.label">
+                <td class="period-cell">{{ row.label }}</td>
+                <td :class="row.lowClass">{{ row.low }}</td>
+                <td class="high-cell">{{ row.high }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Floating anchor status under the grid -->
@@ -531,18 +631,170 @@ const navigationState = computed(() => state.value.navigation);
 const anchorState = computed(() => state.value.anchor);
 const alertState = computed(() => state.value.alerts?.active);
 
-// Calculate anchor depth in meters for tide component
-const anchorDepthMeters = computed(() => {
+// Calculate anchor depth in preferred units for tide component
+// Returns depth in user's preferred units (ft or m) and the unit label
+const anchorDepthWithUnits = computed(() => {
   const depth = navigationState.value?.depth?.belowTransducer?.value;
   const depthUnit = navigationState.value?.depth?.belowTransducer?.units;
   
-  if (typeof depth !== 'number' || Number.isNaN(depth)) return null;
+  if (typeof depth !== 'number' || Number.isNaN(depth)) return { depth: null, units: null };
   
-  // Convert to meters if needed
-  if (depthUnit === 'ft') {
-    return depth * 0.3048; // Convert feet to meters
+  // Determine preferred units
+  const preferredUnit = isMetric.value ? 'm' : 'ft';
+  
+  // Convert to preferred units
+  if (depthUnit === 'm' && preferredUnit === 'ft') {
+    return { depth: depth * 3.28084, units: 'ft' };
+  } else if (depthUnit === 'ft' && preferredUnit === 'm') {
+    return { depth: depth * 0.3048, units: 'm' };
   }
-  return depth; // Already in meters
+  return { depth, units: depthUnit }; // Already in preferred units
+});
+
+// Helper function to format time
+function formatTime(date) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+// Boat dimensions from localStorage for tide safety calculations
+const boatDimensions = computed(() => {
+  const id = localStorage.getItem("activeBoatId");
+  if (!id) return { draft: null, safeAnchoringDepth: null };
+  
+  try {
+    const raw = localStorage.getItem(`boatInfo:${id}`);
+    if (!raw) return { draft: null, safeAnchoringDepth: null };
+    const parsed = JSON.parse(raw);
+    return {
+      draft: typeof parsed.draft === 'number' ? parsed.draft : null,
+      safeAnchoringDepth: typeof parsed.safeAnchoringDepth === 'number' ? parsed.safeAnchoringDepth : null
+    };
+  } catch (error) {
+    return { draft: null, safeAnchoringDepth: null };
+  }
+});
+
+// Tide extremes table for display when not anchored
+const tideExtremesTable = computed(() => {
+  const tideData = stateStore.state.tides;
+  const predictions = tideData?.tideEvents?.predictions;
+  if (!Array.isArray(predictions) || predictions.length === 0) return null;
+  
+  const now = new Date();
+  const nowMs = now.getTime();
+  
+  // Time windows in milliseconds
+  const windows = [
+    { label: 'Next', hours: Infinity, endMs: Infinity },
+    { label: '24h', hours: 24, endMs: nowMs + (24 * 60 * 60 * 1000) },
+    { label: '48h', hours: 48, endMs: nowMs + (48 * 60 * 60 * 1000) },
+    { label: '72h', hours: 72, endMs: nowMs + (72 * 60 * 60 * 1000) },
+  ];
+  
+  const rows = [];
+  
+  for (const window of windows) {
+    // Filter predictions within this window
+    const windowPreds = predictions.filter(p => {
+      const t = new Date(p.time);
+      if (Number.isNaN(t.getTime())) return false;
+      const tMs = t.getTime();
+      return tMs >= nowMs && tMs <= window.endMs;
+    });
+    
+    if (windowPreds.length === 0) {
+      rows.push({
+        label: window.label,
+        high: '--',
+        low: '--'
+      });
+      continue;
+    }
+    
+    // Find highest high and lowest low
+    let maxHigh = null;
+    let minLow = null;
+    
+    for (const p of windowPreds) {
+      if (p.type === 'H') {
+        if (maxHigh == null || p.height > maxHigh.height) {
+          maxHigh = p;
+        }
+      } else if (p.type === 'L') {
+        if (minLow == null || p.height < minLow.height) {
+          minLow = p;
+        }
+      }
+    }
+    
+    // Format values - calculate actual water depth at anchor position
+    // NOAA tide data is always in feet
+    const formatValue = (tideHeight, time) => {
+      if (tideHeight == null) return '--';
+      const t = time ? formatTime(time) : '';
+      
+      // Get current depth below transducer
+      const depth = anchorDepthWithUnits.value?.depth;
+      const depthUnits = anchorDepthWithUnits.value?.units || 'ft';
+      
+      if (depth != null) {
+        // Convert tide height to depth units if needed (NOAA tide is in feet)
+        let tideHeightInDepthUnits = tideHeight;
+        if (depthUnits === 'm') {
+          tideHeightInDepthUnits = tideHeight * 0.3048; // Convert feet to meters
+        }
+        
+        // Calculate actual water depth at anchor location
+        const waterDepth = (depth + tideHeightInDepthUnits).toFixed(1);
+        return `${waterDepth}${depthUnits} -- ${t}`;
+      } else {
+        // Fallback: show tide height relative to chart datum
+        return `${tideHeight.toFixed(1)}ft -- ${t}`;
+      }
+    };
+    
+    const highText = formatValue(maxHigh?.height, maxHigh?.time ? new Date(maxHigh.time) : null);
+    const lowText = formatValue(minLow?.height, minLow?.time ? new Date(minLow.time) : null);
+    
+    // Get current depth for color calculation
+    const currentDepth = anchorDepthWithUnits.value?.depth;
+    const depthUnits = anchorDepthWithUnits.value?.units || 'ft';
+    
+    // Determine low tide color based on calculated water depth vs boat dimensions
+    let lowClass = 'low-cell-safe'; // default green
+    if (minLow && currentDepth != null) {
+      // Convert tide height to depth units
+      let tideHeightInDepthUnits = minLow.height;
+      if (depthUnits === 'm') {
+        tideHeightInDepthUnits = minLow.height * 0.3048;
+      }
+      
+      // Calculate actual water depth at low tide
+      const waterDepthAtLowTide = currentDepth + tideHeightInDepthUnits;
+      
+      const { draft, safeAnchoringDepth } = boatDimensions.value;
+      
+      if (typeof draft === 'number' && waterDepthAtLowTide < draft) {
+        // Water depth less than draft = red (danger)
+        lowClass = 'low-cell-danger';
+      } else if (typeof safeAnchoringDepth === 'number' && waterDepthAtLowTide < safeAnchoringDepth) {
+        // Water depth less than safe anchoring depth (but >= draft) = orange (warning)
+        lowClass = 'low-cell-warning';
+      }
+    }
+    
+    rows.push({
+      label: window.label,
+      high: highText,
+      low: lowText,
+      lowClass
+    });
+  }
+  
+  return rows;
 });
 
 const { headingDegrees: deviceHeadingDegrees, start: startDeviceHeading } = useDeviceHeading();
@@ -1293,16 +1545,7 @@ const hasValidPosition = computed(() => {
   }
   
   const isValid = lat != null && lon != null && typeof lat === 'number' && typeof lon === 'number' && !isNaN(lat) && !isNaN(lon);
-  
-  // Debug logging (uncomment if needed for troubleshooting)
-  // console.log('[AnchorView] Position check:', {
-  //   navLat: navPos?.latitude?.value,
-  //   navLon: navPos?.longitude?.value,
-  //   finalLat: lat,
-  //   finalLon: lon,
-  //   isValid
-  // });
-  
+ 
   return isValid;
 });
 
@@ -3417,15 +3660,362 @@ const handleMapClick = (event) => {
         `Clicked on AIS target: ${name || "Unnamed"} (MMSI: ${mmsi || "N/A"})`
       );
 
-      // Navigate to the AIS target detail page
-      if (mmsi) {
-        router.push(`/aistarget/${mmsi}`);
+      // Open AIS target modal instead of navigating
+      if (aisFeature) {
+        openAISModal(aisFeature);
       }
     }
   }
 };
 
-// Wheel event handler for map zooming
+// AIS Modal state
+const showAISModal = ref(false);
+const selectedAISTarget = ref(null);
+
+const openAISModal = (aisFeature) => {
+  const mmsi = aisFeature.get("mmsi");
+  const name = aisFeature.get("name");
+  
+  logger.debug(`[AIS Modal] Opening modal for MMSI: ${mmsi}, Name: ${name}`);
+  
+  // Look up the full AIS target data from the store
+  const mmsiStr = String(mmsi);
+  const raw = state.value.aisTargets?.[mmsiStr];
+  
+  if (!raw) {
+    logger.warn(`[AIS Modal] No AIS target found in store for MMSI: ${mmsi}`);
+    selectedAISTarget.value = {
+      mmsi: mmsi,
+      name: name || "Unknown Vessel",
+    };
+  } else {
+    logger.debug(`[AIS Modal] Found raw target data:`, raw);
+    
+    // Helper functions matching AISTargetView
+    const toNumericValue = (val) => {
+      if (val == null) return null;
+      if (typeof val === "number") return Number.isFinite(val) ? val : null;
+      if (typeof val === "object" && val.value != null) {
+        const numeric = Number(val.value);
+        return Number.isFinite(numeric) ? numeric : null;
+      }
+      return null;
+    };
+    
+    // Format to 1 decimal place
+    const format1Dec = (val) => {
+      if (val == null) return null;
+      return Number(val).toFixed(1);
+    };
+    
+    // Get position directly from raw.position (matching AISTargetView)
+    const lat = toNumericValue(raw.position?.latitude);
+    const lon = toNumericValue(raw.position?.longitude);
+    
+    // Get SOG from raw.sog or navigationDetails.speedOverGround (in knots from store)
+    const sogKnots = toNumericValue(raw.sog) ?? toNumericValue(raw.navigationDetails?.speedOverGround);
+    let sog = null;
+    if (sogKnots != null) {
+      if (isMetric.value) {
+        // Convert knots to km/h (1 knot = 1.852 km/h)
+        sog = format1Dec(sogKnots * 1.852) + " km/h";
+      } else {
+        // Convert knots to mph (1 knot = 1.15078 mph)
+        sog = format1Dec(sogKnots * 1.15078) + " mph";
+      }
+    }
+    
+    // Get COG - use convertedValue if available (already in degrees)
+    const cogObj = raw.cog || raw.navigationDetails?.courseOverGroundTrue;
+    const cogDegrees = cogObj?.convertedValue ?? (toNumericValue(cogObj) != null ? (toNumericValue(cogObj) * 180 / Math.PI) : null);
+    const cog = cogDegrees != null ? format1Dec(cogDegrees) + "°" : null;
+    
+    // Get vessel type from raw.shipType (matching AISTargetView)
+    const vesselType = raw.shipType || raw.shipTypeDetails?.name || null;
+    
+    // Navigation status
+    const navStatus = raw.status || raw.navigationDetails?.status || null;
+    
+    // Get callsign directly (matching AISTargetView)
+    const callsign = raw.callsign || raw.communication?.callsignVhf || null;
+    
+    // Get destination
+    const destination = raw.destination || null;
+    
+    // Get dimensions using same logic as AISTargetView (in meters)
+    const lengthMeters = toNumericValue(raw.design?.length?.value?.overall) 
+      ?? toNumericValue(raw.design?.length?.overall)
+      ?? toNumericValue(raw.length?.value?.overall)
+      ?? toNumericValue(raw.length?.overall)
+      ?? toNumericValue(raw.length?.value)
+      ?? toNumericValue(raw.length);
+    
+    const beamMeters = toNumericValue(raw.design?.beam?.value)
+      ?? toNumericValue(raw.design?.beam)
+      ?? toNumericValue(raw.beam?.value)
+      ?? toNumericValue(raw.beam);
+    
+    const draftMeters = toNumericValue(raw.design?.draft?.value?.current)
+      ?? toNumericValue(raw.design?.draft?.current)
+      ?? toNumericValue(raw.draft?.value?.current)
+      ?? toNumericValue(raw.draft?.current)
+      ?? toNumericValue(raw.draft?.value)
+      ?? toNumericValue(raw.draft);
+    
+    // Convert dimensions to user preference
+    let length = null, beam = null, draft = null;
+    if (lengthMeters != null) {
+      if (isMetric.value) {
+        length = format1Dec(lengthMeters) + " m";
+      } else {
+        // Convert to feet (1 m = 3.28084 ft)
+        length = format1Dec(lengthMeters * 3.28084) + " ft";
+      }
+    }
+    if (beamMeters != null) {
+      if (isMetric.value) {
+        beam = format1Dec(beamMeters) + " m";
+      } else {
+        beam = format1Dec(beamMeters * 3.28084) + " ft";
+      }
+    }
+    if (draftMeters != null) {
+      if (isMetric.value) {
+        draft = format1Dec(draftMeters) + " m";
+      } else {
+        draft = format1Dec(draftMeters * 3.28084) + " ft";
+      }
+    }
+    
+    // Calculate distance and convert to user preference
+    let distance = null;
+    const ownPos = state.value?.navigation?.position;
+    if (lat != null && lon != null && ownPos) {
+      const ownLat = toNumericValue(ownPos.latitude);
+      const ownLon = toNumericValue(ownPos.longitude);
+      if (ownLat != null && ownLon != null) {
+        const distanceMeters = calculateDistanceMeters(ownLat, ownLon, lat, lon, true);
+        if (Number.isFinite(distanceMeters)) {
+          if (isMetric.value) {
+            // Convert to meters or km
+            if (distanceMeters >= 1000) {
+              distance = format1Dec(distanceMeters / 1000) + " km";
+            } else {
+              distance = format1Dec(distanceMeters) + " m";
+            }
+          } else {
+            // Convert to feet or nautical miles
+            const distanceNm = distanceMeters / 1852;
+            if (distanceNm >= 0.1) {
+              distance = format1Dec(distanceNm) + " nm";
+            } else {
+              const distanceFt = distanceMeters * 3.28084;
+              distance = format1Dec(distanceFt) + " ft";
+            }
+          }
+        }
+      }
+    }
+    
+    selectedAISTarget.value = {
+      mmsi: raw.mmsi || mmsi,
+      name: raw.name || name || "Unknown Vessel",
+      latitude: lat,
+      longitude: lon,
+      sog: sog,
+      cog: cog,
+      vesselType: vesselType,
+      navStatus: navStatus,
+      callsign: callsign,
+      destination: destination,
+      length: length,
+      beam: beam,
+      draft: draft,
+      distance: distance,
+    };
+  }
+  
+  showAISModal.value = true;
+};
+
+const closeAISModal = () => {
+  console.log("[AIS Modal] Closing modal");
+  showAISModal.value = false;
+  selectedAISTarget.value = null;
+};
+
+// Helper functions for AIS data formatting
+const toNumericValue = (val) => {
+  if (val == null) return null;
+  if (typeof val === 'number') return Number.isFinite(val) ? val : null;
+  if (typeof val === 'object' && val.value != null) {
+    const numeric = Number(val.value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return null;
+};
+
+const formatCoordinate = (coord) => {
+  if (coord == null) return 'N/A';
+  const num = toNumericValue(coord);
+  if (num == null) return 'N/A';
+  return num.toFixed(4);
+};
+
+const formatSpeed = (speed) => {
+  if (speed == null) return 'N/A';
+  const num = toNumericValue(speed);
+  if (num == null) return 'N/A';
+  const unit = isMetric.value ? 'km/h' : 'mph';
+  const converted = isMetric.value ? num : num * 0.621371;
+  return `${converted.toFixed(1)} ${unit}`;
+};
+
+const formatCourse = (course) => {
+  if (course == null) return 'N/A';
+  const num = toNumericValue(course);
+  if (num == null) return 'N/A';
+  return `${Math.round(num)}°`;
+};
+
+const formatDistance = (distance) => {
+  if (distance == null) return 'N/A';
+  const num = toNumericValue(distance);
+  if (num == null) return 'N/A';
+  const unit = isMetric.value ? 'm' : 'ft';
+  const converted = isMetric.value ? num : num * 3.28084;
+  return `${Math.round(converted)} ${unit}`;
+};
+
+const getVesselTypeLabel = (type) => {
+  if (!type) return 'Unknown';
+  const types = {
+    0: 'Not available',
+    1: 'Reserved',
+    2: 'WIG',
+    4: 'Hazardous category A',
+    5: 'Hazardous category B',
+    6: 'Hazardous category C',
+    7: 'Hazardous category D',
+    8: 'Reserved',
+    9: 'Reserved',
+    10: 'Reserved',
+    11: 'Reserved',
+    12: 'Reserved',
+    13: 'Reserved',
+    14: 'Reserved',
+    15: 'Reserved',
+    16: 'Reserved',
+    17: 'Reserved',
+    18: 'Reserved',
+    19: 'Reserved',
+    20: 'Wing in ground (WIG)',
+    21: 'Wing in ground (WIG)',
+    22: 'Wing in ground (WIG)',
+    23: 'Wing in ground (WIG)',
+    24: 'Wing in ground (WIG)',
+    25: 'Wing in ground (WIG)',
+    26: 'Wing in ground (WIG)',
+    27: 'Wing in ground (WIG)',
+    28: 'Wing in ground (WIG)',
+    29: 'SAR aircraft',
+    30: 'Fishing',
+    31: 'Towing',
+    32: 'Towing',
+    33: 'Dredging',
+    34: 'Diving ops',
+    35: 'Military ops',
+    36: 'Sailing',
+    37: 'Pleasure craft',
+    38: 'Reserved',
+    39: 'Reserved',
+    40: 'High speed craft',
+    41: 'High speed craft',
+    42: 'High speed craft',
+    43: 'High speed craft',
+    44: 'High speed craft',
+    45: 'High speed craft',
+    46: 'High speed craft',
+    47: 'High speed craft',
+    48: 'High speed craft',
+    49: 'High speed craft',
+    50: 'Pilot vessel',
+    51: 'SAR vessel',
+    52: 'Tug',
+    53: 'Port tender',
+    54: 'Anti-pollution',
+    55: 'Law enforcement',
+    56: 'Spare',
+    57: 'Spare',
+    58: 'Medical transport',
+    59: 'Noncombatant',
+    60: 'Passenger',
+    61: 'Passenger',
+    62: 'Passenger',
+    63: 'Passenger',
+    64: 'Passenger',
+    65: 'Passenger',
+    66: 'Passenger',
+    67: 'Passenger',
+    68: 'Passenger',
+    69: 'Passenger',
+    70: 'Cargo',
+    71: 'Cargo',
+    72: 'Cargo',
+    73: 'Cargo',
+    74: 'Cargo',
+    75: 'Cargo',
+    76: 'Cargo',
+    77: 'Cargo',
+    78: 'Cargo',
+    79: 'Cargo',
+    80: 'Tanker',
+    81: 'Tanker',
+    82: 'Tanker',
+    83: 'Tanker',
+    84: 'Tanker',
+    85: 'Tanker',
+    86: 'Tanker',
+    87: 'Tanker',
+    88: 'Tanker',
+    89: 'Tanker',
+    90: 'Other',
+    91: 'Other',
+    92: 'Other',
+    93: 'Other',
+    94: 'Other',
+    95: 'Other',
+    96: 'Other',
+    97: 'Other',
+    98: 'Other',
+    99: 'Other'
+  };
+  return types[type] || 'Unknown';
+};
+
+const getNavStatusLabel = (status) => {
+  if (status == null) return 'Unknown';
+  const statuses = {
+    0: 'Under way using engine',
+    1: 'At anchor',
+    2: 'Not under command',
+    3: 'Restricted maneuverability',
+    4: 'Constrained by her draught',
+    5: 'Moored',
+    6: 'Aground',
+    7: 'Engaged in fishing',
+    8: 'Under way sailing',
+    9: 'Reserved',
+    10: 'Reserved',
+    11: 'Reserved',
+    12: 'Reserved',
+    13: 'Reserved',
+    14: 'AIS-SART',
+    15: 'Not defined'
+  };
+  return statuses[status] || 'Unknown';
+};
+
 const handleWheelEvent = (event) => {
   logger.debug("Mouse wheel event", { deltaY: event.deltaY });
   // Only handle events on the map element
@@ -3632,14 +4222,14 @@ onUnmounted(() => {
 /* Floating anchor status under the grid */
 .floating-anchor-status {
   position: fixed;
-  top: calc(var(--ion-safe-area-top, 0) + 155px);
+  top: calc(var(--ion-safe-area-top, 0) + 145px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 100;
   padding: 8px 20px;
   border-radius: 20px;
-  font-size: 0.9em;
-  font-weight: 700;
+  font-size: 1.1em;
+  font-weight: 800;
   letter-spacing: 0.03em;
   text-align: center;
   white-space: nowrap;
@@ -4313,6 +4903,85 @@ h3 {
 .enhanced-modal {
   background-color: color-mix(in srgb, var(--app-surface-color) 85%, var(--app-accent-soft-color) 15%);
 }
+
+/* Tide Extremes Overlay - shown when not anchored */
+.tide-extremes-overlay {
+  position: fixed;
+  top: calc(var(--ion-safe-area-top, 0) + 205px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+}
+
+.tide-extremes-card {
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  min-width: 260px;
+  width: max-content;
+}
+
+.tide-extremes-title {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f8fafc;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding-bottom: 8px;
+}
+
+.tide-extremes-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tide-extremes-table th {
+  color: #94a3b8;
+  font-weight: 500;
+  padding: 4px 6px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.tide-extremes-table td {
+  padding: 4px 6px;
+  text-align: center;
+  color: #f8fafc;
+}
+
+.tide-extremes-table .period-cell {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.tide-extremes-table .high-cell {
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.tide-extremes-table .low-cell {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.tide-extremes-table .low-cell-safe {
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.tide-extremes-table .low-cell-warning {
+  color: #f97316;
+  font-weight: 500;
+}
+
+.tide-extremes-table .low-cell-danger {
+  color: #ef4444;
+  font-weight: 500;
+}
 </style>
 
 <style>
@@ -4470,5 +5139,122 @@ body.dark .toolbar-icon {
 .ol-attribution.ol-uncollapsible {
   visibility: hidden !important;
   display: none !important;
+}
+
+/* AIS Modal Styles */
+:deep(.ais-modal-root::part(content)) {
+  --width: 90%;
+  --max-width: 500px;
+  --height: auto;
+  --max-height: 80%;
+  --border-radius: 12px;
+  --background: var(--app-surface-color, #fff);
+}
+
+.ais-modal-content {
+  --background: var(--app-surface-color, #fff) !important;
+  background: var(--app-surface-color, #fff) !important;
+  min-height: 100%;
+  padding: 20px;
+  color: var(--app-text-color, #000);
+}
+
+.ais-modal-header {
+  text-align: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--app-border-color, #e0e0e0);
+}
+
+.ais-vessel-name {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--app-text-color, #000);
+}
+
+.ais-vessel-mmsi {
+  font-size: 14px;
+  color: var(--app-muted-text-color, #666);
+  margin: 0;
+}
+
+.ais-section {
+  margin-bottom: 20px;
+}
+
+.ais-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-accent-color, #3880ff);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 12px 0;
+}
+
+.ais-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.ais-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ais-label {
+  font-size: 12px;
+  color: var(--app-muted-text-color, #666);
+  font-weight: 500;
+}
+
+.ais-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--app-text-color, #000);
+}
+
+.ais-modal-footer {
+  --background: var(--app-surface-color, #fff);
+  background: var(--app-surface-color, #fff);
+}
+
+.ais-modal-toolbar {
+  --padding-start: 16px;
+  --padding-end: 16px;
+  --background: var(--app-surface-color, #fff);
+}
+
+/* Dark mode support for AIS modal */
+:deep(body.dark .ais-modal-root::part(content)) {
+  --background: var(--app-surface-color, #1f2933);
+}
+
+body.dark .ais-modal-content {
+  --background: var(--app-surface-color, #1f2933) !important;
+  background: var(--app-surface-color, #1f2933) !important;
+  color: var(--app-text-color, #f8fafc);
+}
+
+body.dark .ais-modal-header {
+  border-color: var(--app-border-color, #334155);
+}
+
+body.dark .ais-vessel-name,
+body.dark .ais-value {
+  color: var(--app-text-color, #f8fafc);
+}
+
+body.dark .ais-vessel-mmsi,
+body.dark .ais-label {
+  color: var(--app-muted-text-color, #94a3b8);
+}
+
+body.dark .ais-modal-footer,
+body.dark .ais-modal-toolbar {
+  --background: var(--app-surface-color, #1f2933);
+  background: var(--app-surface-color, #1f2933);
 }
 </style>
