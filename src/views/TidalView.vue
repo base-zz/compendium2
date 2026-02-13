@@ -2,7 +2,7 @@
   <IonPage class="tidal-page">
     <GenericHeader title="Tides" />
     <IonContent class="tidal-content">
-      <TideComponent />
+      <TideComponent view-mode="tide" />
     </IonContent>
   </IonPage>
 </template>

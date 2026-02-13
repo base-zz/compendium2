@@ -50,7 +50,13 @@
               @click="handleSelectStation(station)"
             >
               <IonLabel>
-                <div>{{ station.name }}</div>
+                <div class="station-name-row">
+                  <span>{{ station.name }}</span>
+                  <span class="station-capability-icons">
+                    <span class="capability-icon tide" title="Tide data available">🌊</span>
+                    <span v-if="stationHasCurrent(station)" class="capability-icon current" title="Current data available">💨</span>
+                  </span>
+                </div>
                 <div v-if="station.distanceKmText" class="station-distance">{{ station.distanceKmText }}</div>
               </IonLabel>
             </IonItem>
@@ -68,21 +74,25 @@
         </IonContent>
       </IonModal>
 
-      <div v-if="nextEvents" class="tide-events">
-        <h3 class="section-title">Next Tides</h3>
-        <div class="events-grid">
-          <div v-if="currentTideLevelText" class="event-card event-card-wide">
-            <div class="event-label">Current Level</div>
-            <div class="event-value">{{ currentTideLevelText }}</div>
-          </div>
-          <div class="event-card">
-            <div class="event-label">Next High</div>
-            <div class="event-value">{{ nextEvents.nextHighText }}</div>
-          </div>
-          <div class="event-card">
-            <div class="event-label">Next Low</div>
-            <div class="event-value">{{ nextEvents.nextLowText }}</div>
-          </div>
+      <div v-if="tideExtremesTable" class="tide-events">
+        <h3 class="section-title">Tide Extremes</h3>
+        <div class="tide-table-container">
+          <table class="tide-extremes-table">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>Low</th>
+                <th>High</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in tideExtremesTable" :key="row.label">
+                <td class="period-cell">{{ row.label }}</td>
+                <td class="low-cell">{{ row.low }}</td>
+                <td class="high-cell">{{ row.high }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -217,9 +227,41 @@ import TideChart from '@/components/charts/TideChart.vue';
 import { useStateDataStore } from '@/stores/stateDataStore';
 import { storeToRefs } from 'pinia';
 import noaaTideStations from '@/components/data/noaa-tide-stations.json';
+import noaaCurrentStations from '@/components/data/noaa-current-stations.json';
+
+// Props for view mode and anchor depth
+const props = defineProps({
+  viewMode: {
+    type: String,
+    default: 'tide', // 'tide' or 'anchor'
+    validator: (value) => ['tide', 'anchor'].includes(value)
+  },
+  anchorDepth: {
+    type: Number,
+    default: null // Depth in feet/meters at anchor location
+  }
+});
 
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
+
+// Build Set of current station coordinates for quick lookup (IDs differ between tide and current stations)
+const currentStationCoords = new Set(
+  (noaaCurrentStations?.stations || []).map(s => {
+    const lat = s?.lat;
+    const lng = s?.lng;
+    if (lat == null || lng == null) return null;
+    return `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  }).filter(Boolean)
+);
+
+// Check if station has current data by matching coordinates
+function stationHasCurrent(station) {
+  const lat = station?.lat;
+  const lng = station?.lng;
+  if (lat == null || lng == null) return false;
+  return currentStationCoords.has(`${lat.toFixed(4)},${lng.toFixed(4)}`);
+}
 
 const tideData = computed(() => state.value?.tides);
 const units = computed(() => {
@@ -410,6 +452,91 @@ const nextEvents = computed(() => {
   };
 });
 
+const tideExtremesTable = computed(() => {
+  const predictions = tideData.value?.tideEvents?.predictions;
+  if (!Array.isArray(predictions) || predictions.length === 0) return null;
+  
+  const now = new Date();
+  const nowMs = now.getTime();
+  
+  // Check if we're in anchor mode with depth
+  const isAnchorMode = props.viewMode === 'anchor';
+  const anchorDepth = typeof props.anchorDepth === 'number' && props.anchorDepth > 0 
+    ? props.anchorDepth 
+    : null;
+  
+  // Time windows in milliseconds
+  const windows = [
+    { label: 'Next', hours: Infinity, endMs: Infinity },
+    { label: '24h', hours: 24, endMs: nowMs + (24 * 60 * 60 * 1000) },
+    { label: '48h', hours: 48, endMs: nowMs + (48 * 60 * 60 * 1000) },
+    { label: '72h', hours: 72, endMs: nowMs + (72 * 60 * 60 * 1000) },
+  ];
+  
+  const rows = [];
+  
+  for (const window of windows) {
+    // Filter predictions within this window
+    const windowPreds = predictions.filter(p => {
+      const t = new Date(p.time);
+      if (Number.isNaN(t.getTime())) return false;
+      const tMs = t.getTime();
+      return tMs >= nowMs && tMs <= window.endMs;
+    });
+    
+    if (windowPreds.length === 0) {
+      rows.push({
+        label: window.label,
+        high: '--',
+        low: '--'
+      });
+      continue;
+    }
+    
+    // Find highest high and lowest low
+    let maxHigh = null;
+    let minLow = null;
+    
+    for (const p of windowPreds) {
+      if (p.type === 'H') {
+        if (maxHigh == null || p.height > maxHigh.height) {
+          maxHigh = p;
+        }
+      } else if (p.type === 'L') {
+        if (minLow == null || p.height < minLow.height) {
+          minLow = p;
+        }
+      }
+    }
+    
+    // Format values - adjust for anchor depth if in anchor mode
+    const formatValue = (height, time) => {
+      if (height == null) return '--';
+      const t = time ? formatTime(time) : '';
+      
+      if (isAnchorMode && anchorDepth != null) {
+        // Show actual water depth at anchor location
+        const waterDepth = (anchorDepth + height).toFixed(1);
+        return `${waterDepth}${seaLevelUnitLabel.value} -- ${t}`;
+      } else {
+        // Show tide height relative to chart datum
+        return `${height.toFixed(1)}${seaLevelUnitLabel.value} -- ${t}`;
+      }
+    };
+    
+    const highText = formatValue(maxHigh?.height, maxHigh?.time ? new Date(maxHigh.time) : null);
+    const lowText = formatValue(minLow?.height, minLow?.time ? new Date(minLow.time) : null);
+    
+    rows.push({
+      label: window.label,
+      high: highText,
+      low: lowText
+    });
+  }
+  
+  return rows;
+});
+
 const currentConditions = computed(() => {
   const buoyLatest = tideData.value?.buoyObservations?.latest;
   if (buoyLatest && typeof buoyLatest === 'object') {
@@ -557,6 +684,13 @@ const comparisonStats = computed(() => {
 function formatDateTime(date) {
   return new Intl.DateTimeFormat('en-US', {
     weekday: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function formatTime(date) {
+  return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date);
@@ -1013,6 +1147,54 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
   line-height: 1.15;
 }
 
+/* Tide extremes table styles */
+.tide-table-container {
+  overflow-x: auto;
+}
+
+.tide-extremes-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.tide-extremes-table th {
+  text-align: left;
+  padding: 8px 6px;
+  font-weight: 600;
+  color: var(--app-muted-text-color);
+  border-bottom: 1px solid var(--app-border-color);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+}
+
+.tide-extremes-table td {
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--app-border-color);
+  vertical-align: top;
+}
+
+.tide-extremes-table tr:last-child td {
+  border-bottom: none;
+}
+
+.period-cell {
+  font-weight: 600;
+  color: var(--app-text-color);
+  white-space: nowrap;
+}
+
+.high-cell {
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.low-cell {
+  color: #ef4444;
+  font-weight: 500;
+}
+
 @media (max-width: 480px) {
   .events-grid {
     grid-template-columns: 1fr;
@@ -1102,6 +1284,30 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
   --color: var(--app-text-color);
   --placeholder-color: var(--app-muted-text-color);
   --icon-color: var(--app-text-color);
+}
+
+/* Station capability icons in list */
+.station-name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.station-capability-icons {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.capability-icon {
+  font-size: 0.9rem;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.capability-icon:hover {
+  opacity: 1;
 }
 
 /* Current Data Comparison Styles */

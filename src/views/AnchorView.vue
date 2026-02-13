@@ -287,7 +287,7 @@
       css-class="tide-modal-root"
     >
       <ion-content class="tide-modal-content">
-        <TideComponent />
+        <TideComponent view-mode="anchor" :anchor-depth="anchorDepthMeters" />
       </ion-content>
       <ion-footer class="tide-modal-footer">
         <ion-toolbar class="tide-modal-toolbar">
@@ -530,6 +530,20 @@ const { preferences } = storeToRefs(preferencesStore);
 const navigationState = computed(() => state.value.navigation);
 const anchorState = computed(() => state.value.anchor);
 const alertState = computed(() => state.value.alerts?.active);
+
+// Calculate anchor depth in meters for tide component
+const anchorDepthMeters = computed(() => {
+  const depth = navigationState.value?.depth?.belowTransducer?.value;
+  const depthUnit = navigationState.value?.depth?.belowTransducer?.units;
+  
+  if (typeof depth !== 'number' || Number.isNaN(depth)) return null;
+  
+  // Convert to meters if needed
+  if (depthUnit === 'ft') {
+    return depth * 0.3048; // Convert feet to meters
+  }
+  return depth; // Already in meters
+});
 
 const { headingDegrees: deviceHeadingDegrees, start: startDeviceHeading } = useDeviceHeading();
 

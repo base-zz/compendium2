@@ -59,8 +59,17 @@
             stroke-linecap="square"
           />
           
-          <!-- X-axis ticks and labels -->
+          <!-- X-axis ticks, labels, and vertical grid lines -->
           <g v-for="(tick, index) in xTicks" :key="'x' + index">
+            <!-- Vertical grid lines extending up through chart -->
+            <line 
+              v-if="tick.isMajor"
+              :x1="xScale(tick.time)" 
+              :y1="height - props.padding.bottom" 
+              :x2="xScale(tick.time)" 
+              :y2="props.padding.top" 
+              class="grid-line"
+            />
             <!-- X-axis tick marks -->
             <line 
               :x1="xScale(tick.time)" 
@@ -117,6 +126,38 @@
             stroke-width="2" 
             stroke-linejoin="round"
           />
+          
+          <!-- Current velocity line (split by flood/ebb) -->
+          <g v-if="hasCurrentData">
+            <!-- Ebb current (negative velocity, below center) -->
+            <path 
+              v-if="currentPaths.ebb"
+              :d="currentPaths.ebb" 
+              fill="none" 
+              class="current-line-ebb"
+              stroke-width="2" 
+              stroke-linejoin="round"
+            />
+            <!-- Flood current (positive velocity, above center) -->
+            <path 
+              v-if="currentPaths.flood"
+              :d="currentPaths.flood" 
+              fill="none" 
+              class="current-line-flood"
+              stroke-width="2" 
+              stroke-linejoin="round"
+            />
+            <!-- Zero line reference -->
+            <line 
+              :x1="padding.left" 
+              :y1="height - padding.bottom - (height - padding.top - padding.bottom) / 2"
+              :x2="width - padding.right" 
+              :y2="height - padding.bottom - (height - padding.top - padding.bottom) / 2"
+              class="current-zero-line"
+              stroke-width="1"
+              stroke-dasharray="3,3"
+            />
+          </g>
           
           <!-- Current time indicator -->
           <line 
@@ -181,6 +222,22 @@
             class="indicator-dot"
           />
         </svg>
+        
+        <!-- Chart Legend -->
+        <div v-if="hasCurrentData" class="chart-legend">
+          <div class="legend-item">
+            <div class="legend-line tide"></div>
+            <span>Tide Height</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-line flood"></div>
+            <span>Flood Current (in)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-line ebb"></div>
+            <span>Ebb Current (out)</span>
+          </div>
+        </div>
       </template>
     </div>
   </div>
@@ -311,6 +368,111 @@ const currentTideLevel = computed(() => {
   
   const ratio = (now - prevTime) / (nextTime - prevTime);
   return prevValue + (nextValue - prevValue) * ratio;
+});
+
+// Current velocity data computed properties
+const currentVelocityUnit = computed(() => tideData.value?.units?.currentVelocity || 'kt');
+
+const currentDataPoints = computed(() => {
+  // Prefer real NOAA current data, fall back to imputed
+  const realData = tideData.value?.currentEvents?.predictions;
+  const imputedData = tideData.value?.imputedCurrent?.predictions;
+  
+  const predictions = Array.isArray(realData) && realData.length > 0 
+    ? realData 
+    : (Array.isArray(imputedData) ? imputedData : []);
+  
+  if (predictions.length === 0) return [];
+  
+  const points = [];
+  
+  for (const p of predictions) {
+    const rawTime = p?.time;
+    const velocity = p?.velocity;
+    const type = p?.type;
+    
+    if (!rawTime || typeof velocity !== 'number') continue;
+    
+    const time = rawTime instanceof Date ? rawTime : new Date(rawTime);
+    if (!(time instanceof Date) || Number.isNaN(time.getTime())) continue;
+    
+    // Velocity is now signed from server: positive=flood, negative=ebb
+    points.push({ time, velocity, type });
+  }
+  
+  // Sort by time
+  points.sort((a, b) => a.time.getTime() - b.time.getTime());
+  
+  return points;
+});
+
+const hasCurrentData = computed(() => currentDataPoints.value.length > 0);
+
+const currentVelocities = computed(() => {
+  return currentDataPoints.value.map((p) => p.velocity);
+});
+
+const currentTimes = computed(() => {
+  return currentDataPoints.value.map((p) => p.time);
+});
+
+// Window current data using same centered window logic as tide data
+const windowedCurrentDataPoints = computed(() => {
+  const points = currentDataPoints.value;
+  if (points.length === 0) return [];
+  
+  // Use full data range if no times available
+  if (!times.value.length) return points;
+  
+  // Get the tide window range (1/4 past, 3/4 future from now)
+  const now = currentTime.value;
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) return points;
+  
+  const minTime = times.value[0];
+  const maxTime = times.value[times.value.length - 1];
+  
+  if (!(minTime instanceof Date) || !(maxTime instanceof Date)) return points;
+  
+  const pastAvailableMs = now.getTime() - minTime.getTime();
+  const futureAvailableMs = maxTime.getTime() - now.getTime();
+  
+  if (pastAvailableMs <= 0 || futureAvailableMs <= 0) {
+    return points; // Return all if we can't determine window
+  }
+  
+  const futureSpanMs = Math.min(futureAvailableMs, pastAvailableMs * 3);
+  const pastSpanMs = futureSpanMs / 3;
+  
+  const windowStart = new Date(now.getTime() - pastSpanMs);
+  const windowEnd = new Date(now.getTime() + futureSpanMs);
+  
+  return points.filter((p) => p.time >= windowStart && p.time <= windowEnd);
+});
+
+const windowedCurrentVelocities = computed(() => {
+  const velocities = windowedCurrentDataPoints.value.map((p) => p.velocity);
+  
+  // Apply moving average smoothing
+  const smoothed = [];
+  const windowSize = 3;
+  
+  for (let i = 0; i < velocities.length; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let j = Math.max(0, i - Math.floor(windowSize/2)); 
+         j <= Math.min(velocities.length - 1, i + Math.floor(windowSize/2)); 
+         j++) {
+      sum += velocities[j];
+      count++;
+    }
+    smoothed.push(sum / count);
+  }
+  
+  return smoothed;
+});
+
+const windowedCurrentTimes = computed(() => {
+  return windowedCurrentDataPoints.value.map((p) => p.time);
 });
 
 // Y scale for the chart
@@ -465,17 +627,143 @@ const dayBands = computed(() => {
     .filter((b) => typeof b.x1 === 'number' && typeof b.x2 === 'number' && b.x2 > b.x1);
 });
 
-// Generate the SVG path for the tide line
+// Generate the SVG path for the tide line with smoothing
 const tidePath = computed(() => {
   if (!times.value.length || !seaLevels.value.length) return '';
   
-  let path = `M${xScale.value(times.value[0])},${yScale.value(seaLevels.value[0])}`;
+  // Apply moving average smoothing
+  const smoothedLevels = [];
+  const windowSize = 3; // Average 3 points
   
-  for (let i = 1; i < times.value.length; i++) {
-    path += ` L${xScale.value(times.value[i])},${yScale.value(seaLevels.value[i])}`;
+  for (let i = 0; i < seaLevels.value.length; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let j = Math.max(0, i - Math.floor(windowSize/2)); 
+         j <= Math.min(seaLevels.value.length - 1, i + Math.floor(windowSize/2)); 
+         j++) {
+      sum += seaLevels.value[j];
+      count++;
+    }
+    smoothedLevels.push(sum / count);
+  }
+  
+  const xVals = times.value.map(t => xScale.value(t));
+  const yVals = smoothedLevels.map(l => yScale.value(l));
+  
+  if (xVals.length < 2) return '';
+  
+  // Start path
+  let path = `M${xVals[0]},${yVals[0]}`;
+  
+  // Use simple line segments (smoothing handled by data averaging)
+  for (let i = 1; i < xVals.length; i++) {
+    path += ` L${xVals[i]},${yVals[i]}`;
   }
   
   return path;
+});
+
+// Current velocity scale (centered at zero, maps to same vertical space as tide)
+const currentScale = computed(() => {
+  if (!windowedCurrentVelocities.value || windowedCurrentVelocities.value.length === 0) {
+    return () => props.height / 2; // Center of chart
+  }
+  
+  // Find max velocity for scaling (use absolute value)
+  const maxVel = Math.max(...windowedCurrentVelocities.value.map(Math.abs));
+  if (maxVel === 0) return () => props.height / 2;
+  
+  // Use the same vertical space as tide chart, with zero in the middle
+  const chartHeight = props.height - props.padding.top - props.padding.bottom;
+  const zeroY = props.height - props.padding.bottom - (chartHeight / 2);
+  
+  return (velocity) => {
+    // Scale: zero at center, positive (flood) up, negative (ebb) down
+    const scale = velocity / maxVel; // -1 to 1
+    return zeroY - (scale * (chartHeight / 2));
+  };
+});
+
+// Generate SVG paths for current line (split by flood/ebb for coloring) with smoothing
+const currentPaths = computed(() => {
+  if (!windowedCurrentTimes.value.length || !windowedCurrentVelocities.value.length || !xScale.value) {
+    return { flood: '', ebb: '' };
+  }
+  
+  let floodPath = '';
+  let ebbPath = '';
+  let prevX = null;
+  let prevY = null;
+  let prevType = null;
+  
+  for (let i = 0; i < windowedCurrentTimes.value.length; i++) {
+    const x = xScale.value(windowedCurrentTimes.value[i]);
+    const y = currentScale.value(windowedCurrentVelocities.value[i]);
+    const type = windowedCurrentVelocities.value[i] >= 0 ? 'flood' : 'ebb';
+    
+    if (i === 0) {
+      // First point - move to
+      const cmd = `M${x},${y}`;
+      if (type === 'flood') floodPath += cmd;
+      else ebbPath += cmd;
+    } else if (type === prevType) {
+      // Same type - simple line (data already smoothed)
+      const cmd = ` L${x},${y}`;
+      if (type === 'flood') floodPath += cmd;
+      else ebbPath += cmd;
+    } else {
+      // Type changed - connect from previous point to zero crossing, then to current point
+      const zeroY = currentScale.value(0);
+      
+      // Calculate zero crossing using linear interpolation
+      const prevVel = windowedCurrentVelocities.value[i - 1];
+      const currVel = windowedCurrentVelocities.value[i];
+      const ratio = Math.abs(prevVel) / (Math.abs(prevVel) + Math.abs(currVel));
+      const zeroX = prevX + (x - prevX) * ratio;
+      
+      // Complete previous type path to zero crossing
+      const prevToZero = ` L${zeroX},${zeroY}`;
+      if (prevType === 'flood') floodPath += prevToZero;
+      else ebbPath += prevToZero;
+      
+      // Start new type path from zero crossing
+      const zeroToCurr = `M${zeroX},${zeroY} L${x},${y}`;
+      if (type === 'flood') floodPath += zeroToCurr;
+      else ebbPath += zeroToCurr;
+    }
+    
+    prevX = x;
+    prevY = y;
+    prevType = type;
+  }
+  
+  return { flood: floodPath, ebb: ebbPath };
+});
+
+// Current velocity Y-axis ticks (for right side)
+const currentYTicks = computed(() => {
+  if (!windowedCurrentVelocities.value || windowedCurrentVelocities.value.length === 0) return [];
+  
+  const maxVel = Math.max(...windowedCurrentVelocities.value.map(Math.abs));
+  if (maxVel === 0) return [];
+  
+  // Round to nearest 0.5 or 1.0 for nice ticks
+  const tickMax = Math.ceil(maxVel * 2) / 2;
+  
+  return [
+    { value: -tickMax, label: `-${tickMax.toFixed(1)}` },
+    { value: 0, label: '0' },
+    { value: tickMax, label: `+${tickMax.toFixed(1)}` }
+  ];
+});
+
+// Current data source label
+const currentDataSource = computed(() => {
+  const realData = tideData.value?.currentEvents?.predictions;
+  if (Array.isArray(realData) && realData.length > 0) return 'NOAA';
+  const imputedData = tideData.value?.imputedCurrent?.predictions;
+  if (Array.isArray(imputedData) && imputedData.length > 0) return 'Model';
+  return null;
 });
 
 // Current time position on the X axis
@@ -777,6 +1065,68 @@ onUnmounted(() => {
 
 .tide-line {
   stroke: var(--tide-line-color);
+}
+
+/* Current line styles */
+.current-line-flood {
+  stroke: #3b82f6; /* Blue for flood */
+  stroke-dasharray: none;
+}
+
+.current-line-ebb {
+  stroke: #ef4444; /* Red for ebb */
+  stroke-dasharray: none;
+}
+
+.current-zero-line {
+  stroke: var(--app-muted-text-color);
+  stroke-opacity: 0.5;
+}
+
+.current-tick {
+  stroke: var(--app-muted-text-color);
+  stroke-opacity: 0.6;
+}
+
+.current-y-label {
+  fill: var(--app-muted-text-color);
+  font-family: 'Roboto Mono', monospace;
+}
+
+/* Chart legend styles */
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  padding: 10px 0;
+  font-size: 12px;
+  color: var(--app-text-color);
+  border-top: 1px solid var(--app-border-color);
+  margin-top: 8px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-line {
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.legend-line.tide {
+  background-color: #f8fafc;
+}
+
+.legend-line.flood {
+  background-color: #3b82f6;
+}
+
+.legend-line.ebb {
+  background-color: #ef4444;
 }
 
 .indicator-line {
