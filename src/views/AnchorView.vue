@@ -209,7 +209,7 @@
         </ion-toolbar>
       </ion-footer>
     </ion-modal>
-    <IonModal :is-open="showUpdateDialog" @didDismiss="showUpdateDialog = false">
+    <IonModal :is-open="showUpdateDialog" @didDismiss="showUpdateDialog = false" css-class="update-drop-modal">
       <div class="modal-content">
         <h3>Update Drop Location</h3>
         <p>Set the current location as the new anchor drop location?</p>
@@ -264,6 +264,7 @@
     <IonModal
       :is-open="showUpdateDropConfirm"
       @didDismiss="showUpdateDropConfirm = false"
+      css-class="update-drop-confirm-modal"
     >
       <div class="modal-content">
         <h3>Update Anchor Drop Location</h3>
@@ -286,6 +287,14 @@
       @didDismiss="showTideModal = false"
       css-class="tide-modal-root"
     >
+      <ion-header class="tide-modal-header">
+        <ion-toolbar class="tide-modal-header-toolbar">
+          <ion-title class="tide-modal-title">Tides</ion-title>
+          <IonButton @click="showTideModal = false" slot="end" fill="clear" color="primary">
+            <ion-icon :icon="closeOutline" slot="icon-only"></ion-icon>
+          </IonButton>
+        </ion-toolbar>
+      </ion-header>
       <ion-content class="tide-modal-content">
         <TideComponent view-mode="anchor" :anchor-depth="anchorDepthWithUnits.depth" :depth-units="anchorDepthWithUnits.units" />
       </ion-content>
@@ -510,11 +519,13 @@ import {
   IonIcon,
   IonFooter,
   IonToolbar,
+  IonHeader,
+  IonTitle,
   onIonViewDidEnter,
   onIonViewDidLeave,
   toastController,
 } from "@ionic/vue";
-import { chevronUpOutline, navigate, resizeOutline, addOutline, removeOutline } from "ionicons/icons";
+import { chevronUpOutline, navigate, resizeOutline, addOutline, removeOutline, closeOutline } from "ionicons/icons";
 
 // OpenLayers imports
 import Map from "ol/Map";
@@ -5093,7 +5104,7 @@ ion-page.page-container {
 
 .set-anchor-modal {
   --background: var(--app-surface-color);
-  --padding-top: 24px;
+  --padding-top: calc(var(--ion-safe-area-top, 0) + 24px);
   --padding-bottom: 24px;
   --padding-start: 0px;
   --padding-end: 0px;
@@ -5113,6 +5124,7 @@ ion-page.page-container {
   display: flex;
   flex-direction: column;
   background: var(--app-surface-color);
+  padding-top: var(--ion-safe-area-top, 0);
 }
 
 .modal-body {
@@ -5137,10 +5149,10 @@ ion-page.page-container {
 .set-anchor-footer .modal-toolbar {
   --padding-start: 16px;
   --padding-end: 16px;
-  --padding-top: 12px;
-  --padding-bottom: calc(var(--ion-safe-area-bottom, 0px) + 12px);
+  --padding-top: 8px;
+  --padding-bottom: calc(var(--ion-safe-area-bottom, 0px) + 8px);
   --background: var(--app-surface-color);
-  min-height: 56px;
+  min-height: 48px;
 }
 
 .set-anchor-footer .modal-actions {
@@ -5569,8 +5581,29 @@ body.dark .slider-value {
   padding-bottom: var(--ion-safe-area-bottom, 0);
 }
 
+.tide-modal-header {
+  --background: var(--app-surface-color);
+  background: var(--app-surface-color);
+}
+
+.tide-modal-header-toolbar {
+  --padding-start: 16px;
+  --padding-end: 8px;
+  --padding-top: calc(var(--ion-safe-area-top, 0) + 8px);
+  --padding-bottom: 8px;
+  --background: var(--app-surface-color);
+  --border-color: var(--app-border-color);
+  border-bottom: 1px solid var(--app-border-color);
+}
+
+.tide-modal-title {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--app-text-color);
+}
+
 .tide-modal-content {
-  --padding-top: calc(var(--ion-safe-area-top, 0) + 16px);
+  --padding-top: 16px;
   --padding-bottom: var(--ion-safe-area-bottom, 0);
   --padding-start: 0;
   --padding-end: 0;
@@ -5583,24 +5616,24 @@ body.dark .slider-value {
 .tide-modal-toolbar {
   --padding-start: 16px;
   --padding-end: 16px;
-  --padding-top: 12px;
-  --padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 12px);
+  --padding-top: 8px;
+  --padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 8px);
   --background: var(--app-surface-color);
   border-top: 1px solid var(--app-border-color);
-  min-height: 56px;
+  min-height: 48px;
 }
 
 .tide-modal-toolbar ion-button {
-  --padding-top: 12px !important;
-  --padding-bottom: 12px !important;
-  --padding-start: 20px !important;
-  --padding-end: 20px !important;
+  --padding-top: 8px !important;
+  --padding-bottom: 8px !important;
+  --padding-start: 16px !important;
+  --padding-end: 16px !important;
   --border-radius: 8px !important;
-  font-size: 1em !important;
+  font-size: 0.95em !important;
   font-weight: 600 !important;
-  height: 44px !important;
+  height: 36px !important;
   margin: 0 !important;
-  min-height: 44px !important;
+  min-height: 36px !important;
 }
 
 body.dark ion-fab-button[color="secondary"] {
@@ -5670,7 +5703,45 @@ body.dark .toolbar-icon {
   display: none !important;
 }
 
-/* AIS Modal Styles */
+/* Update Drop Location Modal - Safe area handling */
+:deep(.update-drop-modal::part(content)) {
+  --max-width: 100%;
+  --width: 100%;
+  --height: 100%;
+  --max-height: 100%;
+  --border-radius: 0;
+  margin: 0;
+  padding-top: var(--ion-safe-area-top, 0);
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+:deep(.update-drop-modal .modal-content) {
+  padding-top: calc(var(--ion-safe-area-top, 0) + 20px);
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 20px);
+}
+
+/* Update Drop Confirm Modal - Safe area handling */
+:deep(.update-drop-confirm-modal::part(content)) {
+  --max-width: 100%;
+  --width: 100%;
+  --height: 100%;
+  --max-height: 100%;
+  --border-radius: 0;
+  margin: 0;
+  padding-top: var(--ion-safe-area-top, 0);
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+:deep(.update-drop-confirm-modal .modal-content) {
+  padding-top: calc(var(--ion-safe-area-top, 0) + 20px);
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 20px);
+}
+
+/* AIS Modal - Safe area handling */
 :deep(.ais-modal-root::part(content)) {
   --width: 90%;
   --max-width: 500px;
@@ -5678,6 +5749,7 @@ body.dark .toolbar-icon {
   --max-height: 80%;
   --border-radius: 12px;
   --background: var(--app-surface-color, #fff);
+  margin-top: var(--ion-safe-area-top, 0);
 }
 
 .ais-modal-content {
@@ -5753,7 +5825,23 @@ body.dark .toolbar-icon {
 .ais-modal-toolbar {
   --padding-start: 16px;
   --padding-end: 16px;
+  --padding-top: 8px;
+  --padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 8px);
   --background: var(--app-surface-color, #fff);
+  min-height: 48px;
+}
+
+.ais-modal-toolbar ion-button {
+  --padding-top: 8px !important;
+  --padding-bottom: 8px !important;
+  --padding-start: 16px !important;
+  --padding-end: 16px !important;
+  --border-radius: 8px !important;
+  font-size: 0.95em !important;
+  font-weight: 600 !important;
+  height: 36px !important;
+  margin: 0 !important;
+  min-height: 36px !important;
 }
 
 /* Dark mode support for AIS modal */
