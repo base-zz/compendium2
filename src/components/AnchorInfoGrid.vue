@@ -559,26 +559,31 @@ const handleDropAnchor = () => {
   background: var(--app-surface-color);
   color: var(--app-text-color);
   border-bottom: 1px solid var(--app-border-color);
-  padding: 2px 12px;
+  padding: 2px 4px;
+  box-sizing: border-box;
 }
 
 .values-row {
-  display: block;
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 4px;
   padding: 2px 0;
 }
 
 .info-cell {
-  display: inline-block;
-  vertical-align: top;
-  width: 15%;
-  min-width: 50px;
-  max-width: 100px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  min-width: 55px;
+  max-width: none;
   min-height: 44px;
   background: color-mix(in srgb, var(--app-surface-color) 88%, var(--app-background-color) 12%);
   border: 1px solid var(--app-border-color);
   border-radius: 8px;
-  padding: 8px 2px;
+  padding: 8px 4px;
   margin: 1px;
   text-align: center;
 }
@@ -700,13 +705,17 @@ const handleDropAnchor = () => {
 }
 
 @media (min-width: 600px) {
+  .anchor-grid-div {
+    padding: 2px 8px;
+  }
+  
   .values-row {
-    flex-wrap: nowrap;
+    gap: 8px;
   }
   
   .info-cell {
-    min-width: 80px;
-    max-width: 150px;
+    min-width: 90px;
+    padding: 10px 8px;
   }
 }
 
@@ -848,7 +857,16 @@ const handleDropAnchor = () => {
 @media (max-width: 480px) {
   .anchor-grid-div {
     width: 100%;
-    padding: 2px 12px;
+    padding: 2px 2px;
+  }
+
+  .values-row {
+    gap: 2px;
+  }
+
+  .info-cell {
+    padding: 6px 2px;
+    min-width: 50px;
   }
 
   .grid-row {

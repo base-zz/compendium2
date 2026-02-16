@@ -1131,7 +1131,7 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
 .tide-events {
   margin: 6px 8px 0;
   padding: 10px 12px;
-  background: var(--app-surface-color);
+  background: color-mix(in srgb, var(--app-surface-color) 95%, var(--app-text-color) 5%);
   border: 1px solid var(--app-border-color);
   border-radius: 12px;
 }

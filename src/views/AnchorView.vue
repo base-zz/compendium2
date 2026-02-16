@@ -5443,7 +5443,7 @@ h3 {
 }
 
 .tide-extremes-card {
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
   padding: 12px 16px;
   border: 1px solid rgba(255, 255, 255, 0.15);
