@@ -33,7 +33,7 @@
       -->
     </div>
     <!-- anchor-btn-row removed: no extra action buttons needed when anchor is deployed -->
-    <ion-modal :is-open="showEditRadiusModal" @didDismiss="showEditRadiusModal = false">
+    <ion-modal :is-open="showEditRadiusModal" @didDismiss="showEditRadiusModal = false" css-class="edit-radius-modal-root">
       <div class="modal-content enhanced-modal">
         <h3>Edit Anchor Alarm Radius</h3>
         <div class="slider-label">
@@ -58,7 +58,7 @@
         </div>
       </div>
     </ion-modal>
-    <ion-modal :is-open="showEditRodeModal" @didDismiss="showEditRodeModal = false">
+    <ion-modal :is-open="showEditRodeModal" @didDismiss="showEditRodeModal = false" css-class="edit-rode-modal-root">
       <div class="modal-content enhanced-modal">
         <h3>Edit Rode Length</h3>
         <div class="slider-label">
@@ -83,7 +83,7 @@
         </div>
       </div>
     </ion-modal>
-    <ion-modal :is-open="showEditHeadingModal" @didDismiss="showEditHeadingModal = false">
+    <ion-modal :is-open="showEditHeadingModal" @didDismiss="showEditHeadingModal = false" css-class="edit-heading-modal-root">
       <div class="modal-content enhanced-modal">
         <h3>Edit Heading</h3>
         <div class="slider-label">
@@ -846,6 +846,27 @@ const handleDropAnchor = () => {
 
 .enhanced-modal {
   background: var(--app-surface-color);
+}
+
+/* AnchorInfoGrid modals - safe area handling */
+:deep(.edit-radius-modal-root::part(content)),
+:deep(.edit-rode-modal-root::part(content)),
+:deep(.edit-heading-modal-root::part(content)) {
+  --max-width: 100%;
+  --width: 100%;
+  --height: 100%;
+  --max-height: 100%;
+  --border-radius: 0;
+  margin: 0;
+  padding-top: var(--ion-safe-area-top, 0);
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+:deep(.edit-radius-modal-root .modal-content),
+:deep(.edit-rode-modal-root .modal-content),
+:deep(.edit-heading-modal-root .modal-content) {
+  padding-top: 20px;
+  padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 16px);
 }
 
 @keyframes blink {

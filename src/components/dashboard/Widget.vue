@@ -76,6 +76,7 @@ import AnchorWidget from "../AnchorWidget.vue";
 import BoatingWeatherWidget from "../BoatingWeatherWidget.vue";
 import TempWindWidget from "../TempWindWidget.vue";
 import PressureTideWidget from "../PressureTideWidget.vue";
+import FenceWidget from "../FenceWidget.vue";
 import ZoraComponent from "../ZoraComponent.vue";
 
 const props = defineProps({
@@ -156,6 +157,7 @@ const componentMap = {
   weather: BoatingWeatherWidget,
   "temp-wind": TempWindWidget,
   "pressure-tide": PressureTideWidget,
+  fence: FenceWidget,
   "zora": ZoraComponent,
   placeholder: PlaceholderWidget,
 };
@@ -290,6 +292,15 @@ const widgetData = computed(() => {
       ...data,
       dataConfig: dataSource,
       label: data.widgetTitle || data.label || 'Anchor',
+      updated: true,
+    };
+  }
+
+  if (data.type === 'fence') {
+    return {
+      ...data,
+      dataConfig: dataSource,
+      label: data.widgetTitle || data.label || 'Fence',
       updated: true,
     };
   }

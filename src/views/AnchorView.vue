@@ -221,6 +221,28 @@
         </div>
       </div>
     </IonModal>
+
+    <IonModal :is-open="showFenceListModal" @didDismiss="showFenceListModal = false" css-class="fence-modal-root">
+      <div class="modal-content fence-modal-content">
+        <h3>Fences</h3>
+        <div v-if="!Array.isArray(anchorState?.fences) || anchorState.fences.length === 0" class="fence-empty-state">
+          No fences yet.
+        </div>
+        <div v-else class="fence-list">
+          <div v-for="fence in anchorState.fences" :key="fence.id" class="fence-list-item">
+            <div class="fence-list-title">{{ fence.name }}</div>
+            <div class="fence-list-detail">
+              {{ fence.targetType === "ais" ? "AIS" : "Point" }} · {{ fence.alertRange }} {{ fence.units }} · {{ fence.referenceType === "anchor_drop" ? "Anchor Drop" : "Boat" }}
+            </div>
+            <IonButton size="small" color="danger" fill="outline" @click="removeFence(fence.id)">Remove</IonButton>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <IonButton color="primary" @click="startFenceSelectionFromList">Add Fence</IonButton>
+          <IonButton @click="showFenceListModal = false">Close</IonButton>
+        </div>
+      </div>
+    </IonModal>
     <IonModal 
       :is-open="showCancelDialog" 
       @didDismiss="showCancelDialog = false"
@@ -281,6 +303,42 @@
       </div>
     </IonModal>
 
+    <IonModal :is-open="showFenceConfigModal" @didDismiss="handleFenceModalCancel" css-class="fence-modal-root">
+      <div class="modal-content fence-modal-content">
+        <h3>Create Fence</h3>
+        <p v-if="selectedFenceTarget" class="fence-target-summary">
+          Target:
+          <strong>
+            {{ selectedFenceTarget.targetType === "ais" ? (selectedFenceTarget.name || "AIS Target") : "Map Point" }}
+          </strong>
+        </p>
+
+        <div class="fence-form-row">
+          <label for="fence-name-input">Name</label>
+          <input id="fence-name-input" v-model="fenceName" type="text" placeholder="Fence name" />
+        </div>
+
+        <div class="fence-form-row">
+          <label for="fence-range-input">Alert Range ({{ isMetric ? "m" : "ft" }})</label>
+          <input id="fence-range-input" v-model="fenceRangeInput" type="number" min="1" step="1" />
+        </div>
+
+        <div class="fence-form-row">
+          <label for="fence-reference-select">Reference</label>
+          <select id="fence-reference-select" v-model="fenceReferenceType">
+            <option value="">Select reference</option>
+            <option value="boat">Boat</option>
+            <option value="anchor_drop">Anchor Drop</option>
+          </select>
+        </div>
+
+        <div class="modal-actions">
+          <IonButton color="primary" @click="handleFenceSave">Save Fence</IonButton>
+          <IonButton @click="handleFenceModalCancel">Cancel</IonButton>
+        </div>
+      </div>
+    </IonModal>
+
     <!-- Tide information modal -->
     <IonModal
       :is-open="showTideModal"
@@ -290,7 +348,7 @@
       <ion-header class="tide-modal-header">
         <ion-toolbar class="tide-modal-header-toolbar">
           <ion-title class="tide-modal-title">Tides</ion-title>
-          <IonButton @click="showTideModal = false" slot="end" fill="clear" color="primary">
+          <IonButton @click="showTideModal = false" slot="end" fill="clear" class="tide-modal-close-btn">
             <ion-icon :icon="closeOutline" slot="icon-only"></ion-icon>
           </IonButton>
         </ion-toolbar>
@@ -298,11 +356,6 @@
       <ion-content class="tide-modal-content">
         <TideComponent view-mode="anchor" :anchor-depth="anchorDepthWithUnits.depth" :depth-units="anchorDepthWithUnits.units" />
       </ion-content>
-      <ion-footer class="tide-modal-footer">
-        <ion-toolbar class="tide-modal-toolbar">
-          <IonButton @click="showTideModal = false" slot="end" color="primary">Close</IonButton>
-        </ion-toolbar>
-      </ion-footer>
     </IonModal>
 
     <!-- AIS Target Detail Modal -->
@@ -447,6 +500,15 @@
         </div>
 
         <button
+          @click="toggleFenceMode"
+          class="toolbar-button toolbar-fence"
+          :class="{ 'measure-toggle-active': fenceModeEnabled }"
+          :data-label="fenceModeEnabled ? 'Fence (On)' : 'Fence (Off)'"
+        >
+          <ion-icon :icon="shieldOutline" size="small" />
+        </button>
+
+        <button
           @click="showTideModal = true"
           class="toolbar-button toolbar-tide"
           data-label="Tides"
@@ -525,7 +587,7 @@ import {
   onIonViewDidLeave,
   toastController,
 } from "@ionic/vue";
-import { chevronUpOutline, navigate, resizeOutline, addOutline, removeOutline, closeOutline } from "ionicons/icons";
+import { chevronUpOutline, navigate, resizeOutline, addOutline, removeOutline, closeOutline, shieldOutline } from "ionicons/icons";
 
 // OpenLayers imports
 import Map from "ol/Map";
@@ -575,6 +637,8 @@ const FEATURE_TYPES = {
   MEASURE_PIN_B: "measure-pin-b",
   MEASURE_LINE: "measure-line",
   MEASURE_LABEL: "measure-label",
+  FENCE_TARGET: "fence-target",
+  FENCE_RANGE: "fence-range",
 };
 
 const hasLoggedFramingDebugThisEntry = ref(false);
@@ -619,6 +683,216 @@ const attachDefaultFramingListener = () => {
   if (typeof map.value.render === "function") {
     map.value.render();
   }
+};
+
+const toggleFenceMode = () => {
+  if (fenceModeEnabled.value === true) {
+    fenceModeEnabled.value = false;
+    return;
+  }
+
+  if (Array.isArray(anchorState.value?.fences) && anchorState.value.fences.length > 0) {
+    showFenceListModal.value = true;
+    return;
+  }
+
+  fenceModeEnabled.value = true;
+  if (fenceModeEnabled.value === true) {
+    measureModeEnabled.value = false;
+  }
+};
+
+const startFenceSelectionFromList = () => {
+  showFenceListModal.value = false;
+  fenceModeEnabled.value = true;
+  measureModeEnabled.value = false;
+};
+
+const resetFenceDraft = () => {
+  selectedFenceTarget.value = null;
+  fenceName.value = "";
+  fenceRangeInput.value = "";
+  fenceReferenceType.value = "";
+};
+
+const handleFenceModalCancel = () => {
+  showFenceConfigModal.value = false;
+  resetFenceDraft();
+};
+
+const handleFenceSave = async () => {
+  if (!anchorState.value) {
+    logger.warn("Cannot save fence: anchorState is undefined");
+    return;
+  }
+  if (!selectedFenceTarget.value) {
+    logger.warn("Cannot save fence: selectedFenceTarget is undefined");
+    return;
+  }
+  if (!fenceReferenceType.value) {
+    logger.warn("Cannot save fence: reference type is not selected");
+    return;
+  }
+
+  const parsedRange = Number(fenceRangeInput.value);
+  if (!Number.isFinite(parsedRange) || parsedRange <= 0) {
+    logger.warn("Cannot save fence: invalid alert range", { value: fenceRangeInput.value });
+    return;
+  }
+
+  if (!Array.isArray(anchorState.value.fences)) {
+    anchorState.value.fences = [];
+  }
+
+  const units = isMetric.value ? "m" : "ft";
+  const target = selectedFenceTarget.value;
+  const fallbackName = target.targetType === "ais" ? "AIS Fence" : "Point Fence";
+  const nextFence = {
+    id: `fence-${Date.now()}`,
+    name: fenceName.value && fenceName.value.trim() ? fenceName.value.trim() : fallbackName,
+    enabled: true,
+    targetType: target.targetType,
+    targetRef: target.targetRef,
+    referenceType: fenceReferenceType.value,
+    alertRange: parsedRange,
+    units,
+    currentDistance: null,
+    currentDistanceUnits: units,
+    inAlert: false,
+    createdAt: Date.now(),
+  };
+
+  anchorState.value.fences.push(nextFence);
+
+  try {
+    await stateStore.sendMessageToServer("anchor:update", anchorState.value, {
+      source: "AnchorView.handleFenceSave",
+      timeout: 5000,
+    });
+  } catch (error) {
+    logger.error("Failed to persist fence to server", error);
+  }
+
+  updateFenceFeatures();
+  showFenceConfigModal.value = false;
+  fenceModeEnabled.value = false;
+  resetFenceDraft();
+};
+
+const removeFence = async (fenceId) => {
+  if (!anchorState.value || !Array.isArray(anchorState.value.fences)) {
+    return;
+  }
+  anchorState.value.fences = anchorState.value.fences.filter((fence) => fence.id !== fenceId);
+  updateFenceFeatures();
+
+  try {
+    await stateStore.sendMessageToServer("anchor:update", anchorState.value, {
+      source: "AnchorView.removeFence",
+      timeout: 5000,
+    });
+  } catch (error) {
+    logger.error("Failed to persist fence removal", error);
+  }
+};
+
+const getFenceTargetLonLat = (fence) => {
+  if (!fence || !fence.targetType || !fence.targetRef) {
+    return null;
+  }
+
+  if (fence.targetType === "point") {
+    const lat = fence.targetRef.latitude;
+    const lon = fence.targetRef.longitude;
+    if (typeof lat !== "number" || typeof lon !== "number") {
+      return null;
+    }
+    return [lon, lat];
+  }
+
+  if (fence.targetType === "ais") {
+    const mmsi = fence.targetRef.mmsi;
+    if (mmsi == null) {
+      return null;
+    }
+    const rawTarget = state.value?.aisTargets?.[String(mmsi)];
+    const lat = rawTarget?.position?.latitude?.value ?? rawTarget?.position?.latitude;
+    const lon = rawTarget?.position?.longitude?.value ?? rawTarget?.position?.longitude;
+    if (typeof lat !== "number" || typeof lon !== "number") {
+      return null;
+    }
+    return [lon, lat];
+  }
+
+  return null;
+};
+
+const updateFenceFeatures = () => {
+  clearFeature(FEATURE_TYPES.FENCE_TARGET);
+  clearFeature(FEATURE_TYPES.FENCE_RANGE);
+
+  const fences = anchorState.value?.fences;
+  if (!Array.isArray(fences) || fences.length === 0) {
+    return;
+  }
+
+  fences.forEach((fence) => {
+    if (!fence || fence.enabled === false) {
+      return;
+    }
+
+    const lonLat = getFenceTargetLonLat(fence);
+    if (!Array.isArray(lonLat) || lonLat.length < 2) {
+      return;
+    }
+
+    const mapCoord = fromLonLat(lonLat);
+    const labelText = fence.name || "Fence";
+
+    const marker = new Feature({ geometry: new Point(mapCoord) });
+    marker.set("type", FEATURE_TYPES.FENCE_TARGET);
+    marker.setStyle(
+      new Style({
+        image: new CircleStyle({
+          radius: 7,
+          fill: new Fill({ color: "rgba(250, 204, 21, 0.95)" }),
+          stroke: new Stroke({ color: "rgba(17, 24, 39, 0.95)", width: 2 }),
+        }),
+        text: new Text({
+          text: labelText,
+          font: "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+          fill: new Fill({ color: "#f9fafb" }),
+          stroke: new Stroke({ color: "rgba(17,24,39,0.8)", width: 3 }),
+          offsetY: -14,
+        }),
+        zIndex: 140,
+      })
+    );
+    vectorSource.addFeature(marker);
+
+    const rangeValue = Number(fence.alertRange);
+    if (!Number.isFinite(rangeValue) || rangeValue <= 0) {
+      return;
+    }
+    const rangeMeters = fence.units === "ft" ? rangeValue / 3.28084 : rangeValue;
+
+    const circleGeometry = createCircleWithRadius(lonLat, rangeMeters);
+    const rangeFeature = new Feature({ geometry: circleGeometry });
+    rangeFeature.set("type", FEATURE_TYPES.FENCE_RANGE);
+    rangeFeature.setStyle(
+      new Style({
+        stroke: new Stroke({
+          color: "rgba(250, 204, 21, 0.9)",
+          width: 2,
+        }),
+        fill: new Fill({
+          color: "rgba(250, 204, 21, 0.15)",
+        }),
+        zIndex: 120,
+      })
+    );
+    vectorSource.addFeature(rangeFeature);
+  });
 };
 
 // Main component setup
@@ -982,6 +1256,14 @@ const measurePinA = ref(null);
 const measurePinB = ref(null);
 const measureLine = ref(null);
 const measureLabel = ref(null);
+
+const fenceModeEnabled = ref(false);
+const showFenceConfigModal = ref(false);
+const showFenceListModal = ref(false);
+const selectedFenceTarget = ref(null);
+const fenceName = ref("");
+const fenceRangeInput = ref("");
+const fenceReferenceType = ref("");
 
 const measureSnapDistanceMeters = 5;
 
@@ -3293,6 +3575,24 @@ watch(
 
 // Also watch for boat position changes to update the boat range circle
 watch(
+  () => state.value.aisTargets,
+  () => {
+    updateAisTargets();
+    updateFenceFeatures();
+  },
+  { deep: true }
+);
+
+watch(
+  () => anchorState.value?.fences,
+  () => {
+    updateFenceFeatures();
+  },
+  { deep: true }
+);
+
+// Also watch for boat position changes to update the boat range circle
+watch(
   () => boatPosition.value,
   () => {
     updateBoatRangeCircle();
@@ -4117,7 +4417,11 @@ const handleCancelAnchor = () => {
   }
 
   // Reset the anchor state in the store
+  if (anchorState.value && Array.isArray(anchorState.value.fences)) {
+    anchorState.value.fences = [];
+  }
   stateStore.cancelAnchor();
+  updateFenceFeatures();
 
   // Close the dialog
   showCancelDialog.value = false;
@@ -4180,6 +4484,57 @@ const handleMapClick = (event) => {
       tryCreateOrUpdateMeasurePin("B", lonLatClicked);
       return;
     }
+    return;
+  }
+
+  if (fenceModeEnabled.value) {
+    const clickedFeaturesForFence = map.value?.getFeaturesAtPixel?.(event.pixel);
+    const aisFeatureForFence = Array.isArray(clickedFeaturesForFence)
+      ? clickedFeaturesForFence.find((feature) => feature.get("type") === FEATURE_TYPES.AIS)
+      : null;
+
+    if (aisFeatureForFence) {
+      const mmsi = aisFeatureForFence.get("mmsi");
+      const name = aisFeatureForFence.get("name");
+      if (mmsi != null) {
+        selectedFenceTarget.value = {
+          targetType: "ais",
+          name: name || "AIS Target",
+          targetRef: { mmsi },
+        };
+        fenceName.value = name || "";
+        showFenceConfigModal.value = true;
+        return;
+      }
+    }
+
+    const lonLatClicked = toLonLat(event.coordinate);
+    if (!Array.isArray(lonLatClicked) || lonLatClicked.length < 2) {
+      logger.warn("Fence mode click ignored: invalid map coordinate", {
+        coordinate: event.coordinate,
+      });
+      return;
+    }
+
+    const clickedLon = lonLatClicked[0];
+    const clickedLat = lonLatClicked[1];
+    if (typeof clickedLat !== "number" || typeof clickedLon !== "number") {
+      logger.warn("Fence mode click ignored: non-numeric coordinate", {
+        lonLatClicked,
+      });
+      return;
+    }
+
+    selectedFenceTarget.value = {
+      targetType: "point",
+      name: "Map Point",
+      targetRef: {
+        latitude: clickedLat,
+        longitude: clickedLon,
+      },
+    };
+    fenceName.value = "";
+    showFenceConfigModal.value = true;
     return;
   }
 
@@ -4969,6 +5324,63 @@ onUnmounted(() => {
   color: #ffffff;
 }
 
+.fence-modal-content {
+  max-width: 420px;
+}
+
+.fence-target-summary {
+  margin: 0 0 12px;
+}
+
+.fence-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.fence-form-row input,
+.fence-form-row select {
+  width: 100%;
+  border: 1px solid var(--app-border-color);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--app-surface-color);
+  color: var(--app-text-color);
+}
+
+.fence-empty-state {
+  color: var(--app-muted-text-color);
+  margin: 8px 0 16px;
+}
+
+.fence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.fence-list-item {
+  border: 1px solid var(--app-border-color);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.fence-list-title {
+  font-weight: 600;
+}
+
+.fence-list-detail {
+  color: var(--app-muted-text-color);
+  font-size: 0.9em;
+}
+
 .toolbar-anchor-cancel:disabled {
   opacity: 0.35;
   cursor: not-allowed;
@@ -5104,7 +5516,7 @@ ion-page.page-container {
 
 .set-anchor-modal {
   --background: var(--app-surface-color);
-  --padding-top: calc(var(--ion-safe-area-top, 0) + 24px);
+  --padding-top: 24px;
   --padding-bottom: 24px;
   --padding-start: 0px;
   --padding-end: 0px;
@@ -5149,10 +5561,10 @@ ion-page.page-container {
 .set-anchor-footer .modal-toolbar {
   --padding-start: 16px;
   --padding-end: 16px;
-  --padding-top: 8px;
-  --padding-bottom: calc(var(--ion-safe-area-bottom, 0px) + 8px);
+  --padding-top: 4px;
+  --padding-bottom: var(--ion-safe-area-bottom, 0px);
   --background: var(--app-surface-color);
-  min-height: 48px;
+  min-height: 44px;
 }
 
 .set-anchor-footer .modal-actions {
@@ -5544,7 +5956,7 @@ body.dark .slider-value {
 }
 
 :deep(.cancel-anchor-modal .modal-content) {
-  padding-top: calc(var(--ion-safe-area-top, 0) + 20px);
+  padding-top: 20px;
   padding-left: 16px;
   padding-right: 16px;
   padding-bottom: var(--ion-safe-area-bottom, 0);
@@ -5589,11 +6001,10 @@ body.dark .slider-value {
 .tide-modal-header-toolbar {
   --padding-start: 16px;
   --padding-end: 8px;
-  --padding-top: calc(var(--ion-safe-area-top, 0) + 8px);
-  --padding-bottom: 8px;
   --background: var(--app-surface-color);
   --border-color: var(--app-border-color);
   border-bottom: 1px solid var(--app-border-color);
+  min-height: 54px;
 }
 
 .tide-modal-title {
@@ -5609,31 +6020,14 @@ body.dark .slider-value {
   --padding-end: 0;
 }
 
-.tide-modal-footer {
-  padding-bottom: var(--ion-safe-area-bottom, 0);
+/* TideComponent layout overrides for modal: avoid clipping Current Conditions */
+:deep(.tide-modal-content .marine-conditions) {
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
-.tide-modal-toolbar {
-  --padding-start: 16px;
-  --padding-end: 16px;
-  --padding-top: 8px;
-  --padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 8px);
-  --background: var(--app-surface-color);
-  border-top: 1px solid var(--app-border-color);
-  min-height: 48px;
-}
-
-.tide-modal-toolbar ion-button {
-  --padding-top: 8px !important;
-  --padding-bottom: 8px !important;
-  --padding-start: 16px !important;
-  --padding-end: 16px !important;
-  --border-radius: 8px !important;
-  font-size: 0.95em !important;
-  font-weight: 600 !important;
-  height: 36px !important;
-  margin: 0 !important;
-  min-height: 36px !important;
+:deep(.tide-modal-content .conditions-grid) {
+  overflow: visible;
 }
 
 body.dark ion-fab-button[color="secondary"] {
@@ -5648,6 +6042,17 @@ body.dark .modal-actions ion-button[color="primary"] {
   --color: #1f2933 !important;
   --background-activated: rgba(248, 250, 252, 0.7) !important;
   --background-hover: rgba(248, 250, 252, 0.9) !important;
+}
+
+body.dark .tide-modal-header-toolbar ion-button {
+  --color: #f8fafc !important;
+  color: #f8fafc !important;
+}
+
+body.dark .tide-modal-close-btn,
+body.dark .tide-modal-close-btn ion-icon {
+  --color: #f8fafc !important;
+  color: #f8fafc !important;
 }
 
 body.dark .toolbar-button {
@@ -5716,7 +6121,7 @@ body.dark .toolbar-icon {
 }
 
 :deep(.update-drop-modal .modal-content) {
-  padding-top: calc(var(--ion-safe-area-top, 0) + 20px);
+  padding-top: 20px;
   padding-left: 16px;
   padding-right: 16px;
   padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 20px);
@@ -5735,7 +6140,7 @@ body.dark .toolbar-icon {
 }
 
 :deep(.update-drop-confirm-modal .modal-content) {
-  padding-top: calc(var(--ion-safe-area-top, 0) + 20px);
+  padding-top: 20px;
   padding-left: 16px;
   padding-right: 16px;
   padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 20px);
@@ -5825,10 +6230,10 @@ body.dark .toolbar-icon {
 .ais-modal-toolbar {
   --padding-start: 16px;
   --padding-end: 16px;
-  --padding-top: 8px;
-  --padding-bottom: calc(var(--ion-safe-area-bottom, 0) + 8px);
+  --padding-top: 4px;
+  --padding-bottom: var(--ion-safe-area-bottom, 0);
   --background: var(--app-surface-color, #fff);
-  min-height: 48px;
+  min-height: 36px;
 }
 
 .ais-modal-toolbar ion-button {

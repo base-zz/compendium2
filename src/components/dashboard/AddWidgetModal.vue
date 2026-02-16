@@ -42,6 +42,7 @@
               <ion-select-option value="instrument">Digital Instrument</ion-select-option>
               <ion-select-option value="clock">Clock</ion-select-option>
               <ion-select-option value="anchor">Anchor</ion-select-option>
+              <ion-select-option value="fence">Fence</ion-select-option>
               <ion-select-option value="weather">Boating Weather</ion-select-option>
               <ion-select-option value="temp-wind">Temp &amp; Wind</ion-select-option>
               <ion-select-option value="pressure-tide">Pressure &amp; Tide</ion-select-option>
@@ -407,7 +408,7 @@ watch(displayType, (newType) => {
 });
 
 // Watch for displayType changes to set default values
-const widgetsWithoutDataSource = ['sail360', 'zora', 'clock', 'anchor', 'weather', 'temp-wind', 'pressure-tide', 'windcompassarrow'];
+const widgetsWithoutDataSource = ['sail360', 'zora', 'clock', 'anchor', 'fence', 'weather', 'temp-wind', 'pressure-tide', 'windcompassarrow'];
 watch(displayType, (newType) => {
   if (newType === 'sail360') {
     maintainSquareRatio.value = true;
@@ -446,6 +447,15 @@ watch(displayType, (newType) => {
     }
     if (!widgetName.value) {
       widgetName.value = 'Anchor';
+    }
+  } else if (newType === 'fence') {
+    dataSource.value = '';
+    maintainSquareRatio.value = true;
+    if (!widgetTitle.value) {
+      widgetTitle.value = 'Fence';
+    }
+    if (!widgetName.value) {
+      widgetName.value = 'Fence';
     }
   } else if (newType === 'weather') {
     dataSource.value = '';

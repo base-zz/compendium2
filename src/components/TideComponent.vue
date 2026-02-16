@@ -1231,10 +1231,10 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
 }
 
 .marine-conditions {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   padding-top: 6px;
 }
 
@@ -1251,7 +1251,7 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   flex: 0 0 auto;
-  overflow-y: auto;
+  overflow: visible;
   padding-left: 8px;
 }
 

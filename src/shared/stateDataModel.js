@@ -1011,6 +1011,7 @@ export function createStateDataModel(unitPreferences = UNIT_PRESETS.IMPERIAL) {
       dragging: false,
       aisWarning: false,
       anchorDeployed: false,
+      fences: [],
       history: [],
       useDeviceGPS: true,
     },
