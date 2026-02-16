@@ -1,4 +1,4 @@
-import { Style, Fill, Stroke, Icon } from "ol/style";
+import { Style, Fill, Stroke, Icon, Text } from "ol/style";
 import CircleStyle from "ol/style/Circle";
 
 const BOAT_ICON_SRC = "/img/navigate.svg";
@@ -15,6 +15,52 @@ export const getWindIconSrc = (speedValue, isDarkMode = false) => {
   const timestamp = Date.now();
   const mode = isDarkMode ? 'dark' : 'light';
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}#${mode}-${timestamp}`;
+};
+
+// Triangle-only icon without text (for heads-up text display)
+export const getWindTriangleIconSrc = (isDarkMode = false) => {
+  const windColor = isDarkMode ? '#FFFFFF' : '#007BFF';
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'>
+    <path fill='${windColor}' d='M32 8 L56 48 H8 Z'/>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+};
+
+// Create wind indicator style with rotating triangle and heads-up text
+export const createWindIndicatorStyle = (speedValue, isDarkMode = false, rotation = 0) => {
+  const speed = speedValue != null ? Math.round(speedValue) : '';
+  const textColor = isDarkMode ? '#000000' : '#FFFFFF';
+  const triangleScale = window.innerWidth < 768 ? 0.6 : 1.0;
+  
+  return [
+    // Rotating triangle
+    new Style({
+      image: new Icon({
+        src: getWindTriangleIconSrc(isDarkMode),
+        anchor: [0.5, 0.5],
+        anchorXUnits: "fraction",
+        anchorYUnits: "fraction",
+        imgSize: [64, 64],
+        scale: triangleScale,
+        rotateWithView: false,
+        rotation: rotation,
+      }),
+      zIndex: 96,
+    }),
+    // Heads-up text (no rotation)
+    new Style({
+      image: new CircleStyle({
+        radius: 0, // Invisible, just for positioning
+      }),
+      text: new Text({
+        text: String(speed),
+        font: 'bold 14px system-ui, -apple-system, sans-serif',
+        fill: new Fill({ color: textColor }),
+        offsetY: 2, // Center in triangle (triangle points up, centroid is slightly below center)
+      }),
+      zIndex: 97,
+    }),
+  ];
 };
 
 export const createStyle = (config) => {

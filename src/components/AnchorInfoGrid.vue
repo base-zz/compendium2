@@ -21,6 +21,10 @@
         <div class="label-div">Wind</div>
         <div class="metric-div">{{ stateStore.state.navigation?.wind?.apparent?.speed?.value != null ? stateStore.state.navigation.wind.apparent.speed.value : '--' }}</div>
       </div>
+      <div class="info-cell">
+        <div class="label-div">Drift</div>
+        <div class="metric-div" :style="driftColorStyle">{{ driftDisplay }}</div>
+      </div>
       <!--
       <div class="info-cell">
         <div class="label-div">Current</div>
@@ -115,6 +119,7 @@ import { storeToRefs } from 'pinia';
 import { usePreferencesStore } from '@/stores/preferences';
 import { UnitConversion } from '@/shared/unitConversion';
 import { useDeviceHeading } from '@/composables/useDeviceHeading.js';
+import { calculateDistanceMeters } from '@/stores/stateDataStore';
 
 const emit = defineEmits(['anchor-dropped']);
 
@@ -363,7 +368,93 @@ const title = computed(() => {
   else return 'Not Anchored';
 });
 
-// Helper to get a safe, plain snapshot of the current navigation position
+// Calculate drift distance between current anchor location and original anchor location
+const driftDisplay = computed(() => {
+  if (!anchorState.value?.anchorDeployed) return '--';
+  
+  // Get original position (where anchor was initially calculated to be when dropped)
+  const originalPos = anchorState.value?.anchorLocation?.originalPosition;
+  // Get current anchor position
+  const currentPos = anchorState.value?.anchorLocation?.position;
+  
+  if (!originalPos || !currentPos) return '--';
+  
+  const origLat = originalPos.latitude?.value ?? originalPos.latitude;
+  const origLon = originalPos.longitude?.value ?? originalPos.longitude;
+  const currentLat = currentPos.latitude?.value ?? currentPos.latitude;
+  const currentLon = currentPos.longitude?.value ?? currentPos.longitude;
+  
+  if (typeof origLat !== 'number' || typeof origLon !== 'number' ||
+      typeof currentLat !== 'number' || typeof currentLon !== 'number') {
+    return '--';
+  }
+  
+  const distanceMeters = calculateDistanceMeters(origLat, origLon, currentLat, currentLon, true);
+  if (distanceMeters == null || !Number.isFinite(distanceMeters)) return '--';
+  
+  // Convert to preferred units
+  if (isMetric.value) {
+    if (distanceMeters >= 1000) {
+      return (distanceMeters / 1000).toFixed(2) + ' km';
+    }
+    return Math.round(distanceMeters) + ' m';
+  } else {
+    const distanceFt = distanceMeters * 3.28084;
+    if (distanceFt >= 5280) {
+      return (distanceFt / 5280).toFixed(2) + ' mi';
+    }
+    return Math.round(distanceFt) + ' ft';
+  }
+});
+
+// Determine drift color based on thresholds: >5ft/1.5m = yellow, >10ft/3m = red
+const driftColorStyle = computed(() => {
+  if (!anchorState.value?.anchorDeployed) return '';
+  
+  const originalPos = anchorState.value?.anchorLocation?.originalPosition;
+  const currentPos = anchorState.value?.anchorLocation?.position;
+  
+  if (!originalPos || !currentPos) return '';
+  
+  const origLat = originalPos.latitude?.value ?? originalPos.latitude;
+  const origLon = originalPos.longitude?.value ?? originalPos.longitude;
+  const currentLat = currentPos.latitude?.value ?? currentPos.latitude;
+  const currentLon = currentPos.longitude?.value ?? currentPos.longitude;
+  
+  if (typeof origLat !== 'number' || typeof origLon !== 'number' ||
+      typeof currentLat !== 'number' || typeof currentLon !== 'number') {
+    return '';
+  }
+  
+  const distanceMeters = calculateDistanceMeters(origLat, origLon, currentLat, currentLon, true);
+  if (distanceMeters == null || !Number.isFinite(distanceMeters)) return '';
+  
+  // Thresholds: 1.5m (yellow), 3m (red) for metric; 5ft (yellow), 10ft (red) for imperial
+  let t;
+  if (isMetric.value) {
+    t = Math.max(0, Math.min(1, distanceMeters / 3)); // 0m = 0, 3m = 1
+  } else {
+    t = Math.max(0, Math.min(1, (distanceMeters * 3.28084) / 10)); // 0ft = 0, 10ft = 1
+  }
+  
+  // Tween: white (0, 0, 1) → yellow (0.5, 1, 1) → red (1, 1, 1)
+  let r, g, b;
+  if (t <= 0.5) {
+    // White → Yellow
+    const localT = t * 2; // 0 to 1
+    r = Math.round(255); // White r=255, Yellow r=255
+    g = Math.round(255 - localT * (255 - 245)); // White g=255, Yellow g=245
+    b = Math.round(255 - localT * 255); // White b=255, Yellow b=0
+  } else {
+    // Yellow → Red
+    const localT = (t - 0.5) * 2; // 0 to 1
+    r = Math.round(255 - localT * (255 - 220)); // Yellow r=255, Red r=220
+    g = Math.round(245 - localT * 245); // Yellow g=245, Red g=0
+    b = 0; // Yellow b=0, Red b=0
+  }
+  
+  return `color: rgb(${r}, ${g}, ${b}); font-weight: ${t > 0.3 ? 700 : 600};`;
+});
 const getCurrentPositionSnapshot = () => {
   const nav = state.value?.navigation;
   const navPos = nav?.position;
@@ -480,14 +571,14 @@ const handleDropAnchor = () => {
 .info-cell {
   display: inline-block;
   vertical-align: top;
-  width: 18%;
-  min-width: 58px;
-  max-width: 110px;
+  width: 15%;
+  min-width: 50px;
+  max-width: 100px;
   min-height: 44px;
   background: color-mix(in srgb, var(--app-surface-color) 88%, var(--app-background-color) 12%);
   border: 1px solid var(--app-border-color);
   border-radius: 8px;
-  padding: 8px 4px;
+  padding: 8px 2px;
   margin: 1px;
   text-align: center;
 }
@@ -518,6 +609,16 @@ const handleDropAnchor = () => {
 
 .metric-div.clickable {
   cursor: pointer;
+}
+
+.metric-div.drift-warning {
+  color: #f59e0b;
+  font-weight: 700;
+}
+
+.metric-div.drift-critical {
+  color: #dc2626;
+  font-weight: 700;
 }
 
 .status-row {

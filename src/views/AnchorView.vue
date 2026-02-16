@@ -526,7 +526,6 @@ import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import Feature from "ol/Feature";
 import { Style, Stroke, Fill, Text } from "ol/style";
-import Icon from "ol/style/Icon";
 import CircleStyle from "ol/style/Circle";
 import { fromLonLat, toLonLat } from "ol/proj";
 import { Point } from "ol/geom";
@@ -543,7 +542,7 @@ import PinchRotate from "ol/interaction/PinchRotate";
 import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import { useMapTools } from "@/utils/mapUtils.js";
 import { useMapFeatures } from "@/utils/mapFeatures";
-import { STYLES, getWindIconSrc } from "@/utils/mapStyles";
+import { STYLES, createWindIndicatorStyle } from "@/utils/mapStyles";
 import { relayConnectionBridge } from "@/relay/client/RelayConnectionBridge.js";
 import { directConnectionAdapter } from "@/services/directConnectionAdapter.js";
 
@@ -659,7 +658,49 @@ function formatTime(date) {
   }).format(date);
 }
 
-// Boat dimensions from localStorage for tide safety calculations
+// Get current tide level from hourly data (interpolated)
+const getCurrentTideLevel = () => {
+  const tideData = stateStore.state.tides;
+  const hourlyTimes = tideData?.hourly?.time;
+  const hourlyLevels = tideData?.hourly?.values?.seaLevelHeightMsl;
+  if (!Array.isArray(hourlyTimes) || !Array.isArray(hourlyLevels)) return null;
+  
+  const minLen = Math.min(hourlyTimes.length, hourlyLevels.length);
+  if (minLen < 1) return null;
+  
+  const now = new Date();
+  const nowMs = now.getTime();
+  
+  const points = [];
+  for (let i = 0; i < minLen; i++) {
+    const t = new Date(hourlyTimes[i]);
+    const v = hourlyLevels[i];
+    if (Number.isNaN(t.getTime()) || typeof v !== 'number' || Number.isNaN(v)) continue;
+    points.push({ time: t.getTime(), level: v });
+  }
+  
+  if (points.length === 0) return null;
+  points.sort((a, b) => a.time - b.time);
+  
+  const first = points[0];
+  const last = points[points.length - 1];
+  
+  if (nowMs <= first.time) return first.level;
+  if (nowMs >= last.time) return last.level;
+  
+  // Linear interpolation
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (nowMs >= a.time && nowMs <= b.time) {
+      const dt = b.time - a.time;
+      if (dt === 0) return a.level;
+      const ratio = (nowMs - a.time) / dt;
+      return a.level + (b.level - a.level) * ratio;
+    }
+  }
+  return null;
+};
 const boatDimensions = computed(() => {
   const id = localStorage.getItem("activeBoatId");
   if (!id) return { draft: null, safeAnchoringDepth: null };
@@ -731,9 +772,10 @@ const tideExtremesTable = computed(() => {
     }
     
     // Format values - calculate actual water depth at anchor position
+    // Formula: currentDepth - currentTide + predictedTide = future water depth
     // NOAA tide data is always in feet
-    const formatValue = (tideHeight, time) => {
-      if (tideHeight == null) return '--';
+    const formatValue = (predictedTideHeight, time) => {
+      if (predictedTideHeight == null) return '--';
       const t = time ? formatTime(time) : '';
       
       // Get current depth below transducer
@@ -741,39 +783,67 @@ const tideExtremesTable = computed(() => {
       const depthUnits = anchorDepthWithUnits.value?.units || 'ft';
       
       if (depth != null) {
-        // Convert tide height to depth units if needed (NOAA tide is in feet)
-        let tideHeightInDepthUnits = tideHeight;
+        // Get current tide level and convert to depth units
+        const currentTideHeightFt = getCurrentTideLevel();
+        
+        // Convert predicted tide height to depth units
+        let predictedInDepthUnits = predictedTideHeight;
+        let currentInDepthUnits = currentTideHeightFt;
+        
         if (depthUnits === 'm') {
-          tideHeightInDepthUnits = tideHeight * 0.3048; // Convert feet to meters
+          predictedInDepthUnits = predictedTideHeight * 0.3048;
+          if (currentInDepthUnits != null) {
+            currentInDepthUnits = currentInDepthUnits * 0.3048;
+          }
         }
         
-        // Calculate actual water depth at anchor location
-        const waterDepth = (depth + tideHeightInDepthUnits).toFixed(1);
+        // Calculate water depth: currentDepth - currentTide + predictedTide
+        // This accounts for where we are on the tide curve
+        let waterDepth;
+        if (currentInDepthUnits != null) {
+          waterDepth = (depth - currentInDepthUnits + predictedInDepthUnits).toFixed(1);
+        } else {
+          // Fallback if no current tide data
+          waterDepth = (depth + predictedInDepthUnits).toFixed(1);
+        }
+        
         return `${waterDepth}${depthUnits} -- ${t}`;
       } else {
         // Fallback: show tide height relative to chart datum
-        return `${tideHeight.toFixed(1)}ft -- ${t}`;
+        return `${predictedTideHeight.toFixed(1)}ft -- ${t}`;
       }
     };
     
     const highText = formatValue(maxHigh?.height, maxHigh?.time ? new Date(maxHigh.time) : null);
     const lowText = formatValue(minLow?.height, minLow?.time ? new Date(minLow.time) : null);
     
-    // Get current depth for color calculation
+    // Get current depth and current tide for accurate calculation
     const currentDepth = anchorDepthWithUnits.value?.depth;
     const depthUnits = anchorDepthWithUnits.value?.units || 'ft';
+    const currentTideHeightFt = getCurrentTideLevel();
     
     // Determine low tide color based on calculated water depth vs boat dimensions
     let lowClass = 'low-cell-safe'; // default green
     if (minLow && currentDepth != null) {
-      // Convert tide height to depth units
-      let tideHeightInDepthUnits = minLow.height;
+      // Convert predicted tide height to depth units
+      let predictedTideInDepthUnits = minLow.height;
+      let currentTideInDepthUnits = currentTideHeightFt;
+      
       if (depthUnits === 'm') {
-        tideHeightInDepthUnits = minLow.height * 0.3048;
+        predictedTideInDepthUnits = minLow.height * 0.3048;
+        if (currentTideInDepthUnits != null) {
+          currentTideInDepthUnits = currentTideInDepthUnits * 0.3048;
+        }
       }
       
-      // Calculate actual water depth at low tide
-      const waterDepthAtLowTide = currentDepth + tideHeightInDepthUnits;
+      // Calculate water depth at low tide: currentDepth - currentTide + predictedTide
+      let waterDepthAtLowTide;
+      if (currentTideInDepthUnits != null) {
+        waterDepthAtLowTide = currentDepth - currentTideInDepthUnits + predictedTideInDepthUnits;
+      } else {
+        // Fallback
+        waterDepthAtLowTide = currentDepth + predictedTideInDepthUnits;
+      }
       
       const { draft, safeAnchoringDepth } = boatDimensions.value;
       
@@ -1425,6 +1495,218 @@ watch(
 
 // Feature Updates
 
+// Boat position animation state
+let currentBoatPosition = null; // { lat, lon, x, y } in map coordinates
+let boatAnimationFrame = null;
+let currentRodeLine = null; // { boat: {x, y}, anchor: {x, y} } in map coordinates
+let rodeAnimationFrame = null;
+
+// Animate boat position with interpolation - also updates rode line to keep them synced
+function animateBoatPosition(targetLat, targetLon, duration = 500) {
+  const targetCoord = fromLonLat([targetLon, targetLat]);
+  
+  // Get anchor position for rode line (anchor doesn't move during boat animation)
+  const state = stateStore.state;
+  const anchorPos = state?.anchor?.anchorLocation?.position;
+  let anchorCoord = null;
+  if (anchorPos) {
+    const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+    const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
+    if (typeof anchorLat === "number" && typeof anchorLon === "number") {
+      anchorCoord = fromLonLat([anchorLon, anchorLat]);
+    }
+  }
+  
+  // If no current position, just set it directly
+  if (!currentBoatPosition) {
+    currentBoatPosition = { lat: targetLat, lon: targetLon, x: targetCoord[0], y: targetCoord[1] };
+    updateBoatFeaturePosition(targetCoord[0], targetCoord[1]);
+    // Also set rode line if anchor exists
+    if (anchorCoord) {
+      currentRodeLine = { 
+        boat: { x: targetCoord[0], y: targetCoord[1] }, 
+        anchor: { x: anchorCoord[0], y: anchorCoord[1] } 
+      };
+      updateRodeFeaturePosition(targetCoord[0], targetCoord[1], anchorCoord[0], anchorCoord[1]);
+    }
+    return;
+  }
+  
+  // Cancel any existing boat animation
+  if (boatAnimationFrame) {
+    cancelAnimationFrame(boatAnimationFrame);
+    boatAnimationFrame = null;
+  }
+  
+  // Cancel any existing rode animation to prevent conflicts
+  if (rodeAnimationFrame) {
+    cancelAnimationFrame(rodeAnimationFrame);
+    rodeAnimationFrame = null;
+  }
+  
+  const startX = currentBoatPosition.x;
+  const startY = currentBoatPosition.y;
+  const startTime = performance.now();
+  
+  function step(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Ease-in-out easing
+    const easeProgress = progress < 0.5 
+      ? 2 * progress * progress 
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    
+    const currentX = startX + (targetCoord[0] - startX) * easeProgress;
+    const currentY = startY + (targetCoord[1] - startY) * easeProgress;
+    
+    // Update current position
+    currentBoatPosition.x = currentX;
+    currentBoatPosition.y = currentY;
+    currentBoatPosition.lat = targetLat;
+    currentBoatPosition.lon = targetLon;
+    
+    // Update the boat feature
+    updateBoatFeaturePosition(currentX, currentY);
+    
+    // Also update rode line in the same frame if anchor is deployed
+    if (anchorState.value?.anchorDeployed && anchorCoord) {
+      currentRodeLine = { 
+        boat: { x: currentX, y: currentY }, 
+        anchor: { x: anchorCoord[0], y: anchorCoord[1] } 
+      };
+      updateRodeFeaturePosition(currentX, currentY, anchorCoord[0], anchorCoord[1]);
+    }
+    
+    if (progress < 1) {
+      boatAnimationFrame = requestAnimationFrame(step);
+    }
+  }
+  
+  boatAnimationFrame = requestAnimationFrame(step);
+}
+
+// Update boat feature position
+function updateBoatFeaturePosition(x, y) {
+  const boatFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.BOAT);
+  if (!boatFeature) return;
+  
+  const geometry = boatFeature.getGeometry();
+  if (geometry && typeof geometry.setCoordinates === 'function') {
+    geometry.setCoordinates([x, y]);
+    boatFeature.changed();
+  }
+}
+
+// Animate rode line position
+function animateRodeLine(targetBoatX, targetBoatY, targetAnchorX, targetAnchorY, duration = 500) {
+  // If no current rode line, just create it directly
+  if (!currentRodeLine) {
+    currentRodeLine = { 
+      boat: { x: targetBoatX, y: targetBoatY }, 
+      anchor: { x: targetAnchorX, y: targetAnchorY } 
+    };
+    updateRodeFeaturePosition(targetBoatX, targetBoatY, targetAnchorX, targetAnchorY);
+    return;
+  }
+  
+  // Cancel any existing animation
+  if (rodeAnimationFrame) {
+    cancelAnimationFrame(rodeAnimationFrame);
+    rodeAnimationFrame = null;
+  }
+  
+  const startBoatX = currentRodeLine.boat.x;
+  const startBoatY = currentRodeLine.boat.y;
+  const startAnchorX = currentRodeLine.anchor.x;
+  const startAnchorY = currentRodeLine.anchor.y;
+  const startTime = performance.now();
+  
+  function step(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Ease-in-out easing
+    const easeProgress = progress < 0.5 
+      ? 2 * progress * progress 
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    
+    const currentBoatX = startBoatX + (targetBoatX - startBoatX) * easeProgress;
+    const currentBoatY = startBoatY + (targetBoatY - startBoatY) * easeProgress;
+    const currentAnchorX = startAnchorX + (targetAnchorX - startAnchorX) * easeProgress;
+    const currentAnchorY = startAnchorY + (targetAnchorY - startAnchorY) * easeProgress;
+    
+    // Update current position
+    currentRodeLine.boat.x = currentBoatX;
+    currentRodeLine.boat.y = currentBoatY;
+    currentRodeLine.anchor.x = currentAnchorX;
+    currentRodeLine.anchor.y = currentAnchorY;
+    
+    // Update the rode feature
+    updateRodeFeaturePosition(currentBoatX, currentBoatY, currentAnchorX, currentAnchorY);
+    
+    if (progress < 1) {
+      rodeAnimationFrame = requestAnimationFrame(step);
+    }
+  }
+  
+  rodeAnimationFrame = requestAnimationFrame(step);
+}
+
+// Update rode feature position
+function updateRodeFeaturePosition(boatX, boatY, anchorX, anchorY) {
+  const rodeFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.RODE);
+  if (!rodeFeature) return;
+  
+  const geometry = rodeFeature.getGeometry();
+  if (geometry && typeof geometry.setCoordinates === 'function') {
+    geometry.setCoordinates([[boatX, boatY], [anchorX, anchorY]]);
+    rodeFeature.changed();
+  }
+}
+
+// Update rode line using animation (DEPRECATED - now handled in boat animation)
+function updateRodeLineAnimated() {
+  const state = stateStore.state;
+  const boatPos = state?.navigation?.position;
+  const anchorPos = state?.anchor?.anchorLocation?.position;
+  
+  if (!boatPos || !anchorPos) return;
+  
+  const toScalar = (value) => {
+    if (value == null) return null;
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value === "object" && typeof value.value === "number") {
+      return Number.isFinite(value.value) ? value.value : null;
+    }
+    return null;
+  };
+  
+  const boatLat = toScalar(boatPos?.latitude);
+  const boatLon = toScalar(boatPos?.longitude);
+  const anchorLat = toScalar(anchorPos?.latitude);
+  const anchorLon = toScalar(anchorPos?.longitude);
+  
+  if (!Number.isFinite(boatLat) || !Number.isFinite(boatLon) ||
+      !Number.isFinite(anchorLat) || !Number.isFinite(anchorLon)) {
+    return;
+  }
+  
+  const boatCoord = fromLonLat([boatLon, boatLat]);
+  const anchorCoord = fromLonLat([anchorLon, anchorLat]);
+  
+  // If rode feature doesn't exist yet, create it
+  const rodeFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.RODE);
+  if (!rodeFeature) {
+    // Fall back to full update
+    updateRodeLine();
+    return;
+  }
+  
+  // Animate to new position
+  animateRodeLine(boatCoord[0], boatCoord[1], anchorCoord[0], anchorCoord[1], 500);
+}
+
 const updateBoatPosition = debounce(() => {
   // Get the raw state to ensure we're accessing the data directly
   const state = stateStore.state;
@@ -1454,55 +1736,102 @@ const updateBoatPosition = debounce(() => {
 
   logger.debug("Updating boat position:", { lat, lon });
 
-  // Create the map point
-  const point = new Point(fromLonLat([lon, lat]));
-
-  // Rotate boat icon
-  const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
+  // Check if boat feature exists
+  const boatFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.BOAT);
   
-  try {
-    const img = boatStyle?.getImage?.();
-    if (img && typeof img.setRotation === "function") {
-      const iconOffset = -Math.PI / 4; // -45 degrees to compensate for icon's natural orientation
-
-      const isAnchorDeployed = state?.anchor?.anchorDeployed === true;
-
-      // If anchor is deployed, point the boat toward the anchor location (rode direction)
-      if (isAnchorDeployed) {
-        const anchorPos = state?.anchor?.anchorLocation?.position;
-        if (anchorPos) {
-          const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
-          const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
-          if (typeof anchorLat === "number" && typeof anchorLon === "number") {
-            const dLon = anchorLon - lon;
-            const dLat = anchorLat - lat;
-            const angleToAnchor = Math.atan2(dLon, dLat);
-            img.setRotation(angleToAnchor + iconOffset);
+  if (!boatFeature) {
+    // First time - create the feature with full styling
+    const point = new Point(fromLonLat([lon, lat]));
+    
+    // Clone style and set rotation
+    const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
+    
+    try {
+      const img = boatStyle?.getImage?.();
+      if (img && typeof img.setRotation === "function") {
+        const iconOffset = -Math.PI / 4 + Math.PI; // Combined: rotate 135 degrees total to fix boat orientation
+        const isAnchorDeployed = state?.anchor?.anchorDeployed === true;
+        
+        if (isAnchorDeployed) {
+          const anchorPos = state?.anchor?.anchorLocation?.position;
+          if (anchorPos) {
+            const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+            const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
+            if (typeof anchorLat === "number" && typeof anchorLon === "number") {
+              const dLon = anchorLon - lon;
+              const dLat = anchorLat - lat;
+              const angleToAnchor = Math.atan2(dLon, dLat);
+              img.setRotation(angleToAnchor + iconOffset + Math.PI);
+            }
+          }
+        } else {
+          const headingTrueDeg = state?.navigation?.course?.heading?.true?.value;
+          const cogDeg = state?.navigation?.course?.cog?.value;
+          const angleDeg = typeof headingTrueDeg === "number" ? headingTrueDeg 
+            : typeof cogDeg === "number" ? cogDeg : null;
+          
+          if (typeof angleDeg === "number" && Number.isFinite(angleDeg)) {
+            const headingRad = (angleDeg * Math.PI) / 180;
+            img.setRotation(headingRad + iconOffset + Math.PI);
           }
         }
-      } else {
-        // If anchor is NOT deployed, rotate by heading/COG
-        const headingTrueDeg = state?.navigation?.course?.heading?.true?.value;
-        const cogDeg = state?.navigation?.course?.cog?.value;
-
-        const angleDeg =
-          typeof headingTrueDeg === "number"
-            ? headingTrueDeg
-            : typeof cogDeg === "number"
-              ? cogDeg
-              : null;
-
-        if (typeof angleDeg === "number" && Number.isFinite(angleDeg)) {
-          const headingRad = (angleDeg * Math.PI) / 180;
-          img.setRotation(headingRad + iconOffset);
+      }
+    } catch (e) {
+      // If rotation fails, continue without rotation
+    }
+    
+    updateFeature(FEATURE_TYPES.BOAT, point, boatStyle);
+    
+    // Initialize current boat position for future animations
+    const coord = fromLonLat([lon, lat]);
+    currentBoatPosition = { lat, lon, x: coord[0], y: coord[1] };
+  } else {
+    // Feature exists - update rotation and animate position
+    try {
+      let style = boatFeature.getStyle();
+      if (typeof style === 'function') {
+        style = style(boatFeature, 0);
+      }
+      if (style) {
+        const img = style.getImage?.();
+        if (img && typeof img.setRotation === "function") {
+          const iconOffset = -Math.PI / 4 + Math.PI;
+          const isAnchorDeployed = state?.anchor?.anchorDeployed === true;
+          
+          if (isAnchorDeployed) {
+            const anchorPos = state?.anchor?.anchorLocation?.position;
+            if (anchorPos) {
+              const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+              const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
+              if (typeof anchorLat === "number" && typeof anchorLon === "number") {
+                const dLon = anchorLon - lon;
+                const dLat = anchorLat - lat;
+                const angleToAnchor = Math.atan2(dLon, dLat);
+                img.setRotation(angleToAnchor + iconOffset + Math.PI);
+                boatFeature.changed();
+              }
+            }
+          } else {
+            const headingTrueDeg = state?.navigation?.course?.heading?.true?.value;
+            const cogDeg = state?.navigation?.course?.cog?.value;
+            const angleDeg = typeof headingTrueDeg === "number" ? headingTrueDeg 
+              : typeof cogDeg === "number" ? cogDeg : null;
+            
+            if (typeof angleDeg === "number" && Number.isFinite(angleDeg)) {
+              const headingRad = (angleDeg * Math.PI) / 180;
+              img.setRotation(headingRad + iconOffset + Math.PI);
+              boatFeature.changed();
+            }
+          }
         }
       }
+    } catch (e) {
+      // If rotation fails, continue
     }
-  } catch (e) {
-    // If rotation fails, keep rendering the boat marker without rotation.
+    
+    // Animate to new position
+    animateBoatPosition(lat, lon, 500);
   }
-
-  updateFeature(FEATURE_TYPES.BOAT, point, boatStyle);
 }, 100);
 
 const getBoatCenterCoord = () => {
@@ -1684,15 +2013,53 @@ const getTrueWindDirectionDegrees = () => {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 };
 
-const updateWindIndicator = debounce((centerLat, centerLon, radiusInMeters) => {
-  clearFeature(FEATURE_TYPES.WIND);
+// Wind rotation animation state
+let currentWindRotation = 0;
+let windAnimationFrame = null;
+let currentWindPosition = null; // Track current position for smooth animation
+let isWindInitialLoad = true;
 
+// Track if this is the initial AIS update to prevent false warnings on load
+let isAisInitialLoad = true;
+
+// Update wind feature with specific rotation value
+function updateWindFeatureWithRotation(rotation) {
+  const windFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.WIND);
+  if (!windFeature) return;
+  
+  // Get style - could be a function, single style, or array of styles
+  let style = windFeature.getStyle();
+  if (typeof style === 'function') {
+    style = style(windFeature, 0); // 0 is resolution
+  }
+  if (!style) return;
+  
+  // Handle array of styles
+  const styles = Array.isArray(style) ? style : [style];
+  if (styles.length === 0) return;
+  
+  // Get the first style's image
+  const firstStyle = styles[0];
+  if (!firstStyle || typeof firstStyle.getImage !== 'function') return;
+  
+  const image = firstStyle.getImage();
+  if (!image) return;
+  
+  // Update rotation
+  image.setRotation(rotation);
+  windFeature.changed();
+}
+
+const updateWindIndicator = (centerLat, centerLon, radiusInMeters) => {
   if (typeof centerLat !== "number" || typeof centerLon !== "number") return;
-  if (typeof radiusInMeters !== "number" || !Number.isFinite(radiusInMeters) || radiusInMeters <= 0) return;
+  if (typeof radiusInMeters !== "number" || !Number.isFinite(radiusInMeters) || radiusInMeters < 10) {
+    radiusInMeters = 50; // Default minimum radius
+  }
 
   const windFromDegrees = getTrueWindDirectionDegrees();
   if (windFromDegrees == null) return;
 
+  // Calculate target rim position
   let rim;
   try {
     rim = calculateDestinationLatLon(centerLat, centerLon, radiusInMeters, windFromDegrees);
@@ -1704,37 +2071,132 @@ const updateWindIndicator = debounce((centerLat, centerLon, radiusInMeters) => {
   const rimLon = rim?.longitude;
   if (typeof rimLat !== "number" || typeof rimLon !== "number") return;
 
-  const geometry = new Point(fromLonLat([rimLon, rimLat]));
+  const targetCoord = fromLonLat([rimLon, rimLat]);
 
+  // Calculate target rotation
   const dLon = centerLon - rimLon;
   const dLat = centerLat - rimLat;
-  const angleToCenter = Math.atan2(dLon, dLat);
+  const targetRotation = Math.atan2(dLon, dLat);
 
   // Get apparent wind speed for display inside the triangle
   const windSpeed = state.value?.navigation?.wind?.apparent?.speed?.value ?? 
                    state.value?.navigation?.wind?.true?.speed?.value ?? '';
 
-  const windIconSrc = getWindIconSrc(windSpeed, isDarkMode.value);
+  // Check if wind feature already exists
+  const existingFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.WIND);
+  
+  if (existingFeature) {
+    // Get current position for animation
+    const geometry = existingFeature.getGeometry();
+    let startCoord;
+    if (currentWindPosition) {
+      startCoord = [currentWindPosition.x, currentWindPosition.y];
+    } else if (geometry) {
+      startCoord = geometry.getCoordinates();
+      currentWindPosition = { x: startCoord[0], y: startCoord[1] };
+    } else {
+      startCoord = targetCoord;
+      currentWindPosition = { x: targetCoord[0], y: targetCoord[1] };
+    }
+    
+    // On initial load, set position directly without animation
+    if (isWindInitialLoad) {
+      const geom = existingFeature.getGeometry();
+      if (geom && typeof geom.setCoordinates === 'function') {
+        geom.setCoordinates(targetCoord);
+      }
+      // Update rotation directly
+      const styles = existingFeature.getStyle();
+      if (styles && Array.isArray(styles) && styles[0]) {
+        const image = styles[0].getImage();
+        if (image && typeof image.setRotation === 'function') {
+          image.setRotation(targetRotation);
+          existingFeature.changed();
+        }
+      }
+      currentWindPosition = { x: targetCoord[0], y: targetCoord[1] };
+      currentWindRotation = targetRotation;
+      isWindInitialLoad = false;
+      return;
+    }
+    
+    // Animate both position and rotation together
+    animateWindIndicator(startCoord, targetCoord, currentWindRotation, targetRotation, existingFeature, 500);
+  } else {
+    // Create new feature with heads-up text
+    const windStyles = createWindIndicatorStyle(windSpeed, isDarkMode.value, targetRotation);
 
-  // Responsive scale: smaller on mobile, larger on desktop
-  const windIconScale = window.innerWidth < 768 ? 0.6 : 1.0;
+    const windFeature = new Feature({
+      geometry: new Point(targetCoord),
+    });
+    windFeature.set("type", FEATURE_TYPES.WIND);
+    windFeature.setStyle(windStyles);
+    vectorSource.addFeature(windFeature);
+    
+    // Initialize position tracking
+    currentWindPosition = { x: targetCoord[0], y: targetCoord[1] };
+    currentWindRotation = targetRotation;
+    isWindInitialLoad = false;
+  }
+};
 
-  const fillStyle = new Style({
-    image: new Icon({
-      src: windIconSrc,
-      anchor: [0.5, 0.5],
-      anchorXUnits: "fraction",
-      anchorYUnits: "fraction",
-      imgSize: [64, 64],
-      scale: windIconScale,
-      rotateWithView: false,
-      rotation: angleToCenter,
-    }),
-    zIndex: 96,
-  });
-
-  updateFeature(FEATURE_TYPES.WIND, geometry, [fillStyle]);
-}, 150);
+// Animate wind indicator position and rotation together
+function animateWindIndicator(startCoord, targetCoord, startRotation, targetRotation, feature, duration = 500) {
+  if (windAnimationFrame) {
+    cancelAnimationFrame(windAnimationFrame);
+    windAnimationFrame = null;
+  }
+  
+  const startTime = performance.now();
+  const startX = startCoord[0];
+  const startY = startCoord[1];
+  const targetX = targetCoord[0];
+  const targetY = targetCoord[1];
+  
+  // Calculate shortest rotation path
+  let rotDiff = targetRotation - startRotation;
+  while (rotDiff > Math.PI) rotDiff -= 2 * Math.PI;
+  while (rotDiff < -Math.PI) rotDiff += 2 * Math.PI;
+  const finalTargetRotation = startRotation + rotDiff;
+  
+  function step(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Ease-in-out easing
+    const easeProgress = progress < 0.5 
+      ? 2 * progress * progress 
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    
+    // Interpolate position
+    const currentX = startX + (targetX - startX) * easeProgress;
+    const currentY = startY + (targetY - startY) * easeProgress;
+    
+    // Interpolate rotation
+    const currentRotation = startRotation + (finalTargetRotation - startRotation) * easeProgress;
+    
+    // Update position
+    const geometry = feature.getGeometry();
+    if (geometry && typeof geometry.setCoordinates === 'function') {
+      geometry.setCoordinates([currentX, currentY]);
+    }
+    
+    // Update rotation
+    updateWindFeatureWithRotation(currentRotation);
+    
+    // Store current state
+    currentWindPosition = { x: currentX, y: currentY };
+    currentWindRotation = currentRotation;
+    
+    if (progress < 1) {
+      windAnimationFrame = requestAnimationFrame(step);
+    } else {
+      windAnimationFrame = null;
+    }
+  }
+  
+  windAnimationFrame = requestAnimationFrame(step);
+}
 
 const updateCriticalRangeCircle = debounce(() => {
   // Check if anchorState exists first
@@ -1840,14 +2302,28 @@ watch(
     return typeof raw === "number" ? raw : null;
   },
   () => {
-    if (!anchorState.value?.position) return;
-    const { latitude, longitude } = anchorState.value.position;
-    const criticalRadius = anchorState.value.criticalRange;
-    const rodeLengthMeters = convertRodeToMeters(
-      anchorState.value.rode,
-      anchorState.value.rodeUnit
-    );
-    const radiusInMeters = rodeLengthMeters > 0 ? rodeLengthMeters : criticalRadius;
+    // Get anchor position from anchorLocation, not position
+    const anchorPos = anchorState.value?.anchorLocation?.position;
+    if (!anchorPos) return;
+    const latitude = anchorPos.latitude?.value ?? anchorPos.latitude;
+    const longitude = anchorPos.longitude?.value ?? anchorPos.longitude;
+    if (typeof latitude !== "number" || typeof longitude !== "number") return;
+    
+    // Calculate radius in meters from rode settings
+    const rode = anchorState.value?.rode;
+    let radiusInMeters = anchorState.value?.criticalRange?.r ?? 50;
+    if (rode && typeof rode.amount === "number") {
+      const rodeMeters = rode.units?.toLowerCase().startsWith("ft") 
+        ? rode.amount / 3.28084 
+        : rode.amount;
+      if (rodeMeters > 0) radiusInMeters = rodeMeters;
+    }
+    
+    // Enforce minimum radius to prevent indicator jumping to center
+    if (radiusInMeters < 10) radiusInMeters = 50;
+    
+    // console.log('[WindDebug] Radius calculation:', { radiusInMeters, rode: anchorState.value?.rode, criticalRange: anchorState.value?.criticalRange });
+    
     updateWindIndicator(latitude, longitude, radiusInMeters);
   }
 );
@@ -1965,8 +2441,8 @@ const updateRodeLine = debounce(() => {
     // Create a custom style with high visibility
     const rodeStyle = new Style({
       stroke: new Stroke({
-        color: "#FF5722", // Deep orange
-        width: 4,
+        color: "rgba(255, 87, 34, 0.8)", // Deep orange with 0.8 opacity
+        width: 3,
         lineDash: [10, 5],
       }),
       zIndex: 100, // Ensure it's on top
@@ -2026,6 +2502,13 @@ const getAisStyle = () => {
 };
 
 const updateAisTargets = debounce(() => {
+  // Skip initial load to prevent false warnings before data is ready
+  if (isAisInitialLoad) {
+    logger.debug("Skipping initial AIS update - waiting for data to settle");
+    isAisInitialLoad = false;
+    return;
+  }
+  
   logger.debug(`Updating ${aisTargets.value?.length || 0} AIS targets`);
 
   // Skip if no targets
@@ -2485,13 +2968,55 @@ const initializeMap = () => {
         type: FEATURE_TYPES.BOAT,
       });
 
-      // Set the boat style
-      boatFeature.setStyle(STYLES.BOAT);
+      // Clone style and set rotation
+      const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
+      
+      try {
+        const img = boatStyle?.getImage?.();
+        if (img && typeof img.setRotation === "function") {
+          const iconOffset = -Math.PI / 4 + Math.PI; // Same as in updateBoatPosition
+          
+          // Check if anchor is deployed for initial rotation
+          const isAnchorDeployed = anchor?.anchorDeployed === true;
+          
+          if (isAnchorDeployed) {
+            const anchorPos = anchor?.anchorLocation?.position;
+            if (anchorPos) {
+              const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+              const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
+              if (typeof anchorLat === "number" && typeof anchorLon === "number") {
+                const dLon = anchorLon - centerLon;
+                const dLat = anchorLat - centerLat;
+                const angleToAnchor = Math.atan2(dLon, dLat);
+                img.setRotation(angleToAnchor + iconOffset + Math.PI);
+              }
+            }
+          } else {
+            // Use heading/COG if available
+            const headingTrueDeg = pos?.course?.heading?.true?.value;
+            const cogDeg = pos?.course?.cog?.value;
+            const angleDeg = typeof headingTrueDeg === "number" ? headingTrueDeg 
+              : typeof cogDeg === "number" ? cogDeg : null;
+            
+            if (typeof angleDeg === "number" && Number.isFinite(angleDeg)) {
+              const headingRad = (angleDeg * Math.PI) / 180;
+              img.setRotation(headingRad + iconOffset + Math.PI);
+            }
+          }
+        }
+      } catch (e) {
+        // If rotation fails, continue without rotation
+      }
+      
+      boatFeature.setStyle(boatStyle);
 
       // Add the boat feature to the vector source
       vectorSource.addFeature(boatFeature);
+      
+      // Initialize current boat position for animations
+      currentBoatPosition = { lat: centerLat, lon: centerLon, x: defaultCenter[0], y: defaultCenter[1] };
 
-      logger.debug("Boat feature added successfully");
+      logger.debug("Boat feature added successfully with rotation");
     } catch (error) {
       logger.error("Error adding boat feature", { error });
     }
@@ -3319,6 +3844,10 @@ const handleSetAnchor = () => {
       },
       anchorLocation: {
         position: {
+          latitude: { value: computedAnchorLocation.latitude, units: "deg" },
+          longitude: { value: computedAnchorLocation.longitude, units: "deg" },
+        },
+        originalPosition: {
           latitude: { value: computedAnchorLocation.latitude, units: "deg" },
           longitude: { value: computedAnchorLocation.longitude, units: "deg" },
         },

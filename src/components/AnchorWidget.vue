@@ -85,13 +85,13 @@
           <path
             class="wind-indicator"
             :fill="windIndicatorFill"
-            d="M0 -16 L12 10 L-12 10 Z"
+            d="M0 -12 L9 7.5 L-9 7.5 Z"
           />
           <text
             v-if="windSpeedLabel"
             class="wind-indicator-text"
             x="0"
-            y="6"
+            y="1"
             text-anchor="middle"
             :fill="windIndicatorTextFill"
             :transform="`rotate(${-windIndicator.rotation})`"
@@ -131,7 +131,7 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import {
   useStateDataStore,
@@ -153,6 +153,13 @@ const alertState = computed(() => state.value.alerts?.active || []);
 
 const isDarkMode = computed(() => preferencesStore.darkMode === true);
 let stopStateLogging = null;
+
+// Wind indicator animation state
+const currentWindX = ref(CENTER);
+const currentWindY = ref(CENTER - CRITICAL_RADIUS);
+const currentWindRotation = ref(180);
+let windAnimationFrame = null;
+let isWindInitialLoad = true;
 
 // onMounted(() => {
 //   clockTimer = window.setInterval(() => {
@@ -520,7 +527,8 @@ const windSpeedLabel = computed(() => {
 const windIndicatorFill = computed(() => (isDarkMode.value ? "#FFFFFF" : "#007BFF"));
 const windIndicatorTextFill = computed(() => (isDarkMode.value ? "#000000" : "#FFFFFF"));
 
-const windIndicator = computed(() => {
+// Calculate target wind position from direction
+const targetWindIndicator = computed(() => {
   const degrees = windFromDegrees.value;
   const radius = criticalRadiusPx.value;
   if (degrees == null) return null;
@@ -532,6 +540,76 @@ const windIndicator = computed(() => {
   const rotation = degrees + 180;
   return { x, y, rotation };
 });
+
+// Animated wind indicator using refs
+const windIndicator = computed(() => {
+  if (targetWindIndicator.value == null) return null;
+  return {
+    x: currentWindX.value,
+    y: currentWindY.value,
+    rotation: currentWindRotation.value,
+  };
+});
+
+// Watch for wind direction changes and animate
+watch(targetWindIndicator, (target) => {
+  if (!target) return;
+  
+  // On initial load, set position directly without animation
+  if (isWindInitialLoad) {
+    currentWindX.value = target.x;
+    currentWindY.value = target.y;
+    currentWindRotation.value = target.rotation;
+    isWindInitialLoad = false;
+    return;
+  }
+  
+  // Cancel any existing animation
+  if (windAnimationFrame) {
+    cancelAnimationFrame(windAnimationFrame);
+  }
+  
+  const startX = currentWindX.value;
+  const startY = currentWindY.value;
+  const startRotation = currentWindRotation.value;
+  const targetX = target.x;
+  const targetY = target.y;
+  const targetRotation = target.rotation;
+  
+  // Calculate shortest rotation path
+  let rotDiff = targetRotation - startRotation;
+  while (rotDiff > 180) rotDiff -= 360;
+  while (rotDiff < -180) rotDiff += 360;
+  const finalTargetRotation = startRotation + rotDiff;
+  
+  const startTime = performance.now();
+  const duration = 500; // ms
+  
+  function step(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Ease-in-out easing
+    const easeProgress = progress < 0.5 
+      ? 2 * progress * progress 
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    
+    // Interpolate position
+    currentWindX.value = startX + (targetX - startX) * easeProgress;
+    currentWindY.value = startY + (targetY - startY) * easeProgress;
+    
+    // Interpolate rotation
+    currentWindRotation.value = startRotation + (finalTargetRotation - startRotation) * easeProgress;
+    
+    if (progress < 1) {
+      windAnimationFrame = requestAnimationFrame(step);
+    } else {
+      windAnimationFrame = null;
+    }
+  }
+  
+  windAnimationFrame = requestAnimationFrame(step);
+}, { immediate: true });
 
 const criticalRangeClass = computed(() => {
   return hasCriticalRangeAlert.value ? "critical-range-alert" : "critical-range";

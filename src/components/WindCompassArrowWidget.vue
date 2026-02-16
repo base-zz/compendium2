@@ -49,7 +49,11 @@
         </g>
         
         <!-- Rotating arrow group pointing toward center -->
-        <g class="arrow-group" :style="arrowGroupStyle">
+        <g
+          ref="arrowGroupRef"
+          class="arrow-group"
+          :style="arrowGroupStyle"
+        >
           <polygon class="arrow" :points="arrowPoints" :style="arrowStyle" />
         </g>
         
@@ -62,7 +66,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useStateDataStore } from "@/stores/stateDataStore";
 import { storeToRefs } from "pinia";
 
@@ -176,21 +180,64 @@ const arrowStyle = computed(() => ({
   transition: "fill 0.2s ease, stroke 0.2s ease",
 }));
 
+// Reference to the arrow group for animation
+const arrowGroupRef = ref(null);
+const currentArrowAngle = ref(0);
 const arrowTransitionReady = ref(false);
+
+// Animate rotation using Web Animations API (same approach as Sail360Component)
+function animateArrowRotation(targetAngle) {
+  if (!arrowGroupRef.value) return;
+  
+  // Normalize target to 0-360
+  let normalizedTarget = targetAngle % 360;
+  if (normalizedTarget < 0) normalizedTarget += 360;
+  
+  // Get current angle from ref
+  let currentAngle = currentArrowAngle.value % 360;
+  if (currentAngle < 0) currentAngle += 360;
+  
+  // Find shortest rotation path (handle 350° -> 10° wraparound)
+  let diff = normalizedTarget - currentAngle;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  
+  const finalAngle = currentAngle + diff;
+  
+  // Update the ref for next time
+  currentArrowAngle.value = finalAngle;
+  
+  // Use Web Animations API
+  arrowGroupRef.value.animate([
+    { transform: `translate(${centerX}px, ${centerY}px) rotate(${currentAngle}deg)` },
+    { transform: `translate(${centerX}px, ${centerY}px) rotate(${finalAngle}deg)` }
+  ], {
+    duration: 500,
+    iterations: 1,
+    fill: 'forwards',
+    easing: 'ease-in-out'
+  });
+}
 
 onMounted(() => {
   requestAnimationFrame(() => {
     arrowTransitionReady.value = true;
+    // Initialize current angle
+    currentArrowAngle.value = normalizedAngle.value ?? 0;
+    // Initial animation
+    animateArrowRotation(normalizedAngle.value ?? 0);
   });
 });
 
-const arrowGroupStyle = computed(() => {
-  const angle = normalizedAngle.value ?? 0;
-  return {
-    transform: `translate(${centerX}px, ${centerY}px) rotate(${angle}deg)`,
-    transition: arrowTransitionReady.value ? "transform 0.6s ease-in-out" : "none",
-  };
+watch(normalizedAngle, (newAngle) => {
+  if (typeof newAngle === 'number' && arrowTransitionReady.value) {
+    animateArrowRotation(newAngle);
+  }
 });
+
+const arrowGroupStyle = computed(() => ({
+  transform: `translate(${centerX}px, ${centerY}px) rotate(${currentArrowAngle.value}deg)`,
+}));
 
 // Generate degree markers every 30 degrees
 const degreeMarkers = computed(() => {
@@ -285,7 +332,7 @@ function getMarkerPoint(angleDeg, r) {
 
 .arrow-group {
   transform-origin: 0 0;
-  transition: transform 0.6s ease-in-out;
+  /* No CSS transition - using Web Animations API */
 }
 
 .arrow {

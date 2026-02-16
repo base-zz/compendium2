@@ -515,24 +515,41 @@ const tideExtremesTable = computed(() => {
     }
     
     // Format values - adjust for anchor depth if in anchor mode
+    // Formula: anchorDepth - currentTide + predictedTide = future water depth
     // Tide data from NOAA is always in feet, so convert if needed
-    const formatValue = (height, time) => {
-      if (height == null) return '--';
+    const formatValue = (predictedTideHeight, time) => {
+      if (predictedTideHeight == null) return '--';
       const t = time ? formatTime(time) : '';
       
       if (isAnchorMode && anchorDepth != null) {
-        // Convert tide height to depth units if needed (NOAA tide is in feet)
-        let tideHeightInDepthUnits = height;
+        // Get current tide level from hourly data
+        const currentTideLevel = currentTideLevelFromHourly.value;
+        
+        // Convert predicted tide height to depth units if needed (NOAA tide is in feet)
+        let predictedInDepthUnits = predictedTideHeight;
+        let currentInDepthUnits = currentTideLevel;
+        
         if (props.depthUnits === 'm') {
-          tideHeightInDepthUnits = height * 0.3048; // Convert feet to meters
+          predictedInDepthUnits = predictedTideHeight * 0.3048; // Convert feet to meters
+          if (currentInDepthUnits != null) {
+            currentInDepthUnits = currentInDepthUnits * 0.3048;
+          }
         }
         
-        // Show actual water depth at anchor location
-        const waterDepth = (anchorDepth + tideHeightInDepthUnits).toFixed(1);
+        // Calculate water depth: anchorDepth - currentTide + predictedTide
+        // This accounts for where we are on the tide curve
+        let waterDepth;
+        if (currentInDepthUnits != null) {
+          waterDepth = (anchorDepth - currentInDepthUnits + predictedInDepthUnits).toFixed(1);
+        } else {
+          // Fallback if no current tide data
+          waterDepth = (anchorDepth + predictedInDepthUnits).toFixed(1);
+        }
+        
         return `${waterDepth}${props.depthUnits === 'm' ? 'm' : 'ft'} -- ${t}`;
       } else {
         // Show tide height relative to chart datum (always in feet from NOAA)
-        return `${height.toFixed(1)}ft -- ${t}`;
+        return `${predictedTideHeight.toFixed(1)}ft -- ${t}`;
       }
     };
     
