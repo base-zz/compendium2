@@ -167,7 +167,7 @@ const displayArrowAngle = computed(() => {
   if (typeof normalizedAngle.value !== "number") {
     return null;
   }
-  return (normalizedAngle.value + 180) % 360;
+  return normalizedAngle.value;
 });
 
 // Arrow points inward toward center, positioned on circumference

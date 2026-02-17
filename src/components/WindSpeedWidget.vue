@@ -171,9 +171,9 @@ const caretStyle = computed(() => ({
 }));
 
 const caretPoints = computed(() => {
-  const tipRadius = radius - 6;
-  const shoulderRadius = radius - 28;
-  const tailRadius = radius - 46;
+  const tipRadius = radius - 30;
+  const shoulderRadius = radius - 8;
+  const tailRadius = radius - 4;
   const shoulderHalfWidth = 11;
   const tailHalfWidth = 4;
 

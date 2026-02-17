@@ -82,143 +82,37 @@
         </g>
         <g ref="power-group" transform="translate(1.5, 0) scale(0.98)">
           <rect
-            ref="power-10"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
+            class="power power-track"
             x="35"
             y="46"
             width="70"
-            height="19"
+            height="235"
+            fill-opacity="0.12"
             :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
-
           <rect
-            ref="power-9"
             class="power"
             :class="pastThreshold ? 'critical' : ''"
             x="35"
-            y="70"
+            :y="powerFillY"
             width="70"
-            height="19"
+            :height="powerFillHeight"
             :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
             stroke-width="1"
             rx="5"
           ></rect>
-
           <rect
-            ref="power-8"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
+            v-if="powerFillHeight > 0"
+            class="power-level-cap"
             x="35"
-            y="94"
+            :y="powerFillY"
             width="70"
-            height="19"
-            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            stroke-width="1"
-            rx="5"
-          ></rect>
-
-          <rect
-            ref="power-7"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
-            x="35"
-            y="118"
-            width="70"
-            height="19"
-            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            stroke-width="1"
-            rx="5"
-          ></rect>
-
-          <rect
-            ref="power-6"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
-            x="35"
-            y="142"
-            width="70"
-            height="19"
-            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            stroke-width="1"
-            rx="5"
-          ></rect>
-
-          <rect
-            ref="power-5"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
-            x="35"
-            y="166"
-            width="70"
-            height="19"
-            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            stroke-width="1"
-            rx="5"
-          ></rect>
-
-          <rect
-            ref="power-4"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
-            x="35"
-            y="190"
-            width="70"
-            height="19"
-            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            stroke-width="1"
-            rx="5"
-          ></rect>
-
-          <rect
-            ref="power-3"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
-            x="35"
-            y="214"
-            width="70"
-            height="19"
-            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            stroke-width="1"
-            rx="5"
-          ></rect>
-
-          <rect
-            ref="power-2"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
-            x="35"
-            y="238"
-            width="70"
-            height="19"
-            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            stroke-width="1"
-            rx="5"
-          ></rect>
-
-          <rect
-            ref="power-1"
-            class="power"
-            :class="pastThreshold ? 'critical' : ''"
-            x="35"
-            y="262"
-            width="70"
-            height="19"
-            :stroke="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            :fill="alertSeverity === 'critical' ? '#ef4444' : alertSeverity === 'warning' ? '#f59e0b' : widgetColor"
-            stroke-width="1"
-            rx="5"
+            height="2"
+            rx="1"
           ></rect>
         </g>
         <g transform="translate(118,35)">
@@ -383,42 +277,31 @@ const resizeTitle = () => {
   el.setAttribute('font-size', `${newSize}px`)
 };
 
-const powerSegments = ref([])
+const powerFillTopY = 46
+const powerFillBottomY = 281
+const powerFillRange = powerFillBottomY - powerFillTopY
 
-const initializePowerSegments = () => {
-  powerSegments.value = Array.from({ length: 10 }, (_, index) => {
-    const segment = svg.value?.querySelector(`#power-${10 - index}`)
-    return segment || null
-  })
-}
-
-const setPowerMarker = () => {
-  if (!svg.value) {
-    return
+const normalizedBatteryPercent = computed(() => {
+  const rawValue = Number(batteryValue.value)
+  if (!Number.isFinite(rawValue)) {
+    return 0
   }
-
-  if (!powerSegments.value.length) {
-    initializePowerSegments()
+  if (rawValue < 0) {
+    return 0
   }
-
-  if (!powerSegments.value.length) {
-    return
+  if (rawValue > 100) {
+    return 100
   }
+  return rawValue
+})
 
-  const value = Number.isFinite(batteryValue.value) ? batteryValue.value : 0
-  const normalized = Math.max(0, Math.min(100, value))
-  const activeCount = Math.round((normalized / 100) * powerSegments.value.length)
+const powerFillHeight = computed(() => {
+  return (normalizedBatteryPercent.value / 100) * powerFillRange
+})
 
-  powerSegments.value.forEach((segment, idx) => {
-    if (!segment) {
-      return
-    }
-
-    const isActive = idx < activeCount
-    segment.setAttribute('fill-opacity', isActive ? '1' : '0.15')
-    segment.setAttribute('stroke-opacity', isActive ? '1' : '0.25')
-  })
-}
+const powerFillY = computed(() => {
+  return powerFillBottomY - powerFillHeight.value
+})
 
 const generateBatteryAlerts = () => {
   // Alerts disabled temporarily; implementation needs store integration
@@ -485,7 +368,6 @@ const pastThreshold = computed(() => {
 watch(batteryValue, () => {
   nextTick(() => {
     adjustFontSize()
-    setPowerMarker()
     resizeTitle()
 
     // Generate alerts based on battery level and threshold
@@ -505,7 +387,6 @@ const setupComponent = () => {
   nextTick(() => {
     adjustFontSize();
     resizeTitle();
-    setPowerMarker();
 
     // Emit mounted event once the component is fully initialized
     emit('mounted')
@@ -655,6 +536,11 @@ text {
   -webkit-tap-highlight-color: transparent !important;
   -webkit-touch-callout: none !important;
   user-select: none !important;
+}
+
+.power-level-cap {
+  fill: rgba(255, 255, 255, 0.38);
+  stroke: none;
 }
 
 .no-tap-highlight {
