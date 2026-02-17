@@ -92,6 +92,16 @@
           style="margin-bottom: 18px; width: 80%"
         />
 
+        <div class="fence-visibility-setting">
+          <label for="fence-connector-toggle">Show fence connector lines</label>
+          <input
+            id="fence-connector-toggle"
+            type="checkbox"
+            :checked="fenceConnectorLinesVisible"
+            @change="handleFenceConnectorLinesVisibilityChange"
+          />
+        </div>
+
           <template v-if="!anchorState?.anchorDeployed">
             <div class="slider-label">
               <strong>Bearing:</strong>
@@ -196,7 +206,7 @@
         </div>
       </ion-content>
       <ion-footer class="set-anchor-footer">
-        <ion-toolbar class="modal-toolbar">
+        <ion-toolbar class="set-anchor-toolbar">
           <div class="modal-actions">
             <IonButton
               color="primary"
@@ -639,6 +649,7 @@ const FEATURE_TYPES = {
   MEASURE_LABEL: "measure-label",
   FENCE_TARGET: "fence-target",
   FENCE_RANGE: "fence-range",
+  FENCE_LINK: "fence-link",
 };
 
 const hasLoggedFramingDebugThisEntry = ref(false);
@@ -758,6 +769,9 @@ const handleFenceSave = async () => {
     units,
     currentDistance: null,
     currentDistanceUnits: units,
+    minimumDistance: null,
+    minimumDistanceUnits: units,
+    minimumDistanceUpdatedAt: null,
     inAlert: false,
     createdAt: Date.now(),
   };
@@ -827,9 +841,142 @@ const getFenceTargetLonLat = (fence) => {
   return null;
 };
 
+const fenceConnectorLinesVisible = computed(() => {
+  if (!anchorState.value) {
+    return false;
+  }
+  const configured = anchorState.value.fenceConnectorLinesVisible;
+  if (typeof configured === "boolean") {
+    return configured;
+  }
+  return true;
+});
+
+const handleFenceConnectorLinesVisibilityChange = async (event) => {
+  if (!anchorState.value) {
+    return;
+  }
+  const nextVisible = event?.target?.checked === true;
+  anchorState.value.fenceConnectorLinesVisible = nextVisible;
+  updateFenceFeatures();
+
+  try {
+    await stateStore.sendMessageToServer("anchor:update", anchorState.value, {
+      source: "AnchorView.handleFenceConnectorLinesVisibilityChange",
+      timeout: 5000,
+    });
+  } catch (error) {
+    logger.error("Failed to persist fence connector line visibility", error);
+  }
+};
+
+const toFenceCoordinateNumber = (value) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  if (value && typeof value === "object") {
+    if (typeof value.value === "number" && Number.isFinite(value.value)) {
+      return value.value;
+    }
+    if (typeof value.value === "string") {
+      const parsed = Number(value.value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+};
+
+const getFenceReferenceLonLat = (fence) => {
+  if (!fence || !fence.referenceType) {
+    return null;
+  }
+
+  if (fence.referenceType === "boat") {
+    const navPosition = state.value?.navigation?.position;
+    let lat = toFenceCoordinateNumber(navPosition?.latitude);
+    let lon = toFenceCoordinateNumber(navPosition?.longitude);
+    if (lat == null || lon == null) {
+      const topPosition = state.value?.position;
+      lat = toFenceCoordinateNumber(topPosition?.latitude);
+      lon = toFenceCoordinateNumber(topPosition?.longitude);
+    }
+    if (lat == null || lon == null) {
+      return null;
+    }
+    return [lon, lat];
+  }
+
+  if (fence.referenceType === "anchor_drop") {
+    const drop = anchorState.value?.anchorDropLocation;
+    const lat = toFenceCoordinateNumber(drop?.latitude);
+    const lon = toFenceCoordinateNumber(drop?.longitude);
+    if (lat == null || lon == null) {
+      return null;
+    }
+    return [lon, lat];
+  }
+
+  return null;
+};
+
+const updateFenceDistanceStats = (fence, targetLonLat) => {
+  if (!fence || !Array.isArray(targetLonLat) || targetLonLat.length < 2) {
+    return;
+  }
+
+  const referenceLonLat = getFenceReferenceLonLat(fence);
+  if (!Array.isArray(referenceLonLat) || referenceLonLat.length < 2) {
+    if (fence.currentDistance !== null) {
+      fence.currentDistance = null;
+    }
+    return;
+  }
+
+  const distanceMeters = calculateDistanceMeters(
+    referenceLonLat[1],
+    referenceLonLat[0],
+    targetLonLat[1],
+    targetLonLat[0],
+    true
+  );
+
+  if (!Number.isFinite(distanceMeters)) {
+    if (fence.currentDistance !== null) {
+      fence.currentDistance = null;
+    }
+    return;
+  }
+
+  const distanceInFenceUnits = fence.units === "ft" ? distanceMeters * 3.28084 : distanceMeters;
+  if (Number.isFinite(distanceInFenceUnits) && distanceInFenceUnits !== fence.currentDistance) {
+    fence.currentDistance = distanceInFenceUnits;
+    fence.currentDistanceUnits = fence.units;
+  }
+
+  const existingMinimum =
+    typeof fence.minimumDistance === "number" && Number.isFinite(fence.minimumDistance)
+      ? fence.minimumDistance
+      : null;
+
+  if (existingMinimum == null || distanceInFenceUnits < existingMinimum) {
+    fence.minimumDistance = distanceInFenceUnits;
+    fence.minimumDistanceUnits = fence.units;
+    fence.minimumDistanceUpdatedAt = Date.now();
+  }
+};
+
 const updateFenceFeatures = () => {
   clearFeature(FEATURE_TYPES.FENCE_TARGET);
   clearFeature(FEATURE_TYPES.FENCE_RANGE);
+  clearFeature(FEATURE_TYPES.FENCE_LINK);
 
   const fences = anchorState.value?.fences;
   if (!Array.isArray(fences) || fences.length === 0) {
@@ -844,6 +991,31 @@ const updateFenceFeatures = () => {
     const lonLat = getFenceTargetLonLat(fence);
     if (!Array.isArray(lonLat) || lonLat.length < 2) {
       return;
+    }
+
+    updateFenceDistanceStats(fence, lonLat);
+
+    if (fenceConnectorLinesVisible.value === true) {
+      const referenceLonLat = getFenceReferenceLonLat(fence);
+      if (Array.isArray(referenceLonLat) && referenceLonLat.length >= 2) {
+        const lineGeometry = new LineString([
+          fromLonLat(referenceLonLat),
+          fromLonLat(lonLat),
+        ]);
+        const lineFeature = new Feature({ geometry: lineGeometry });
+        lineFeature.set("type", FEATURE_TYPES.FENCE_LINK);
+        lineFeature.setStyle(
+          new Style({
+            stroke: new Stroke({
+              color: "rgba(250, 204, 21, 0.22)",
+              width: 2,
+              lineDash: [8, 8],
+            }),
+            zIndex: 118,
+          })
+        );
+        vectorSource.addFeature(lineFeature);
+      }
     }
 
     const mapCoord = fromLonLat(lonLat);
@@ -5328,6 +5500,23 @@ onUnmounted(() => {
   max-width: 420px;
 }
 
+:deep(.fence-modal-root::part(content)) {
+  --max-width: 100%;
+  --width: 100%;
+  --height: 100%;
+  --max-height: 100%;
+  --border-radius: 0;
+  margin: 0;
+  padding-top: var(--ion-safe-area-top, 0);
+  padding-bottom: var(--ion-safe-area-bottom, 0);
+}
+
+:deep(.fence-modal-root .fence-modal-content) {
+  margin: 0 auto;
+  width: min(100%, 420px);
+  max-height: calc(100vh - var(--ion-safe-area-top, 0px) - var(--ion-safe-area-bottom, 0px) - 16px);
+}
+
 .fence-target-summary {
   margin: 0 0 12px;
 }
@@ -5516,7 +5705,7 @@ ion-page.page-container {
 
 .set-anchor-modal {
   --background: var(--app-surface-color);
-  --padding-top: 24px;
+  --padding-top: calc(var(--ion-safe-area-top, 0px) + 12px);
   --padding-bottom: 24px;
   --padding-start: 0px;
   --padding-end: 0px;
@@ -5527,16 +5716,16 @@ ion-page.page-container {
 }
 
 :deep(.set-anchor-modal-root::part(content)) {
-  --max-width: 780px;
-  --width: 96vw;
-  --height: 94vh;
-  --max-height: 94vh;
-  --border-radius: 24px 24px 0 0;
-  margin: 0 auto;
+  --max-width: 100%;
+  --width: 100%;
+  --height: 100%;
+  --max-height: 100%;
+  --border-radius: 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
   background: var(--app-surface-color);
-  padding-top: var(--ion-safe-area-top, 0);
+  padding-bottom: var(--ion-safe-area-bottom, 0);
 }
 
 .modal-body {
@@ -5544,7 +5733,7 @@ ion-page.page-container {
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
-  padding: 0 24px 160px;
+  padding: 0 24px 24px;
   box-sizing: border-box;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -5558,25 +5747,25 @@ ion-page.page-container {
   border-top: 1px solid var(--app-border-color);
 }
 
-.set-anchor-footer .modal-toolbar {
+.set-anchor-footer .set-anchor-toolbar {
   --padding-start: 16px;
   --padding-end: 16px;
-  --padding-top: 4px;
-  --padding-bottom: var(--ion-safe-area-bottom, 0px);
+  --padding-top: 2px;
+  --padding-bottom: calc(var(--ion-safe-area-bottom, 0px) + 2px);
   --background: var(--app-surface-color);
-  min-height: 44px;
+  min-height: 0;
 }
 
 .set-anchor-footer .modal-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 12px;
   width: 100%;
 }
 
 .set-anchor-footer .modal-actions ion-button {
-  --padding-top: 12px !important;
-  --padding-bottom: 12px !important;
+  --padding-top: 10px !important;
+  --padding-bottom: 10px !important;
   --padding-start: 20px !important;
   --padding-end: 20px !important;
   --border-radius: 8px !important;
@@ -5623,6 +5812,31 @@ ion-page.page-container {
 /* Modal action buttons */
 .modal-actions ion-button {
   margin: 0 !important;
+}
+
+.fence-visibility-setting {
+  margin: 4px auto 14px;
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--app-border-color);
+  background: color-mix(in srgb, var(--app-surface-color) 88%, var(--app-accent-soft-color) 12%);
+}
+
+.fence-visibility-setting label {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--app-text-color);
+}
+
+.fence-visibility-setting input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
 }
 
 h3 {

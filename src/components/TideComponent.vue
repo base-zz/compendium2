@@ -88,8 +88,8 @@
             <tbody>
               <tr v-for="row in tideExtremesTable" :key="row.label">
                 <td class="period-cell">{{ row.label }}</td>
-                <td class="low-cell">{{ row.low }}</td>
-                <td class="high-cell">{{ row.high }}</td>
+                <td :class="props.viewMode === 'anchor' ? row.lowClass : 'extreme-cell-neutral'">{{ row.low }}</td>
+                <td :class="props.viewMode === 'anchor' ? 'high-cell' : 'extreme-cell-neutral'">{{ row.high }}</td>
               </tr>
             </tbody>
           </table>
@@ -555,11 +555,45 @@ const tideExtremesTable = computed(() => {
     
     const highText = formatValue(maxHigh?.height, maxHigh?.time ? new Date(maxHigh.time) : null);
     const lowText = formatValue(minLow?.height, minLow?.time ? new Date(minLow.time) : null);
+
+    // Match AnchorView (not anchored) low-tide severity coloring
+    let lowClass = 'low-cell-safe';
+    if (isAnchorMode && minLow && anchorDepth != null) {
+      const currentTideLevel = currentTideLevelFromHourly.value;
+      let predictedInDepthUnits = minLow.height;
+      let currentInDepthUnits = currentTideLevel;
+
+      if (props.depthUnits === 'm') {
+        predictedInDepthUnits = minLow.height * 0.3048;
+        if (currentInDepthUnits != null) {
+          currentInDepthUnits = currentInDepthUnits * 0.3048;
+        }
+      }
+
+      let waterDepthAtLowTide;
+      if (currentInDepthUnits != null) {
+        waterDepthAtLowTide = anchorDepth - currentInDepthUnits + predictedInDepthUnits;
+      } else {
+        waterDepthAtLowTide = anchorDepth + predictedInDepthUnits;
+      }
+
+      const boatDims = state.value?.preferences?.boatDimensions;
+      const draft = typeof boatDims?.draft === 'number' ? boatDims.draft : null;
+      const safeAnchoringDepth =
+        typeof boatDims?.safeAnchoringDepth === 'number' ? boatDims.safeAnchoringDepth : null;
+
+      if (typeof draft === 'number' && waterDepthAtLowTide < draft) {
+        lowClass = 'low-cell-danger';
+      } else if (typeof safeAnchoringDepth === 'number' && waterDepthAtLowTide < safeAnchoringDepth) {
+        lowClass = 'low-cell-warning';
+      }
+    }
     
     rows.push({
       label: window.label,
       high: highText,
-      low: lowText
+      low: lowText,
+      lowClass
     });
   }
   
@@ -1221,6 +1255,26 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
 
 .low-cell {
   color: #ef4444;
+  font-weight: 500;
+}
+
+.low-cell-safe {
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.low-cell-warning {
+  color: #f97316;
+  font-weight: 500;
+}
+
+.low-cell-danger {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.extreme-cell-neutral {
+  color: var(--app-text-color);
   font-weight: 500;
 }
 

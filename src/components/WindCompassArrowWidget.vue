@@ -11,7 +11,7 @@
           v-if="displayLabel"
           class="label-text"
           x="100"
-          y="55"
+          y="62"
         >
           {{ displayLabel }}
         </text>
@@ -20,10 +20,10 @@
         <circle class="compass-circle" cx="100" cy="110" :r="radius" />
         
         <!-- Cardinal directions (fixed) -->
-        <text class="cardinal-text north" x="100" y="30">N</text>
-        <text class="cardinal-text east" x="180" y="115">E</text>
-        <text class="cardinal-text south" x="100" y="195">S</text>
-        <text class="cardinal-text west" x="20" y="115">W</text>
+        <text class="cardinal-text north" x="100" y="38">N</text>
+        <text class="cardinal-text cardinal-horizontal" x="172" y="110">E</text>
+        <text class="cardinal-text south" x="100" y="187">S</text>
+        <text class="cardinal-text cardinal-horizontal" x="28" y="110">W</text>
         
         <!-- Degree markers every 30 degrees -->
         <g v-for="deg in degreeMarkers" :key="deg" class="degree-marker">
@@ -163,10 +163,17 @@ const normalizedAngle = computed(() => {
   return raw >= 0 ? raw : raw + 360;
 });
 
-// Arrow points outward from center, positioned on circumference
+const displayArrowAngle = computed(() => {
+  if (typeof normalizedAngle.value !== "number") {
+    return null;
+  }
+  return (normalizedAngle.value + 180) % 360;
+});
+
+// Arrow points inward toward center, positioned on circumference
 const arrowPoints = computed(() => {
-  const tipRadius = radius - 4; // tip rides near circumference
-  const baseRadius = radius - 28;
+  const tipRadius = radius - 28; // tip sits closer to center
+  const baseRadius = radius - 4;
   const halfWidth = 10;
   const tipY = -tipRadius;
   const baseY = -baseRadius;
@@ -223,13 +230,13 @@ onMounted(() => {
   requestAnimationFrame(() => {
     arrowTransitionReady.value = true;
     // Initialize current angle
-    currentArrowAngle.value = normalizedAngle.value ?? 0;
+    currentArrowAngle.value = displayArrowAngle.value ?? 0;
     // Initial animation
-    animateArrowRotation(normalizedAngle.value ?? 0);
+    animateArrowRotation(displayArrowAngle.value ?? 0);
   });
 });
 
-watch(normalizedAngle, (newAngle) => {
+watch(displayArrowAngle, (newAngle) => {
   if (typeof newAngle === 'number' && arrowTransitionReady.value) {
     animateArrowRotation(newAngle);
   }
@@ -313,6 +320,11 @@ function getMarkerPoint(angleDeg, r) {
   paint-order: stroke;
   stroke: rgba(0, 0, 0, 0.3);
   stroke-width: 0.5px;
+}
+
+.cardinal-horizontal {
+  dominant-baseline: middle;
+  alignment-baseline: middle;
 }
 
 .marker-line {

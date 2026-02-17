@@ -12,12 +12,15 @@
         <div class="fence-row-left">
           <span class="fence-status-inline" :class="row.statusClass">{{ row.statusLabel }}</span>
           <span class="fence-reference-icon" :title="row.referenceLabel" aria-hidden="true">{{ row.referenceIcon }}</span>
-          <span class="fence-name">{{ row.name }}</span>
+          <div class="fence-name-block">
+            <span class="fence-name">{{ row.name }}</span>
+            <span class="fence-alert-inline">Alert {{ row.alertDistanceDisplay }}</span>
+          </div>
         </div>
 
         <div class="fence-row-right">
           <span class="fence-current-distance">{{ row.currentDistanceDisplay }}</span>
-          <span class="fence-alert-distance">Alert {{ row.alertDistanceDisplay }}</span>
+          <span class="fence-min-distance">{{ row.minimumSummary }}</span>
         </div>
       </div>
     </div>
@@ -82,6 +85,20 @@ function formatDistance(value, units) {
   }
   const decimals = value >= 100 ? 0 : 1;
   return `${value.toFixed(decimals)} ${units}`;
+}
+
+function formatTimeOfDay(timestamp) {
+  if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+    return "";
+  }
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function getFenceTargetCoordinates(fence) {
@@ -166,6 +183,19 @@ const fenceRows = computed(() => {
             : currentDistanceMeters
           : null;
 
+      const persistedMinimum = toFiniteNumber(fence.minimumDistance);
+      const minimumDistance =
+        Number.isFinite(persistedMinimum) && units
+          ? persistedMinimum
+          : Number.isFinite(currentDistance)
+            ? currentDistance
+            : null;
+      const minimumTimeDisplay = formatTimeOfDay(toFiniteNumber(fence.minimumDistanceUpdatedAt));
+      const minimumDistanceDisplay = formatDistance(minimumDistance, units);
+      const minimumSummary = minimumTimeDisplay
+        ? `Min ${minimumDistanceDisplay} at ${minimumTimeDisplay}`
+        : `Min ${minimumDistanceDisplay}`;
+
       const isAlert =
         Number.isFinite(alertRange) &&
         Number.isFinite(currentDistance) &&
@@ -197,6 +227,8 @@ const fenceRows = computed(() => {
               : "Reference: Unknown",
         alertDistanceDisplay: formatDistance(alertRange, units),
         currentDistanceDisplay: formatDistance(currentDistance, units),
+        minimumDistanceDisplay,
+        minimumSummary,
         statusLabel,
         statusClass,
         currentDistanceValue: Number.isFinite(currentDistance) ? currentDistance : Number.POSITIVE_INFINITY,
@@ -289,6 +321,18 @@ const fenceRows = computed(() => {
   white-space: nowrap;
 }
 
+.fence-name-block {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.fence-alert-inline {
+  font-size: 0.72rem;
+  color: var(--widget-muted-text-color);
+}
+
 .fence-status-inline {
   font-size: 0.7rem;
   font-weight: 800;
@@ -335,13 +379,13 @@ const fenceRows = computed(() => {
 }
 
 .fence-current-distance {
-  font-size: 1.16rem;
+  font-size: 1.34rem;
   font-weight: 800;
   color: var(--widget-text-color);
   letter-spacing: 0.01em;
 }
 
-.fence-alert-distance {
+.fence-min-distance {
   font-size: 0.72rem;
   color: var(--widget-muted-text-color);
 }
