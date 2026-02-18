@@ -842,57 +842,6 @@ const getFenceTargetLonLat = (fence) => {
   return null;
 };
 
-const FENCE_HISTORY_WINDOW_MS = 2 * 60 * 60 * 1000;
-const FENCE_HISTORY_MIN_INTERVAL_MS = 15 * 1000;
-
-const pruneFenceDistanceHistory = (fence, nowMs) => {
-  if (!fence || !Array.isArray(fence.distanceHistory)) {
-    return;
-  }
-  const cutoff = nowMs - FENCE_HISTORY_WINDOW_MS;
-  const currentHistory = fence.distanceHistory;
-  const filteredHistory = currentHistory.filter((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    const t = entry.t;
-    const v = entry.v;
-    return typeof t === "number" && Number.isFinite(t) && t >= cutoff && typeof v === "number" && Number.isFinite(v);
-  });
-
-  if (filteredHistory.length === currentHistory.length) {
-    return;
-  }
-
-  fence.distanceHistory = filteredHistory;
-};
-
-const appendFenceDistanceHistory = (fence, distanceInFenceUnits, nowMs) => {
-  if (!fence || typeof distanceInFenceUnits !== "number" || !Number.isFinite(distanceInFenceUnits)) {
-    return;
-  }
-
-  if (!Array.isArray(fence.distanceHistory)) {
-    fence.distanceHistory = [];
-  }
-
-  pruneFenceDistanceHistory(fence, nowMs);
-
-  const lastPoint = fence.distanceHistory.length > 0
-    ? fence.distanceHistory[fence.distanceHistory.length - 1]
-    : null;
-  const minDelta = fence.units === "ft" ? 1.5 : 0.5;
-
-  const shouldAppend = !lastPoint
-    || typeof lastPoint.t !== "number"
-    || typeof lastPoint.v !== "number"
-    || (nowMs - lastPoint.t) >= FENCE_HISTORY_MIN_INTERVAL_MS
-    || Math.abs(distanceInFenceUnits - lastPoint.v) >= minDelta;
-
-  if (shouldAppend) {
-    fence.distanceHistory.push({ t: nowMs, v: distanceInFenceUnits });
-    pruneFenceDistanceHistory(fence, nowMs);
-  }
-};
-
 const fenceConnectorLinesVisible = computed(() => {
   if (!anchorState.value) {
     return false;
@@ -1014,7 +963,6 @@ const updateFenceDistanceStats = (fence, targetLonLat) => {
   }
 
   const nowMs = Date.now();
-  appendFenceDistanceHistory(fence, distanceInFenceUnits, nowMs);
 
   const existingMinimum =
     typeof fence.minimumDistance === "number" && Number.isFinite(fence.minimumDistance)
