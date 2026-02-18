@@ -39,7 +39,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useStateDataStore, calculateDistanceMeters } from "@/stores/stateDataStore";
 
@@ -49,10 +49,6 @@ const { state } = storeToRefs(stateStore);
 const anchorState = computed(() => state.value?.anchor);
 const navigationState = computed(() => state.value?.navigation);
 const aisTargets = computed(() => state.value?.aisTargets);
-
-const SPARKLINE_HISTORY_WINDOW_MS = 2 * 60 * 60 * 1000;
-const SPARKLINE_MIN_INTERVAL_MS = 15 * 1000;
-const localDistanceHistoryByFence = ref({});
 
 function toFiniteNumber(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -76,41 +72,6 @@ function toFiniteNumber(value) {
     }
   }
   return null;
-}
-
-function appendLocalDistanceHistory(fenceId, units, distanceValue, nowMs) {
-  if (typeof fenceId !== "string" || !fenceId || typeof distanceValue !== "number" || !Number.isFinite(distanceValue)) {
-    return;
-  }
-
-  const existingHistory = Array.isArray(localDistanceHistoryByFence.value[fenceId])
-    ? localDistanceHistoryByFence.value[fenceId]
-    : [];
-
-  const cutoff = nowMs - SPARKLINE_HISTORY_WINDOW_MS;
-  const prunedHistory = existingHistory.filter((entry) => {
-    if (!entry || typeof entry !== "object") {
-      return false;
-    }
-    return typeof entry.t === "number" && Number.isFinite(entry.t) && entry.t >= cutoff && typeof entry.v === "number" && Number.isFinite(entry.v);
-  });
-
-  const lastEntry = prunedHistory.length > 0 ? prunedHistory[prunedHistory.length - 1] : null;
-  const minDelta = units === "ft" ? 1.5 : 0.5;
-  const shouldAppend = !lastEntry
-    || typeof lastEntry.t !== "number"
-    || typeof lastEntry.v !== "number"
-    || (nowMs - lastEntry.t) >= SPARKLINE_MIN_INTERVAL_MS
-    || Math.abs(distanceValue - lastEntry.v) >= minDelta;
-
-  if (!shouldAppend) {
-    if (prunedHistory.length !== existingHistory.length) {
-      localDistanceHistoryByFence.value[fenceId] = prunedHistory;
-    }
-    return;
-  }
-
-  localDistanceHistoryByFence.value[fenceId] = [...prunedHistory, { t: nowMs, v: distanceValue }];
 }
 
 function buildSparklineData(history) {
@@ -251,59 +212,6 @@ function getReferenceCoordinates(fence) {
   return null;
 }
 
-const liveFenceDistances = computed(() => {
-  const fences = anchorState.value?.fences;
-  if (!Array.isArray(fences)) {
-    return [];
-  }
-
-  return fences
-    .filter((fence) => fence && fence.enabled !== false)
-    .map((fence) => {
-      const units = typeof fence.units === "string" ? fence.units : null;
-      const targetCoordinates = getFenceTargetCoordinates(fence);
-      const referenceCoordinates = getReferenceCoordinates(fence);
-
-      const currentDistanceMeters =
-        targetCoordinates && referenceCoordinates
-          ? calculateDistanceMeters(
-              referenceCoordinates.latitude,
-              referenceCoordinates.longitude,
-              targetCoordinates.latitude,
-              targetCoordinates.longitude,
-              true
-            )
-          : null;
-
-      const currentDistance =
-        Number.isFinite(currentDistanceMeters) && units
-          ? units === "ft"
-            ? currentDistanceMeters * 3.28084
-            : currentDistanceMeters
-          : null;
-
-      return {
-        id: typeof fence.id === "string" ? fence.id : null,
-        units,
-        currentDistance,
-      };
-    });
-});
-
-watch(
-  liveFenceDistances,
-  (rows) => {
-    const nowMs = Date.now();
-    rows.forEach((row) => {
-      if (row.id == null || row.units == null || !Number.isFinite(row.currentDistance)) {
-        return;
-      }
-      appendLocalDistanceHistory(row.id, row.units, row.currentDistance, nowMs);
-    });
-  },
-  { deep: true, immediate: true }
-);
-
 const fenceRows = computed(() => {
   const fences = anchorState.value?.fences;
   if (!Array.isArray(fences)) {
@@ -349,15 +257,12 @@ const fenceRows = computed(() => {
         ? `Min ${minimumDistanceDisplay} at ${minimumTimeDisplay}`
         : `Min ${minimumDistanceDisplay}`;
 
-      const localHistory = typeof fence.id === "string" ? localDistanceHistoryByFence.value[fence.id] : null;
-      const sparklineHistory =
-        Array.isArray(localHistory) && localHistory.length > 0
-          ? localHistory
-          : Array.isArray(fence.distanceHistory) && fence.distanceHistory.length > 0
-            ? fence.distanceHistory
-          : Number.isFinite(currentDistance)
-            ? [{ t: Date.now(), v: currentDistance }]
-            : [];
+      const serverHistory = Array.isArray(fence.distanceHistory) ? fence.distanceHistory : [];
+      const sparklineHistory = serverHistory.length > 0
+        ? serverHistory
+        : Number.isFinite(currentDistance)
+          ? [{ t: Date.now(), v: currentDistance }]
+          : [];
       const sparklineData = buildSparklineData(sparklineHistory);
 
       const isAlert =
