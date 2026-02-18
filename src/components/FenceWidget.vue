@@ -22,13 +22,24 @@
           <span class="fence-current-distance">{{ row.currentDistanceDisplay }}</span>
           <span class="fence-min-distance">{{ row.minimumSummary }}</span>
         </div>
+
+        <svg
+          v-if="row.sparklinePoints"
+          class="fence-sparkline"
+          viewBox="0 0 88 15"
+          preserveAspectRatio="none"
+          role="img"
+          :aria-label="`${row.name} distance trend`"
+        >
+          <polyline class="fence-sparkline-line" :points="row.sparklinePoints" />
+        </svg>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useStateDataStore, calculateDistanceMeters } from "@/stores/stateDataStore";
 
@@ -38,6 +49,10 @@ const { state } = storeToRefs(stateStore);
 const anchorState = computed(() => state.value?.anchor);
 const navigationState = computed(() => state.value?.navigation);
 const aisTargets = computed(() => state.value?.aisTargets);
+
+const SPARKLINE_HISTORY_WINDOW_MS = 2 * 60 * 60 * 1000;
+const SPARKLINE_MIN_INTERVAL_MS = 15 * 1000;
+const localDistanceHistoryByFence = ref({});
 
 function toFiniteNumber(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -61,6 +76,91 @@ function toFiniteNumber(value) {
     }
   }
   return null;
+}
+
+function appendLocalDistanceHistory(fenceId, units, distanceValue, nowMs) {
+  if (typeof fenceId !== "string" || !fenceId || typeof distanceValue !== "number" || !Number.isFinite(distanceValue)) {
+    return;
+  }
+
+  const existingHistory = Array.isArray(localDistanceHistoryByFence.value[fenceId])
+    ? localDistanceHistoryByFence.value[fenceId]
+    : [];
+
+  const cutoff = nowMs - SPARKLINE_HISTORY_WINDOW_MS;
+  const prunedHistory = existingHistory.filter((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return false;
+    }
+    return typeof entry.t === "number" && Number.isFinite(entry.t) && entry.t >= cutoff && typeof entry.v === "number" && Number.isFinite(entry.v);
+  });
+
+  const lastEntry = prunedHistory.length > 0 ? prunedHistory[prunedHistory.length - 1] : null;
+  const minDelta = units === "ft" ? 1.5 : 0.5;
+  const shouldAppend = !lastEntry
+    || typeof lastEntry.t !== "number"
+    || typeof lastEntry.v !== "number"
+    || (nowMs - lastEntry.t) >= SPARKLINE_MIN_INTERVAL_MS
+    || Math.abs(distanceValue - lastEntry.v) >= minDelta;
+
+  if (!shouldAppend) {
+    if (prunedHistory.length !== existingHistory.length) {
+      localDistanceHistoryByFence.value[fenceId] = prunedHistory;
+    }
+    return;
+  }
+
+  localDistanceHistoryByFence.value[fenceId] = [...prunedHistory, { t: nowMs, v: distanceValue }];
+}
+
+function buildSparklineData(history) {
+  if (!Array.isArray(history)) {
+    return { points: "", area: "" };
+  }
+
+  const samples = history
+    .filter((entry) => entry && typeof entry.v === "number" && Number.isFinite(entry.v))
+    .slice(-40);
+
+  if (samples.length === 1) {
+    return { points: "0,7.5 88,7.5", area: "M0,15 L0,7.5 L88,7.5 L88,15 Z" };
+  }
+
+  if (samples.length < 2) {
+    return { points: "", area: "" };
+  }
+
+  const width = 88;
+  const height = 15;
+  const padding = 4;
+  const values = samples.map((entry) => entry.v);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const range = maxValue - minValue;
+
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+    return { points: "", area: "" };
+  }
+
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * width;
+      const normalizedY = range > 0 ? (value - minValue) / range : 0.5;
+      const y = padding + (1 - normalizedY) * (height - padding * 2);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+
+  const areaPath = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * width;
+      const normalizedY = range > 0 ? (value - minValue) / range : 0.5;
+      const y = padding + (1 - normalizedY) * (height - padding * 2);
+      return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ") + ` L${width},${height} L0,${height} Z`;
+
+  return { points, area: areaPath };
 }
 
 function normalizeCoordinates(source) {
@@ -151,6 +251,59 @@ function getReferenceCoordinates(fence) {
   return null;
 }
 
+const liveFenceDistances = computed(() => {
+  const fences = anchorState.value?.fences;
+  if (!Array.isArray(fences)) {
+    return [];
+  }
+
+  return fences
+    .filter((fence) => fence && fence.enabled !== false)
+    .map((fence) => {
+      const units = typeof fence.units === "string" ? fence.units : null;
+      const targetCoordinates = getFenceTargetCoordinates(fence);
+      const referenceCoordinates = getReferenceCoordinates(fence);
+
+      const currentDistanceMeters =
+        targetCoordinates && referenceCoordinates
+          ? calculateDistanceMeters(
+              referenceCoordinates.latitude,
+              referenceCoordinates.longitude,
+              targetCoordinates.latitude,
+              targetCoordinates.longitude,
+              true
+            )
+          : null;
+
+      const currentDistance =
+        Number.isFinite(currentDistanceMeters) && units
+          ? units === "ft"
+            ? currentDistanceMeters * 3.28084
+            : currentDistanceMeters
+          : null;
+
+      return {
+        id: typeof fence.id === "string" ? fence.id : null,
+        units,
+        currentDistance,
+      };
+    });
+});
+
+watch(
+  liveFenceDistances,
+  (rows) => {
+    const nowMs = Date.now();
+    rows.forEach((row) => {
+      if (row.id == null || row.units == null || !Number.isFinite(row.currentDistance)) {
+        return;
+      }
+      appendLocalDistanceHistory(row.id, row.units, row.currentDistance, nowMs);
+    });
+  },
+  { deep: true, immediate: true }
+);
+
 const fenceRows = computed(() => {
   const fences = anchorState.value?.fences;
   if (!Array.isArray(fences)) {
@@ -196,6 +349,17 @@ const fenceRows = computed(() => {
         ? `Min ${minimumDistanceDisplay} at ${minimumTimeDisplay}`
         : `Min ${minimumDistanceDisplay}`;
 
+      const localHistory = typeof fence.id === "string" ? localDistanceHistoryByFence.value[fence.id] : null;
+      const sparklineHistory =
+        Array.isArray(localHistory) && localHistory.length > 0
+          ? localHistory
+          : Array.isArray(fence.distanceHistory) && fence.distanceHistory.length > 0
+            ? fence.distanceHistory
+          : Number.isFinite(currentDistance)
+            ? [{ t: Date.now(), v: currentDistance }]
+            : [];
+      const sparklineData = buildSparklineData(sparklineHistory);
+
       const isAlert =
         Number.isFinite(alertRange) &&
         Number.isFinite(currentDistance) &&
@@ -229,6 +393,8 @@ const fenceRows = computed(() => {
         currentDistanceDisplay: formatDistance(currentDistance, units),
         minimumDistanceDisplay,
         minimumSummary,
+        sparklinePoints: sparklineData.points,
+        sparklineArea: sparklineData.area,
         statusLabel,
         statusClass,
         currentDistanceValue: Number.isFinite(currentDistance) ? currentDistance : Number.POSITIVE_INFINITY,
@@ -299,9 +465,9 @@ const fenceRows = computed(() => {
 .fence-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 0.65rem;
-  padding: 0.55rem 0.6rem;
+  padding: 0.35rem 0.3rem;
   border-radius: 10px;
   background: var(--widget-surface-elevated-color);
 }
@@ -388,5 +554,26 @@ const fenceRows = computed(() => {
 .fence-min-distance {
   font-size: 0.72rem;
   color: var(--widget-muted-text-color);
+}
+
+.fence-sparkline {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 15px;
+  margin-top: 0.08rem;
+  margin-bottom: 0.08rem;
+  opacity: 0.92;
+}
+
+.fence-sparkline-line {
+  fill: none;
+  stroke: var(--widget-accent-color, #3b82f6);
+  stroke-width: 0.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fence-sparkline-area {
+  opacity: 0.6;
 }
 </style>

@@ -50,6 +50,7 @@
         
         <!-- Rotating arrow group pointing toward center -->
         <g
+          v-if="arrowVisible"
           ref="arrowGroupRef"
           class="arrow-group"
           :style="arrowGroupStyle"
@@ -191,6 +192,8 @@ const arrowStyle = computed(() => ({
 const arrowGroupRef = ref(null);
 const currentArrowAngle = ref(0);
 const arrowTransitionReady = ref(false);
+const arrowVisible = ref(false);
+const arrowHasInitialPosition = ref(false);
 
 // Animate rotation using Web Animations API (same approach as Sail360Component)
 function animateArrowRotation(targetAngle) {
@@ -228,16 +231,30 @@ function animateArrowRotation(targetAngle) {
 
 onMounted(() => {
   requestAnimationFrame(() => {
-    arrowTransitionReady.value = true;
-    // Initialize current angle
-    currentArrowAngle.value = displayArrowAngle.value ?? 0;
-    // Initial animation
-    animateArrowRotation(displayArrowAngle.value ?? 0);
+    const initialAngle = displayArrowAngle.value;
+    if (typeof initialAngle === "number") {
+      currentArrowAngle.value = initialAngle;
+      arrowHasInitialPosition.value = true;
+      arrowVisible.value = true;
+      arrowTransitionReady.value = true;
+    }
   });
 });
 
 watch(displayArrowAngle, (newAngle) => {
-  if (typeof newAngle === 'number' && arrowTransitionReady.value) {
+  if (typeof newAngle !== 'number') {
+    return;
+  }
+
+  if (!arrowHasInitialPosition.value) {
+    currentArrowAngle.value = newAngle;
+    arrowHasInitialPosition.value = true;
+    arrowVisible.value = true;
+    arrowTransitionReady.value = true;
+    return;
+  }
+
+  if (arrowTransitionReady.value) {
     animateArrowRotation(newAngle);
   }
 });

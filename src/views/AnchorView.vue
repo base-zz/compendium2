@@ -374,7 +374,7 @@
       @didDismiss="closeAISModal"
       css-class="ais-modal-root"
     >
-      <ion-content style="--background: var(--app-surface-color); background: var(--app-surface-color);">
+      <ion-content class="ais-modal-body">
         <div class="ais-modal-content">
           <div class="ais-modal-header">
             <h2 class="ais-vessel-name">{{ selectedAISTarget?.name || 'Unknown Vessel' }}</h2>
@@ -772,6 +772,7 @@ const handleFenceSave = async () => {
     minimumDistance: null,
     minimumDistanceUnits: units,
     minimumDistanceUpdatedAt: null,
+    distanceHistory: [],
     inAlert: false,
     createdAt: Date.now(),
   };
@@ -839,6 +840,57 @@ const getFenceTargetLonLat = (fence) => {
   }
 
   return null;
+};
+
+const FENCE_HISTORY_WINDOW_MS = 2 * 60 * 60 * 1000;
+const FENCE_HISTORY_MIN_INTERVAL_MS = 15 * 1000;
+
+const pruneFenceDistanceHistory = (fence, nowMs) => {
+  if (!fence || !Array.isArray(fence.distanceHistory)) {
+    return;
+  }
+  const cutoff = nowMs - FENCE_HISTORY_WINDOW_MS;
+  const currentHistory = fence.distanceHistory;
+  const filteredHistory = currentHistory.filter((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const t = entry.t;
+    const v = entry.v;
+    return typeof t === "number" && Number.isFinite(t) && t >= cutoff && typeof v === "number" && Number.isFinite(v);
+  });
+
+  if (filteredHistory.length === currentHistory.length) {
+    return;
+  }
+
+  fence.distanceHistory = filteredHistory;
+};
+
+const appendFenceDistanceHistory = (fence, distanceInFenceUnits, nowMs) => {
+  if (!fence || typeof distanceInFenceUnits !== "number" || !Number.isFinite(distanceInFenceUnits)) {
+    return;
+  }
+
+  if (!Array.isArray(fence.distanceHistory)) {
+    fence.distanceHistory = [];
+  }
+
+  pruneFenceDistanceHistory(fence, nowMs);
+
+  const lastPoint = fence.distanceHistory.length > 0
+    ? fence.distanceHistory[fence.distanceHistory.length - 1]
+    : null;
+  const minDelta = fence.units === "ft" ? 1.5 : 0.5;
+
+  const shouldAppend = !lastPoint
+    || typeof lastPoint.t !== "number"
+    || typeof lastPoint.v !== "number"
+    || (nowMs - lastPoint.t) >= FENCE_HISTORY_MIN_INTERVAL_MS
+    || Math.abs(distanceInFenceUnits - lastPoint.v) >= minDelta;
+
+  if (shouldAppend) {
+    fence.distanceHistory.push({ t: nowMs, v: distanceInFenceUnits });
+    pruneFenceDistanceHistory(fence, nowMs);
+  }
 };
 
 const fenceConnectorLinesVisible = computed(() => {
@@ -961,15 +1013,31 @@ const updateFenceDistanceStats = (fence, targetLonLat) => {
     fence.currentDistanceUnits = fence.units;
   }
 
+  const nowMs = Date.now();
+  appendFenceDistanceHistory(fence, distanceInFenceUnits, nowMs);
+
   const existingMinimum =
     typeof fence.minimumDistance === "number" && Number.isFinite(fence.minimumDistance)
       ? fence.minimumDistance
       : null;
 
-  if (existingMinimum == null || distanceInFenceUnits < existingMinimum) {
+  let normalizedExistingMinimum = existingMinimum;
+  if (
+    normalizedExistingMinimum != null
+    && typeof fence.minimumDistanceUnits === "string"
+    && fence.minimumDistanceUnits !== fence.units
+  ) {
+    if (fence.minimumDistanceUnits === "ft" && fence.units !== "ft") {
+      normalizedExistingMinimum = normalizedExistingMinimum / 3.28084;
+    } else if (fence.minimumDistanceUnits !== "ft" && fence.units === "ft") {
+      normalizedExistingMinimum = normalizedExistingMinimum * 3.28084;
+    }
+  }
+
+  if (normalizedExistingMinimum == null || distanceInFenceUnits < normalizedExistingMinimum) {
     fence.minimumDistance = distanceInFenceUnits;
     fence.minimumDistanceUnits = fence.units;
-    fence.minimumDistanceUpdatedAt = Date.now();
+    fence.minimumDistanceUpdatedAt = nowMs;
   }
 };
 
@@ -1054,11 +1122,11 @@ const updateFenceFeatures = () => {
     rangeFeature.setStyle(
       new Style({
         stroke: new Stroke({
-          color: "rgba(250, 204, 21, 0.9)",
+          color: "rgba(250, 204, 21, 0.85)",
           width: 2,
         }),
         fill: new Fill({
-          color: "rgba(250, 204, 21, 0.15)",
+          color: "rgba(250, 204, 21, 0.12)",
         }),
         zIndex: 120,
       })
@@ -2478,10 +2546,9 @@ const getTrueWindDirectionDegrees = () => {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 };
 
-// Wind rotation animation state
 let currentWindRotation = 0;
-let windAnimationFrame = null;
-let currentWindPosition = null; // Track current position for smooth animation
+let windRotationAnimationFrame = null;
+let currentWindPosition = null; // Track current position
 let isWindInitialLoad = true;
 
 // Track if this is the initial AIS update to prevent false warnings on load
@@ -2514,6 +2581,62 @@ function updateWindFeatureWithRotation(rotation) {
   image.setRotation(rotation);
   windFeature.changed();
 }
+
+function updateWindIndicatorScale() {
+  if (!map.value) return;
+
+  const view = map.value.getView();
+  const zoom = view?.getZoom?.();
+  const resolution = view?.getResolution?.();
+  if (typeof zoom !== "number" || !Number.isFinite(zoom)) return;
+  if (typeof resolution !== "number" || !Number.isFinite(resolution) || resolution <= 0) return;
+
+  const windFeature = vectorSource.getFeatures().find((f) => f.get("type") === FEATURE_TYPES.WIND);
+  if (!windFeature) return;
+
+  const nextScale = getWindIndicatorScaleForResolution(resolution);
+  let style = windFeature.getStyle();
+  if (typeof style === "function") {
+    style = style(windFeature, resolution);
+  }
+  const styles = Array.isArray(style) ? style : [style];
+  const image = styles?.[0]?.getImage?.();
+  if (!image || typeof image.setScale !== "function") return;
+
+  image.setScale(nextScale);
+  windFeature.changed();
+}
+
+const getWindIndicatorScaleForResolution = (resolution) => {
+  if (typeof resolution !== "number" || !Number.isFinite(resolution) || resolution <= 0) {
+    return 0.22;
+  }
+
+  // Keep the icon at a consistent fraction of the anchor-circle perimeter size on screen.
+  const radiusMeters = getWindIndicatorRadiusMeters();
+  const circleRadiusPixels = radiusMeters / resolution;
+  const targetIconPixels = circleRadiusPixels * 0.16;
+  const iconBasePixels = 64;
+
+  // Clamp for readability across devices.
+  const minScale = 0.12;
+  const maxScale = 0.72;
+  return Math.max(minScale, Math.min(maxScale, targetIconPixels / iconBasePixels));
+};
+
+const getWindIndicatorRadiusMeters = () => {
+  const rawCriticalRadius = anchorState.value?.criticalRange?.r;
+  const criticalUnits = anchorState.value?.criticalRange?.units || anchorState.value?.rode?.units || "m";
+  const isMetricUnits = !criticalUnits.toLowerCase().startsWith("ft");
+  if (typeof rawCriticalRadius === "number" && Number.isFinite(rawCriticalRadius)) {
+    const criticalMeters = isMetricUnits ? rawCriticalRadius : rawCriticalRadius / 3.28084;
+    if (Number.isFinite(criticalMeters) && criticalMeters >= 10) {
+      return criticalMeters;
+    }
+  }
+
+  return 50;
+};
 
 const updateWindIndicator = (centerLat, centerLon, radiusInMeters) => {
   if (typeof centerLat !== "number" || typeof centerLon !== "number") return;
@@ -2551,16 +2674,16 @@ const updateWindIndicator = (centerLat, centerLon, radiusInMeters) => {
   const existingFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.WIND);
   
   if (existingFeature) {
-    // Get current position for animation
+    // Get current position for direct updates
     const geometry = existingFeature.getGeometry();
-    let startCoord;
     if (currentWindPosition) {
-      startCoord = [currentWindPosition.x, currentWindPosition.y];
+      // Keep latest tracked position.
     } else if (geometry) {
-      startCoord = geometry.getCoordinates();
-      currentWindPosition = { x: startCoord[0], y: startCoord[1] };
+      const existingCoord = geometry.getCoordinates();
+      if (Array.isArray(existingCoord)) {
+        currentWindPosition = { x: existingCoord[0], y: existingCoord[1] };
+      }
     } else {
-      startCoord = targetCoord;
       currentWindPosition = { x: targetCoord[0], y: targetCoord[1] };
     }
     
@@ -2585,11 +2708,22 @@ const updateWindIndicator = (centerLat, centerLon, radiusInMeters) => {
       return;
     }
     
-    // Animate both position and rotation together
-    animateWindIndicator(startCoord, targetCoord, currentWindRotation, targetRotation, existingFeature, 500);
+    // Snap to the final position immediately to avoid visible slide-in/out.
+    const geom = existingFeature.getGeometry();
+    if (geom && typeof geom.setCoordinates === "function") {
+      geom.setCoordinates(targetCoord);
+      existingFeature.changed();
+    }
+
+    // Apply rotation immediately after position update.
+    animateWindRotation(targetRotation);
+    updateWindIndicatorScale();
+    currentWindPosition = { x: targetCoord[0], y: targetCoord[1] };
   } else {
     // Create new feature with heads-up text
-    const windStyles = createWindIndicatorStyle(windSpeed, isDarkMode.value, targetRotation);
+    const currentResolution = map.value?.getView?.()?.getResolution?.();
+    const initialScale = getWindIndicatorScaleForResolution(currentResolution);
+    const windStyles = createWindIndicatorStyle(windSpeed, isDarkMode.value, targetRotation, initialScale);
 
     const windFeature = new Feature({
       geometry: new Point(targetCoord),
@@ -2597,6 +2731,7 @@ const updateWindIndicator = (centerLat, centerLon, radiusInMeters) => {
     windFeature.set("type", FEATURE_TYPES.WIND);
     windFeature.setStyle(windStyles);
     vectorSource.addFeature(windFeature);
+    updateWindIndicatorScale();
     
     // Initialize position tracking
     currentWindPosition = { x: targetCoord[0], y: targetCoord[1] };
@@ -2605,62 +2740,45 @@ const updateWindIndicator = (centerLat, centerLon, radiusInMeters) => {
   }
 };
 
-// Animate wind indicator position and rotation together
-function animateWindIndicator(startCoord, targetCoord, startRotation, targetRotation, feature, duration = 500) {
-  if (windAnimationFrame) {
-    cancelAnimationFrame(windAnimationFrame);
-    windAnimationFrame = null;
+function animateWindRotation(targetRotation, duration = 350) {
+  if (typeof targetRotation !== "number" || !Number.isFinite(targetRotation)) {
+    return;
   }
-  
+
+  if (windRotationAnimationFrame) {
+    cancelAnimationFrame(windRotationAnimationFrame);
+    windRotationAnimationFrame = null;
+  }
+
+  let rotationDiff = targetRotation - currentWindRotation;
+  while (rotationDiff > Math.PI) rotationDiff -= 2 * Math.PI;
+  while (rotationDiff < -Math.PI) rotationDiff += 2 * Math.PI;
+
+  const startRotation = currentWindRotation;
+  const finalRotation = startRotation + rotationDiff;
   const startTime = performance.now();
-  const startX = startCoord[0];
-  const startY = startCoord[1];
-  const targetX = targetCoord[0];
-  const targetY = targetCoord[1];
-  
-  // Calculate shortest rotation path
-  let rotDiff = targetRotation - startRotation;
-  while (rotDiff > Math.PI) rotDiff -= 2 * Math.PI;
-  while (rotDiff < -Math.PI) rotDiff += 2 * Math.PI;
-  const finalTargetRotation = startRotation + rotDiff;
-  
-  function step(now) {
+
+  const step = (now) => {
     const elapsed = now - startTime;
     const progress = Math.min(elapsed / duration, 1);
-    
-    // Ease-in-out easing
-    const easeProgress = progress < 0.5 
-      ? 2 * progress * progress 
+    const eased = progress < 0.5
+      ? 2 * progress * progress
       : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-    
-    // Interpolate position
-    const currentX = startX + (targetX - startX) * easeProgress;
-    const currentY = startY + (targetY - startY) * easeProgress;
-    
-    // Interpolate rotation
-    const currentRotation = startRotation + (finalTargetRotation - startRotation) * easeProgress;
-    
-    // Update position
-    const geometry = feature.getGeometry();
-    if (geometry && typeof geometry.setCoordinates === 'function') {
-      geometry.setCoordinates([currentX, currentY]);
-    }
-    
-    // Update rotation
-    updateWindFeatureWithRotation(currentRotation);
-    
-    // Store current state
-    currentWindPosition = { x: currentX, y: currentY };
-    currentWindRotation = currentRotation;
-    
+
+    const nextRotation = startRotation + (finalRotation - startRotation) * eased;
+    updateWindFeatureWithRotation(nextRotation);
+    currentWindRotation = nextRotation;
+
     if (progress < 1) {
-      windAnimationFrame = requestAnimationFrame(step);
-    } else {
-      windAnimationFrame = null;
+      windRotationAnimationFrame = requestAnimationFrame(step);
+      return;
     }
-  }
-  
-  windAnimationFrame = requestAnimationFrame(step);
+
+    currentWindRotation = finalRotation;
+    windRotationAnimationFrame = null;
+  };
+
+  windRotationAnimationFrame = requestAnimationFrame(step);
 }
 
 const updateCriticalRangeCircle = debounce(() => {
@@ -2722,7 +2840,7 @@ const updateCriticalRangeCircle = debounce(() => {
   const rangeStyle = hasCriticalRangeAlert ? STYLES.CRITICAL_RANGE : STYLES.NORMAL_RANGE;
   updateFeature(FEATURE_TYPES.CIRCLE, circleGeometry, rangeStyle);
 
-  updateWindIndicator(latitude, longitude, radiusInMeters);
+  updateWindIndicator(latitude, longitude, getWindIndicatorRadiusMeters());
 
   // Calculate distance between boat and anchor for verification
   if (boatPosition.value) {
@@ -2774,22 +2892,7 @@ watch(
     const longitude = anchorPos.longitude?.value ?? anchorPos.longitude;
     if (typeof latitude !== "number" || typeof longitude !== "number") return;
     
-    // Calculate radius in meters from rode settings
-    const rode = anchorState.value?.rode;
-    let radiusInMeters = anchorState.value?.criticalRange?.r ?? 50;
-    if (rode && typeof rode.amount === "number") {
-      const rodeMeters = rode.units?.toLowerCase().startsWith("ft") 
-        ? rode.amount / 3.28084 
-        : rode.amount;
-      if (rodeMeters > 0) radiusInMeters = rodeMeters;
-    }
-    
-    // Enforce minimum radius to prevent indicator jumping to center
-    if (radiusInMeters < 10) radiusInMeters = 50;
-    
-    // console.log('[WindDebug] Radius calculation:', { radiusInMeters, rode: anchorState.value?.rode, criticalRange: anchorState.value?.criticalRange });
-    
-    updateWindIndicator(latitude, longitude, radiusInMeters);
+    updateWindIndicator(latitude, longitude, getWindIndicatorRadiusMeters());
   }
 );
 
@@ -3293,6 +3396,18 @@ const initializeMap = () => {
       isMapRenderReady.value = true;
       hasAppliedDefaultFramingThisEntry.value = false;
       attachDefaultFramingListener();
+
+      const view = map.value?.getView?.();
+      if (view && typeof view.on === "function") {
+        view.on("change:resolution", () => {
+          updateWindIndicatorScale();
+        });
+      }
+
+      // Keep wind icon scaling smooth during zoom by updating every render frame.
+      map.value.on("postrender", () => {
+        updateWindIndicatorScale();
+      });
     });
   });
 
@@ -3536,6 +3651,7 @@ watch(
     logger.debug("Navigation position updated", { position: newPos });
     logger.debug("Navigation position changed, updating boat position");
     updateBoatPosition();
+    updateFenceFeatures();
   },
   { immediate: true, deep: true }
 );
@@ -3578,6 +3694,8 @@ watch(
   boatPosition,
   (newPosition) => {
     logger.debug("Boat position updated", { position: newPosition });
+
+    updateFenceFeatures();
 
     if (measureModeEnabled.value) {
       let updated = false;
@@ -5109,6 +5227,7 @@ const handleWheelEvent = (event) => {
     duration: 250,
     center: view.getCenter(), // Keep current center
   });
+  updateWindIndicatorScale();
 };
 
 // Custom zoom functions
@@ -5134,6 +5253,7 @@ const zoomIn = () => {
       center: boatCoords,
       duration: 250,
     });
+    updateWindIndicatorScale();
 
     logger.debug("Zooming in to boat position", { newZoom, boatCoords });
   } else {
@@ -5142,6 +5262,7 @@ const zoomIn = () => {
       zoom: newZoom,
       duration: 250,
     });
+    updateWindIndicatorScale();
   }
 };
 
@@ -5167,6 +5288,7 @@ const zoomOut = () => {
       center: boatCoords,
       duration: 250,
     });
+    updateWindIndicatorScale();
 
     logger.debug("Zooming out to boat position", { newZoom, boatCoords });
   } else {
@@ -5175,6 +5297,7 @@ const zoomOut = () => {
       zoom: newZoom,
       duration: 250,
     });
+    updateWindIndicatorScale();
   }
 };
 
@@ -6170,7 +6293,7 @@ body.dark .slider-value {
 }
 
 :deep(.cancel-anchor-modal .modal-content) {
-  padding-top: 20px;
+  padding-top: calc(var(--ion-safe-area-top, 0) + 20px);
   padding-left: 16px;
   padding-right: 16px;
   padding-bottom: var(--ion-safe-area-bottom, 0);
@@ -6371,11 +6494,17 @@ body.dark .toolbar-icon {
   margin-top: var(--ion-safe-area-top, 0);
 }
 
+.ais-modal-body {
+  --background: var(--app-surface-color, #fff);
+  --padding-top: var(--ion-safe-area-top, 0);
+}
+
 .ais-modal-content {
   --background: var(--app-surface-color, #fff) !important;
   background: var(--app-surface-color, #fff) !important;
   min-height: 100%;
   padding: 20px;
+  padding-top: calc(var(--ion-safe-area-top, 0) + 20px);
   color: var(--app-text-color, #000);
 }
 

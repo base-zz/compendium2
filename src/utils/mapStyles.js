@@ -27,10 +27,14 @@ export const getWindTriangleIconSrc = (isDarkMode = false) => {
 };
 
 // Create wind indicator style with rotating triangle and heads-up text
-export const createWindIndicatorStyle = (speedValue, isDarkMode = false, rotation = 0) => {
+export const createWindIndicatorStyle = (speedValue, isDarkMode = false, rotation = 0, scaleOverride = null) => {
   const speed = speedValue != null ? Math.round(speedValue) : '';
   const textColor = isDarkMode ? '#000000' : '#FFFFFF';
-  const triangleScale = window.innerWidth < 768 ? 0.6 : 1.0;
+  const defaultScale = window.innerWidth < 768 ? 0.6 : 1.0;
+  const triangleScale = typeof scaleOverride === "number" && Number.isFinite(scaleOverride)
+    ? scaleOverride
+    : defaultScale;
+  const textFontSize = Math.max(9, Math.round(14 * triangleScale));
   
   return [
     // Rotating triangle
@@ -54,7 +58,7 @@ export const createWindIndicatorStyle = (speedValue, isDarkMode = false, rotatio
       }),
       text: new Text({
         text: String(speed),
-        font: 'bold 14px system-ui, -apple-system, sans-serif',
+        font: `bold ${textFontSize}px system-ui, -apple-system, sans-serif`,
         fill: new Fill({ color: textColor }),
         offsetY: 2, // Center in triangle (triangle points up, centroid is slightly below center)
       }),

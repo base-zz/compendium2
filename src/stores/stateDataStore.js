@@ -249,6 +249,40 @@ export const useStateDataStore = defineStore("stateData", () => {
         return;
       }
 
+      const currentAnchorFences = state.anchor?.fences;
+      const incomingAnchorFences = updatedState.anchor?.fences;
+      if (Array.isArray(currentAnchorFences) && Array.isArray(incomingAnchorFences)) {
+        const historyByFenceId = new Map();
+        currentAnchorFences.forEach((fence) => {
+          if (!fence || typeof fence.id !== "string") {
+            return;
+          }
+          if (!Array.isArray(fence.distanceHistory) || fence.distanceHistory.length === 0) {
+            return;
+          }
+          historyByFenceId.set(fence.id, fence.distanceHistory);
+        });
+
+        if (historyByFenceId.size > 0) {
+          updatedState.anchor.fences = incomingAnchorFences.map((fence) => {
+            if (!fence || typeof fence.id !== "string") {
+              return fence;
+            }
+            const existingHistory = historyByFenceId.get(fence.id);
+            if (!Array.isArray(existingHistory) || existingHistory.length === 0) {
+              return fence;
+            }
+            if (Array.isArray(fence.distanceHistory) && fence.distanceHistory.length > existingHistory.length) {
+              return fence;
+            }
+            return {
+              ...fence,
+              distanceHistory: existingHistory,
+            };
+          });
+        }
+      }
+
       // Preserve valid navigation position if the incoming position has null values
       const currentPos = state.navigation?.position;
       const newPos = updatedState.navigation?.position;
@@ -274,6 +308,17 @@ export const useStateDataStore = defineStore("stateData", () => {
         // Let the server-provided bluetooth state win when it is present
         dataLogger("Replacing bluetooth data with server-provided state");
         updatedState.bluetooth = newBluetooth;
+      }
+
+      // Preserve anchor fences if server sends anchor state without fences
+      const currentAnchor = state.anchor;
+      const newAnchor = updatedState.anchor;
+
+      if (currentAnchor && newAnchor && Array.isArray(currentAnchor.fences)) {
+        if (!Array.isArray(newAnchor.fences)) {
+          dataLogger("Preserving anchor fences - not included in server update");
+          updatedState.anchor = { ...newAnchor, fences: currentAnchor.fences };
+        }
       }
 
       dataLogger(`Updating ${Object.keys(updatedState).length} keys, preserving others`);
