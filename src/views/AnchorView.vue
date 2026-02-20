@@ -328,6 +328,10 @@
           <input id="fence-name-input" v-model="fenceName" type="text" placeholder="Fence name" />
         </div>
 
+        <div v-if="fenceValidationError" class="fence-validation-error">
+          {{ fenceValidationError }}
+        </div>
+
         <div class="fence-form-row">
           <label for="fence-range-input">Alert Range ({{ isMetric ? "m" : "ft" }})</label>
           <input id="fence-range-input" v-model="fenceRangeInput" type="number" min="1" step="1" />
@@ -335,7 +339,11 @@
 
         <div class="fence-form-row">
           <label for="fence-reference-select">Reference</label>
-          <select id="fence-reference-select" v-model="fenceReferenceType">
+          <select
+            id="fence-reference-select"
+            v-model="fenceReferenceType"
+            @change="handleFenceReferenceChange"
+          >
             <option value="">Select reference</option>
             <option value="boat">Boat</option>
             <option value="anchor_drop">Anchor Drop</option>
@@ -724,6 +732,7 @@ const resetFenceDraft = () => {
   fenceName.value = "";
   fenceRangeInput.value = "";
   fenceReferenceType.value = "";
+  fenceValidationError.value = null;
 };
 
 const handleFenceModalCancel = () => {
@@ -731,25 +740,40 @@ const handleFenceModalCancel = () => {
   resetFenceDraft();
 };
 
+const handleFenceReferenceChange = (event) => {
+  const value = event?.target?.value;
+  if (typeof value !== "string") {
+    return;
+  }
+  fenceReferenceType.value = value;
+  fenceValidationError.value = null;
+};
+
 const handleFenceSave = async () => {
   if (!anchorState.value) {
     logger.warn("Cannot save fence: anchorState is undefined");
+    fenceValidationError.value = "Anchor state is unavailable.";
     return;
   }
   if (!selectedFenceTarget.value) {
     logger.warn("Cannot save fence: selectedFenceTarget is undefined");
+    fenceValidationError.value = "Select a fence target first.";
     return;
   }
   if (!fenceReferenceType.value) {
     logger.warn("Cannot save fence: reference type is not selected");
+    fenceValidationError.value = "Select a reference (Boat or Anchor Drop).";
     return;
   }
 
   const parsedRange = Number(fenceRangeInput.value);
   if (!Number.isFinite(parsedRange) || parsedRange <= 0) {
     logger.warn("Cannot save fence: invalid alert range", { value: fenceRangeInput.value });
+    fenceValidationError.value = "Enter a valid alert range.";
     return;
   }
+
+  fenceValidationError.value = null;
 
   if (!Array.isArray(anchorState.value.fences)) {
     anchorState.value.fences = [];
@@ -1452,6 +1476,7 @@ const selectedFenceTarget = ref(null);
 const fenceName = ref("");
 const fenceRangeInput = ref("");
 const fenceReferenceType = ref("");
+const fenceValidationError = ref(null);
 
 const measureSnapDistanceMeters = 5;
 
@@ -2396,10 +2421,8 @@ const dismissLocationModal = () => {
 const updateAnchorPoints = () => {
   logger.debug("Updating anchor points...");
   // Clear all anchor-related features
-  clearFeature(FEATURE_TYPES.CIRCLE);
   clearFeature(FEATURE_TYPES.ANCHOR_DROP_LOCATION);
   clearFeature(FEATURE_TYPES.ANCHOR_LOCATION);
-  clearFeature(FEATURE_TYPES.RODE);
 
   // Check if anchorState exists first
   if (!anchorState.value) return;
@@ -2729,19 +2752,20 @@ function animateWindRotation(targetRotation, duration = 350) {
   windRotationAnimationFrame = requestAnimationFrame(step);
 }
 
+// Track if critical circle was already drawn to prevent clearing on re-mount
+// Use sessionStorage to persist across component re-mounts
+let criticalCircleDrawn = ref(sessionStorage.getItem('criticalCircleDrawn') === 'true');
+
 const updateCriticalRangeCircle = debounce(() => {
   // Check if anchorState exists first
   if (!anchorState.value) {
+    if (criticalCircleDrawn.value) {
+      return; // Don't clear if circle was drawn
+    }
     clearFeature(FEATURE_TYPES.CIRCLE);
     clearFeature(FEATURE_TYPES.WIND);
     return;
   }
-
-  logger.debug("Updating critical range circle", {
-    anchorDeployed: anchorState.value.anchorDeployed,
-    anchorLocation: anchorState.value.anchorLocation,
-    criticalRange: anchorState.value.criticalRange,
-  });
 
   if (
     !anchorState.value.anchorDeployed ||
@@ -2749,33 +2773,29 @@ const updateCriticalRangeCircle = debounce(() => {
     !anchorState.value.criticalRange
   ) {
     // Clear any existing critical range circle
-    clearFeature(FEATURE_TYPES.CIRCLE);
-    clearFeature(FEATURE_TYPES.WIND);
+    if (!criticalCircleDrawn.value) {
+      clearFeature(FEATURE_TYPES.CIRCLE);
+      clearFeature(FEATURE_TYPES.WIND);
+    }
     return;
   }
-
-  logger.debug("Creating circle with:", {
-    anchorLocation: [
-      anchorState.value.anchorLocation.longitude,
-      anchorState.value.anchorLocation.latitude,
-    ],
-    criticalRange: anchorState.value.criticalRange.value,
-  });
 
   const position = anchorState.value.anchorLocation.position;
   const latitude = position.latitude?.value ?? position.latitude;
   const longitude = position.longitude?.value ?? position.longitude;
   
   // Convert critical range to meters to match AnchorWidget logic
-  const rawRadius = anchorState.value.criticalRange.r;
+  const rawRadius = anchorState.value.criticalRange?.r;
   const units = anchorState.value?.criticalRange?.units || anchorState.value?.rode?.units || "m";
-  const isMetricUnits = !units.toLowerCase().startsWith("ft");
+  
+  // Validate radius before drawing
+  if (typeof rawRadius !== "number" || !Number.isFinite(rawRadius) || rawRadius <= 0) {
+    clearFeature(FEATURE_TYPES.CIRCLE);
+    return;
+  }
+  
+  const isMetricUnits = units && typeof units === "string" && !units.toLowerCase().startsWith("ft");
   const radiusInMeters = isMetricUnits ? rawRadius : rawRadius / 3.28084;
-
-  logger.debug("Drawing circle at:", {
-    center: [longitude, latitude],
-    radius: radiusInMeters,
-  });
 
   // Create a circle with the correct radius in meters
   const circleGeometry = createCircleWithRadius([longitude, latitude], radiusInMeters);
@@ -2786,7 +2806,12 @@ const updateCriticalRangeCircle = debounce(() => {
     (alert) => alert?.trigger === "critical_range" && alert?.status !== "resolved"
   );
   const rangeStyle = hasCriticalRangeAlert ? STYLES.CRITICAL_RANGE : STYLES.NORMAL_RANGE;
+  
   updateFeature(FEATURE_TYPES.CIRCLE, circleGeometry, rangeStyle);
+  
+  // Mark that critical circle has been drawn
+  criticalCircleDrawn.value = true;
+  sessionStorage.setItem('criticalCircleDrawn', 'true');
 
   updateWindIndicator(latitude, longitude, getWindIndicatorRadiusMeters());
 
@@ -2858,56 +2883,66 @@ watch(
 watch(
   isDarkMode,
   () => {
-    updateCriticalRangeCircle();
+    // Only update style, don't redraw the entire circle
+    // The circle will update its style automatically through the STYLES reference
   }
 );
 
 const updateRodeLine = debounce(() => {
-  // logger.debug('Starting updateRodeLine function');
-
-  // First, clear any existing rode line
-  clearFeature(FEATURE_TYPES.RODE);
-
   // Check if anchorState exists first
   if (!anchorState.value) {
+    logger.error("RODE LINE: No anchorState - returning");
     return;
   }
 
   // Exit if anchor is not deployed
   if (!anchorState.value.anchorDeployed) {
-    logger.debug("Anchor not deployed, skipping rode line update");
+    logger.error("RODE LINE: Anchor not deployed - clearing and returning");
+    clearFeature(FEATURE_TYPES.RODE);
     return;
   }
 
-  // Directly access the raw state data
+  // Get boat position using the same logic as boat initialization
   const state = stateStore.state;
-
-  // Get positions directly from state with the correct structure
-  const boatPos = state?.navigation?.position;
-  const anchorPos = state?.anchor?.anchorLocation?.position;
-
-  const toScalar = (value) => {
-    if (value == null) return null;
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    if (typeof value === "object" && typeof value.value === "number") {
-      return Number.isFinite(value.value) ? value.value : null;
+  const pos = state?.navigation?.position;
+  let boatLat, boatLon;
+  
+  // Try to get boat position from state (same as initialization logic)
+  if (pos?.latitude?.value != null && pos?.longitude?.value != null) {
+    boatLat = pos.latitude.value;
+    boatLon = pos.longitude.value;
+  } else {
+    // Fallback: use anchor position if boat position is not available
+    const anchor = state?.anchor;
+    if (anchor?.anchorLocation?.position) {
+      const anchorPos = anchor.anchorLocation.position;
+      boatLat = anchorPos.latitude?.value ?? anchorPos.latitude;
+      boatLon = anchorPos.longitude?.value ?? anchorPos.longitude;
+    } else if (anchor?.anchorDropLocation?.position) {
+      const dropPos = anchor.anchorDropLocation.position;
+      boatLat = dropPos.latitude?.value ?? dropPos.latitude;
+      boatLon = dropPos.longitude?.value ?? dropPos.longitude;
     }
-    return null;
-  };
+  }
 
-  const boatLat = toScalar(boatPos?.latitude);
-  const boatLon = toScalar(boatPos?.longitude);
-  const anchorLat = toScalar(anchorPos?.latitude);
-  const anchorLon = toScalar(anchorPos?.longitude);
+  // Validate boat coordinates
+  if (typeof boatLat !== "number" || typeof boatLon !== "number" || isNaN(boatLat) || isNaN(boatLon)) {
+    logger.error("RODE LINE: Invalid boat coordinates - returning");
+    logger.error("RODE LINE: boat coordinates:", { boatLat, boatLon });
+    return;
+  }
 
-  // Log the raw values for debugging
-  logger.debug("Direct state access - Coordinates:", {
-    boatPosition: { lat: boatLat, lon: boatLon },
-    anchorPosition: { lat: anchorLat, lon: anchorLon },
-    hasBoatPos: !!boatPos,
-    hasAnchorPos: !!anchorPos,
-    anchorDeployed: state?.anchor?.anchorDeployed,
-  });
+  // Get anchor position
+  const anchorPos = state?.anchor?.anchorLocation?.position;
+  const anchorLat = anchorPos?.latitude?.value ?? anchorPos?.latitude;
+  const anchorLon = anchorPos?.longitude?.value ?? anchorPos.longitude;
+
+  // Validate anchor coordinates (no fallbacks)
+  if (typeof anchorLat !== "number" || typeof anchorLon !== "number" || isNaN(anchorLat) || isNaN(anchorLon)) {
+    logger.error("RODE LINE: Invalid anchor coordinates - returning");
+    return;
+  }
+
 
   // Simple validation
   if (
@@ -2916,7 +2951,7 @@ const updateRodeLine = debounce(() => {
     !Number.isFinite(anchorLon) ||
     !Number.isFinite(anchorLat)
   ) {
-    logger.warn("Invalid coordinates - using fallback values");
+    logger.error("INVALID COORDINATES DETECTED - RODE LINE ABORTED");
     return;
   }
 
@@ -3018,10 +3053,74 @@ const getAisStyle = () => {
 };
 
 const updateAisTargets = debounce(() => {
+  // IMMEDIATELY clear any server-sent AIS warning if conditions aren't met
+  if (anchorState.value && anchorState.value.aisWarning) {
+    const warningRangeObj = anchorState.value?.warningRange;
+    const rawWarningRadius = warningRangeObj?.r;
+    const isAnchorDeployed = anchorState.value && anchorState.value.anchorDeployed;
+    const boatLat = boatPosition.value?.latitude?.value ?? boatPosition.value?.latitude;
+    const boatLon = boatPosition.value?.longitude?.value ?? boatPosition.value?.longitude;
+    const hasValidBoatPosition = typeof boatLat === "number" && typeof boatLon === "number";
+    
+    if (typeof rawWarningRadius !== "number" || rawWarningRadius <= 0 || !isAnchorDeployed || !hasValidBoatPosition) {
+      anchorState.value.aisWarning = false;
+      logger.debug("IMMEDIATELY cleared inappropriate server AIS warning", {
+        hasWarningRange: typeof rawWarningRadius === "number" && rawWarningRadius > 0,
+        isAnchorDeployed,
+        hasValidBoatPosition
+      });
+    }
+  }
+  
   // Skip initial load to prevent false warnings before data is ready
   if (isAisInitialLoad) {
     logger.debug("Skipping initial AIS update - waiting for data to settle");
     isAisInitialLoad = false;
+    // Clear any existing AIS warning flag on initial load
+    if (anchorState.value && anchorState.value.aisWarning) {
+      anchorState.value.aisWarning = false;
+      logger.debug("Cleared AIS warning flag on initial load");
+    }
+    return;
+  }
+  
+  // Skip if warning range is not configured - no alerts should fire
+  const warningRangeObj = anchorState.value?.warningRange;
+  const rawWarningRadius = warningRangeObj?.r;
+  if (typeof rawWarningRadius !== "number" || rawWarningRadius <= 0) {
+    logger.debug("Warning range not configured, clearing AIS features and skipping alerts");
+    clearFeature(FEATURE_TYPES.AIS);
+    // Clear AIS warning flag
+    if (anchorState.value && anchorState.value.aisWarning) {
+      anchorState.value.aisWarning = false;
+      logger.debug("Cleared AIS warning flag - warning range not configured");
+    }
+    return;
+  }
+  
+  // Skip if anchor is not deployed
+  const isAnchorDeployed = anchorState.value && anchorState.value.anchorDeployed;
+  if (!isAnchorDeployed) {
+    logger.debug("Anchor not deployed, clearing AIS warning flag");
+    clearFeature(FEATURE_TYPES.AIS);
+    if (anchorState.value && anchorState.value.aisWarning) {
+      anchorState.value.aisWarning = false;
+      logger.debug("Cleared AIS warning flag - anchor not deployed");
+    }
+    return;
+  }
+  
+  // Skip if boat position is invalid
+  const boatLat = boatPosition.value?.latitude?.value ?? boatPosition.value?.latitude;
+  const boatLon = boatPosition.value?.longitude?.value ?? boatPosition.value?.longitude;
+  const hasValidBoatPosition = typeof boatLat === "number" && typeof boatLon === "number";
+  if (!hasValidBoatPosition) {
+    logger.debug("Invalid boat position, clearing AIS warning flag");
+    clearFeature(FEATURE_TYPES.AIS);
+    if (anchorState.value && anchorState.value.aisWarning) {
+      anchorState.value.aisWarning = false;
+      logger.debug("Cleared AIS warning flag - invalid boat position");
+    }
     return;
   }
   
@@ -3038,23 +3137,14 @@ const updateAisTargets = debounce(() => {
     return;
   }
 
-  // Skip proximity check if anchor is not deployed
-  const isAnchorDeployed = anchorState.value && anchorState.value.anchorDeployed;
-  logger.debug(`Anchor deployed: ${isAnchorDeployed}`);
-
-  // Get boat position for distance calculations
-  const boatLat = boatPosition.value?.latitude?.value ?? boatPosition.value?.latitude;
-  const boatLon = boatPosition.value?.longitude?.value ?? boatPosition.value?.longitude;
-  const hasValidBoatPosition = typeof boatLat === "number" && typeof boatLon === "number";
-  logger.debug(`Boat position valid: ${hasValidBoatPosition}`, { boatLat, boatLon });
-
-  // Get warning range radius
-  const warningRadius = anchorState.value?.warningRange?.r ?? 15; // Default to 15 if not set
-  const warningUnits = anchorState.value?.warningRange?.units;
-  const effectiveWarningRadius = (() => {
-    if (typeof warningRadius !== "number" || Number.isNaN(warningRadius)) {
-      return warningRadius;
-    }
+  // Get warning range radius - require explicit non-zero value to enable proximity alerts
+  const warningRadius = (typeof rawWarningRadius === "number" && rawWarningRadius > 0) ? rawWarningRadius : null;
+  const warningUnits = warningRangeObj?.units;
+  
+  // Track if warning range is configured for proximity alerts
+  const isWarningRangeConfigured = warningRadius !== null;
+  
+  const effectiveWarningRadius = isWarningRangeConfigured ? (() => {
     if (warningUnits === "m" && isMetric.value === false) {
       return UnitConversion.mToFt(warningRadius);
     }
@@ -3062,7 +3152,16 @@ const updateAisTargets = debounce(() => {
       return UnitConversion.ftToM(warningRadius);
     }
     return warningRadius;
-  })();
+  })() : null;
+  
+  // Convert effectiveWarningRadius to meters for distance comparison
+  const warningRadiusInMeters = effectiveWarningRadius ? (() => {
+    if (isMetric.value) {
+      return effectiveWarningRadius; // Already in meters
+    } else {
+      return effectiveWarningRadius / 3.28084; // Convert feet to meters
+    }
+  })() : null;
   logger.debug(`Warning range radius: ${warningRadius}`, {
     warningUnits,
     effectiveWarningRadius,
@@ -3094,20 +3193,24 @@ const updateAisTargets = debounce(() => {
 
       // Check if target is within warning range of boat
       let isInWarningRange = false;
-      if (isAnchorDeployed && hasValidBoatPosition) {
-        // Calculate distance based on unit preferences
-        const distance = getDistanceFromLatLon(boatLat, boatLon, lat, lon);
+      if (isAnchorDeployed && hasValidBoatPosition && isWarningRangeConfigured && warningRadiusInMeters) {
+        // Calculate distance in meters (always use meters for comparison)
+        const distanceInMeters = (() => {
+          const R = 6371000; // Radius of the earth in meters
+          const dLat = deg2rad(lat - boatLat);
+          const dLon = deg2rad(lon - boatLon);
+          const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(deg2rad(boatLat)) *
+              Math.cos(deg2rad(lat)) *
+              Math.sin(dLon / 2) *
+              Math.sin(dLon / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return R * c; // Always return meters
+        })();
 
-        // Log details about this target with appropriate units
-        // const unitLabel = isMetric.value ? 'm' : 'ft';
-        // logger.debug(`AIS Target: ${target.name || 'Unknown'} (${target.mmsi || 'No MMSI'})`);
-        // logger.debug(`  Position: ${lat}, ${lon}`);
-        // logger.debug(`  Distance from boat: ${distance.toFixed(2)}${unitLabel}`);
-        // logger.debug(`  Warning radius: ${warningRadius.toFixed(2)}${unitLabel}`);
-        // logger.debug(`  In warning range? ${distance <= warningRadius}`);
-
-        // Check if within warning range
-        isInWarningRange = distance <= effectiveWarningRadius;
+        // Compare meters to meters
+        isInWarningRange = distanceInMeters <= warningRadiusInMeters;
 
         // Update the warning flag if any target is in range
         if (isInWarningRange) {
@@ -3147,7 +3250,33 @@ const updateAisTargets = debounce(() => {
       const targetsInRange = validTargets.filter((feature) =>
         feature.get("isInWarningRange")
       ).length;
-      createAisProximityAlert(targetsInRange, effectiveWarningRadius, isMetric.value);
+      
+      // Log detailed debug info about what's triggering this alert
+      logger.error("AIS PROXIMITY ALERT TRIGGERED", {
+        currentAisWarning: anchorState.value.aisWarning,
+        hasTargetsInWarningRange,
+        targetsInRange,
+        effectiveWarningRadius,
+        isMetric: isMetric.value,
+        isAnchorDeployed,
+        hasValidBoatPosition,
+        boatPosition: { lat: boatLat, lon: boatLon },
+        validTargetsCount: validTargets.length,
+        totalAisTargets: aisTargets.value?.length,
+        warningRangeConfigured: isWarningRangeConfigured
+      });
+      
+      // Log details of targets in range
+      const targetsInRangeDetails = validTargets
+        .filter((feature) => feature.get("isInWarningRange"))
+        .map((feature) => ({
+          mmsi: feature.get("mmsi"),
+          name: feature.get("name"),
+          position: feature.getGeometry().getCoordinates()
+        }));
+      logger.error("TARGETS DETECTED IN RANGE:", targetsInRangeDetails);
+      
+      createAisProximityAlert(targetsInRange, warningRadiusInMeters, isMetric.value);
     }
 
     // Update the state
@@ -3595,11 +3724,13 @@ const initializeMap = () => {
 // Watch for changes in the state's navigation position
 watch(
   () => stateStore.state.navigation?.position,
-  (newPos) => {
-    logger.debug("Navigation position updated", { position: newPos });
-    logger.debug("Navigation position changed, updating boat position");
+  () => {
     updateBoatPosition();
     updateFenceFeatures();
+    // Also update rode line when boat position changes and anchor is deployed
+    if (anchorState.value?.anchorDeployed) {
+      updateRodeLine();
+    }
   },
   { immediate: true, deep: true }
 );
@@ -3616,10 +3747,8 @@ watch(
 watch(
   anchorState,
   () => {
-    logger.debug("Anchor state changed:", anchorState.value);
     // Check if anchorState exists before accessing properties
     if (!anchorState.value) {
-      logger.debug("Anchor state is undefined, skipping update");
       return;
     }
     
@@ -3815,6 +3944,11 @@ watch(
 watch(
   () => state.value.aisTargets,
   () => {
+    // Skip if this is initial load - let the other watcher handle it
+    if (isAisInitialLoad) {
+      logger.debug("Skipping raw AIS targets update on initial load");
+      return;
+    }
     updateAisTargets();
     updateFenceFeatures();
   },

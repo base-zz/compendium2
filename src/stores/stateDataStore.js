@@ -227,6 +227,10 @@ export const useStateDataStore = defineStore("stateData", () => {
       return;
     }
 
+    dataLogger("Incoming navigation.position (replaceState)", {
+      position: newState?.navigation?.position
+    });
+
     try {
       let updatedState;
       try {
@@ -321,6 +325,24 @@ export const useStateDataStore = defineStore("stateData", () => {
         }
       }
 
+      // Clear inappropriate AIS warnings from server
+      if (newAnchor && newAnchor.aisWarning) {
+        const warningRange = newAnchor.warningRange?.r;
+        const isAnchorDeployed = newAnchor.anchorDeployed;
+        const hasValidPosition = updatedState.navigation?.position?.latitude && 
+                               updatedState.navigation?.position?.longitude;
+        
+        if (typeof warningRange !== "number" || warningRange <= 0 || 
+            !isAnchorDeployed || !hasValidPosition) {
+          dataLogger("Clearing inappropriate AIS warning from server", {
+            hasWarningRange: typeof warningRange === "number" && warningRange > 0,
+            isAnchorDeployed,
+            hasValidPosition
+          });
+          newAnchor.aisWarning = false;
+        }
+      }
+
       dataLogger(`Updating ${Object.keys(updatedState).length} keys, preserving others`);
 
       // Update or initialize root-level keys
@@ -334,7 +356,18 @@ export const useStateDataStore = defineStore("stateData", () => {
 
       if (updatedState.navigation?.position) {
         if (!state.navigation) state.navigation = {};
-        state.navigation.position = { ...updatedState.navigation.position };
+        
+        // Preserve existing valid values instead of copying nulls
+        const currentPos = state.navigation.position || {};
+        const newPos = updatedState.navigation.position;
+        
+        state.navigation.position = {
+          latitude: newPos.latitude !== null && newPos.latitude !== undefined ? newPos.latitude : currentPos.latitude,
+          longitude: newPos.longitude !== null && newPos.longitude !== undefined ? newPos.longitude : currentPos.longitude,
+          timestamp: newPos.timestamp !== null && newPos.timestamp !== undefined ? newPos.timestamp : currentPos.timestamp,
+          source: newPos.source !== null && newPos.source !== undefined ? newPos.source : currentPos.source
+        };
+        
         state.position = state.navigation.position;
         // Navigation position updates are now handled silently; any debug logging has been removed.
         delete updatedState.navigation.position;
@@ -1308,6 +1341,12 @@ export const useStateDataStore = defineStore("stateData", () => {
     }
 
     dataLogger(`Applying ${patches.length} patch operations`);
+    const navPositionPatches = patches.filter((patch) =>
+      typeof patch.path === "string" && patch.path.startsWith("/navigation/position")
+    );
+    if (navPositionPatches.length > 0) {
+      dataLogger("Incoming navigation.position patches", navPositionPatches);
+    }
 
     try {
       // Ensure all parent paths exist before applying patches
