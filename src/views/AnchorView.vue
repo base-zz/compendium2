@@ -575,7 +575,7 @@ import {
 } from "@/stores/stateDataStore";
 import { usePreferencesStore } from "@/stores/preferences";
 import { UnitConversion } from "@/shared/unitConversion";
-import { debounce } from "lodash-es";
+import { debounce, throttle } from "lodash-es";
 import { getComputedAnchorLocation } from "@/stores/stateDataStore";
 import { createAisProximityAlert } from "@/utils/anchorAlerts";
 import { useDeviceHeading } from "@/composables/useDeviceHeading.js";
@@ -1094,7 +1094,7 @@ const updateFenceFeatures = () => {
     rangeFeature.setStyle(
       new Style({
         stroke: new Stroke({
-          color: "rgba(250, 204, 21, 0.85)",
+          color: "rgba(250, 204, 21, 0.65)",
           width: 2,
         }),
         fill: new Fill({
@@ -2033,7 +2033,14 @@ function animateBoatPosition(targetLat, targetLon, duration = 500) {
         boat: { x: targetCoord[0], y: targetCoord[1] }, 
         anchor: { x: anchorCoord[0], y: anchorCoord[1] } 
       };
-      updateRodeFeaturePosition(targetCoord[0], targetCoord[1], anchorCoord[0], anchorCoord[1]);
+      const rodeFeature = vectorSource.getFeatures().find(
+        (feature) => feature.get("type") === FEATURE_TYPES.RODE
+      );
+      if (!rodeFeature && anchorState.value?.anchorDeployed) {
+        updateRodeLine();
+      } else {
+        updateRodeFeaturePosition(targetCoord[0], targetCoord[1], anchorCoord[0], anchorCoord[1]);
+      }
     }
     return;
   }
@@ -2081,7 +2088,14 @@ function animateBoatPosition(targetLat, targetLon, duration = 500) {
         boat: { x: currentX, y: currentY }, 
         anchor: { x: anchorCoord[0], y: anchorCoord[1] } 
       };
-      updateRodeFeaturePosition(currentX, currentY, anchorCoord[0], anchorCoord[1]);
+      const rodeFeature = vectorSource.getFeatures().find(
+        (feature) => feature.get("type") === FEATURE_TYPES.RODE
+      );
+      if (!rodeFeature) {
+        updateRodeLine();
+      } else {
+        updateRodeFeaturePosition(currentX, currentY, anchorCoord[0], anchorCoord[1]);
+      }
     }
     
     if (progress < 1) {
@@ -2888,16 +2902,14 @@ watch(
   }
 );
 
-const updateRodeLine = debounce(() => {
+const updateRodeLine = throttle(() => {
   // Check if anchorState exists first
   if (!anchorState.value) {
-    logger.error("RODE LINE: No anchorState - returning");
     return;
   }
 
   // Exit if anchor is not deployed
   if (!anchorState.value.anchorDeployed) {
-    logger.error("RODE LINE: Anchor not deployed - clearing and returning");
     clearFeature(FEATURE_TYPES.RODE);
     return;
   }
@@ -2907,8 +2919,12 @@ const updateRodeLine = debounce(() => {
   const pos = state?.navigation?.position;
   let boatLat, boatLon;
   
-  // Try to get boat position from state (same as initialization logic)
-  if (pos?.latitude?.value != null && pos?.longitude?.value != null) {
+  if (boatAnimationFrame && currentBoatPosition) {
+    const coord = toLonLat([currentBoatPosition.x, currentBoatPosition.y]);
+    boatLon = coord[0];
+    boatLat = coord[1];
+  } else if (pos?.latitude?.value != null && pos?.longitude?.value != null) {
+    // Try to get boat position from state (same as initialization logic)
     boatLat = pos.latitude.value;
     boatLon = pos.longitude.value;
   } else {
@@ -2927,8 +2943,6 @@ const updateRodeLine = debounce(() => {
 
   // Validate boat coordinates
   if (typeof boatLat !== "number" || typeof boatLon !== "number" || isNaN(boatLat) || isNaN(boatLon)) {
-    logger.error("RODE LINE: Invalid boat coordinates - returning");
-    logger.error("RODE LINE: boat coordinates:", { boatLat, boatLon });
     return;
   }
 
@@ -2939,7 +2953,6 @@ const updateRodeLine = debounce(() => {
 
   // Validate anchor coordinates (no fallbacks)
   if (typeof anchorLat !== "number" || typeof anchorLon !== "number" || isNaN(anchorLat) || isNaN(anchorLon)) {
-    logger.error("RODE LINE: Invalid anchor coordinates - returning");
     return;
   }
 
@@ -2951,12 +2964,10 @@ const updateRodeLine = debounce(() => {
     !Number.isFinite(anchorLon) ||
     !Number.isFinite(anchorLat)
   ) {
-    logger.error("INVALID COORDINATES DETECTED - RODE LINE ABORTED");
     return;
   }
 
   if (!map.value || !vectorSource) {
-    logger.warn("Map not ready for rode line update");
     return;
   }
 
@@ -2999,17 +3010,32 @@ const updateRodeLine = debounce(() => {
       zIndex: 100, // Ensure it's on top
     });
 
-    // Create a line feature directly
-    const rodeFeature = new Feature({
-      geometry: new LineString([startCoord, endCoord]),
-    });
+    const existingRodeFeature = vectorSource.getFeatures().find(
+      (feature) => feature.get("type") === FEATURE_TYPES.RODE
+    );
 
-    // Set the feature type and style
-    rodeFeature.set("type", FEATURE_TYPES.RODE);
-    rodeFeature.setStyle(rodeStyle);
+    if (existingRodeFeature) {
+      const geometry = existingRodeFeature.getGeometry();
+      if (geometry && typeof geometry.setCoordinates === "function") {
+        geometry.setCoordinates([startCoord, endCoord]);
+      } else {
+        existingRodeFeature.setGeometry(new LineString([startCoord, endCoord]));
+      }
+      existingRodeFeature.setStyle(rodeStyle);
+      existingRodeFeature.changed();
+    } else {
+      // Create a line feature directly
+      const rodeFeature = new Feature({
+        geometry: new LineString([startCoord, endCoord]),
+      });
 
-    // Add the feature directly to the source
-    vectorSource.addFeature(rodeFeature);
+      // Set the feature type and style
+      rodeFeature.set("type", FEATURE_TYPES.RODE);
+      rodeFeature.setStyle(rodeStyle);
+
+      // Add the feature directly to the source
+      vectorSource.addFeature(rodeFeature);
+    }
 
     // We don't need to store the feature reference manually
 
@@ -3019,9 +3045,9 @@ const updateRodeLine = debounce(() => {
     // logger.debug('Vector source feature types:', vectorSource.getFeatures().map(f => f.get('type')));
 
     // Force the map to render
-    if (map.value) {
+    if (map.value && map.value.getRenderer?.()) {
       // logger.debug('Map object:', map.value);
-      map.value.renderSync();
+      // map.value.renderSync();
 
       // Uncomment to debug layer visibility
       // const layers = map.value.getLayers().getArray();
@@ -3181,9 +3207,6 @@ const updateAisTargets = debounce(() => {
       const lon = target.position.longitude;
 
       const isValid = typeof lat === "number" && typeof lon === "number";
-      if (!isValid) {
-        logger.warn("Invalid AIS target coordinates:", target);
-      }
       return isValid;
     })
     .map((target) => {
@@ -5417,6 +5440,9 @@ function deg2rad(deg) {
 }
 
 // Lifecycle hooks
+let anchorStateLogInterval;
+let fenceGraphLogInterval;
+
 onMounted(() => {
   logger.info("Component mounted, initializing map...");
   try {
@@ -5431,6 +5457,11 @@ onMounted(() => {
     // Reset fade timer on any touch/click
     document.addEventListener('touchstart', resetFadeTimer);
     document.addEventListener('click', resetFadeTimer);
+
+    fenceGraphLogInterval = setInterval(() => {
+      console.log("Fence graph state snapshot", anchorState.value?.fences);
+    }, 60000);
+
   } catch (error) {
     logger.error("Error during component mount", {
       error: error.message,
@@ -5441,6 +5472,12 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (anchorStateLogInterval) {
+    clearInterval(anchorStateLogInterval);
+  }
+  if (fenceGraphLogInterval) {
+    clearInterval(fenceGraphLogInterval);
+  }
   clearAll();
   map.value?.dispose();
   window.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
