@@ -46,6 +46,8 @@ class DirectConnectionAdapter {
     this._reconnectTimeout = null;
     this._staleAfterMs = 90000;
     this._lastMessageAt = null;
+    this._lastPingAt = null;
+    this._lastPongAt = null;
     this._stalenessTimer = null;
   }
 
@@ -85,6 +87,7 @@ class DirectConnectionAdapter {
     }
     this._heartbeatTimer = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this._lastPingAt = Date.now();
         this.ws.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
         logger.info(`💓 Sent ping`);
       } else {
@@ -155,6 +158,7 @@ class DirectConnectionAdapter {
 
   _handlePingPong(msg) {
     if (msg.type === "pong") {
+      this._lastPongAt = Date.now();
       logger.debug(`Received pong`);
     }
   }
@@ -226,7 +230,14 @@ class DirectConnectionAdapter {
           reject(error);
         };
         this.ws.onclose = (event) => {
-          logger.warn(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
+          logger.warn(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`, {
+            readyState: this.ws?.readyState,
+            wasClean: event.wasClean,
+            url: this._wsUrl,
+            lastPingAt: this._lastPingAt,
+            lastPongAt: this._lastPongAt,
+            lastMessageAt: this._lastMessageAt,
+          });
           this.connectionState.status = 'disconnected';
           this._clearHeartbeat();
           this._clearStalenessTimer();

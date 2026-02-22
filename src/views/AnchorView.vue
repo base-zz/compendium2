@@ -3110,45 +3110,14 @@ const updateAisTargets = debounce(() => {
     return;
   }
   
-  // Skip if warning range is not configured - no alerts should fire
+  // Warning range config controls alerts, not rendering
   const warningRangeObj = anchorState.value?.warningRange;
   const rawWarningRadius = warningRangeObj?.r;
-  if (typeof rawWarningRadius !== "number" || rawWarningRadius <= 0) {
-    logger.debug("Warning range not configured, clearing AIS features and skipping alerts");
-    clearFeature(FEATURE_TYPES.AIS);
-    // Clear AIS warning flag
-    if (anchorState.value && anchorState.value.aisWarning) {
-      anchorState.value.aisWarning = false;
-      logger.debug("Cleared AIS warning flag - warning range not configured");
-    }
-    return;
-  }
-  
-  // Skip if anchor is not deployed
+
   const isAnchorDeployed = anchorState.value && anchorState.value.anchorDeployed;
-  if (!isAnchorDeployed) {
-    logger.debug("Anchor not deployed, clearing AIS warning flag");
-    clearFeature(FEATURE_TYPES.AIS);
-    if (anchorState.value && anchorState.value.aisWarning) {
-      anchorState.value.aisWarning = false;
-      logger.debug("Cleared AIS warning flag - anchor not deployed");
-    }
-    return;
-  }
-  
-  // Skip if boat position is invalid
   const boatLat = boatPosition.value?.latitude?.value ?? boatPosition.value?.latitude;
   const boatLon = boatPosition.value?.longitude?.value ?? boatPosition.value?.longitude;
   const hasValidBoatPosition = typeof boatLat === "number" && typeof boatLon === "number";
-  if (!hasValidBoatPosition) {
-    logger.debug("Invalid boat position, clearing AIS warning flag");
-    clearFeature(FEATURE_TYPES.AIS);
-    if (anchorState.value && anchorState.value.aisWarning) {
-      anchorState.value.aisWarning = false;
-      logger.debug("Cleared AIS warning flag - invalid boat position");
-    }
-    return;
-  }
   
   logger.debug(`Updating ${aisTargets.value?.length || 0} AIS targets`);
 
@@ -5458,9 +5427,9 @@ onMounted(() => {
     document.addEventListener('touchstart', resetFadeTimer);
     document.addEventListener('click', resetFadeTimer);
 
-    fenceGraphLogInterval = setInterval(() => {
-      console.log("Fence graph state snapshot", anchorState.value?.fences);
-    }, 60000);
+    // fenceGraphLogInterval = setInterval(() => {
+    //   console.log("Fence graph state snapshot", anchorState.value?.fences);
+    // }, 60000);
 
   } catch (error) {
     logger.error("Error during component mount", {

@@ -96,6 +96,26 @@
         </div>
       </div>
 
+      <div v-if="hourlyWindForecast.length" class="wind-forecast">
+        <h3 class="section-title">Wind Forecast</h3>
+        <div class="wind-forecast-grid">
+          <div class="wind-forecast-cell wind-forecast-key-cell">
+            <div class="wind-forecast-day">&nbsp;</div>
+            <div class="wind-forecast-time">&nbsp;</div>
+            <div class="wind-forecast-key-item">Dir</div>
+            <div class="wind-forecast-key-item">Wind (kn)</div>
+            <div class="wind-forecast-key-item">Gust (kn)</div>
+          </div>
+          <div v-for="item in hourlyWindForecast" :key="item.startTime" class="wind-forecast-cell">
+            <div class="wind-forecast-day">{{ item.dayLabel }}</div>
+            <div class="wind-forecast-time">{{ item.timeLabel }}</div>
+            <div class="wind-forecast-arrow" :style="{ transform: `rotate(${item.directionDegrees}deg)` }">↑</div>
+            <div class="wind-forecast-speed">{{ item.windSpeed }}</div>
+            <div class="wind-forecast-gust">{{ item.windGust }}</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Current Marine Conditions -->
       <div v-if="currentConditions" class="marine-conditions">
         <h3 class="section-title">Current Conditions</h3>
@@ -269,6 +289,7 @@ function stationHasCurrent(station) {
 }
 
 const tideData = computed(() => state.value?.tides);
+const forecastData = computed(() => state.value?.forecast);
 const units = computed(() => {
   const u = tideData.value?.units;
   return u && typeof u === 'object' ? u : {};
@@ -367,6 +388,94 @@ const canShowMoreStations = computed(() => {
 const seaLevelUnitLabel = computed(() => {
   const unit = units.value?.seaLevelHeight;
   return typeof unit === 'string' ? unit : '';
+});
+
+const windDirectionToDegrees = (value) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) {
+    return null;
+  }
+  const map = {
+    N: 0,
+    NNE: 22.5,
+    NE: 45,
+    ENE: 67.5,
+    E: 90,
+    ESE: 112.5,
+    SE: 135,
+    SSE: 157.5,
+    S: 180,
+    SSW: 202.5,
+    SW: 225,
+    WSW: 247.5,
+    W: 270,
+    WNW: 292.5,
+    NW: 315,
+    NNW: 337.5,
+  };
+  if (!Object.prototype.hasOwnProperty.call(map, normalized)) {
+    return null;
+  }
+  return map[normalized];
+};
+
+const hourlyWindForecast = computed(() => {
+  const hourly = forecastData.value?.hourly;
+  const times = hourly?.time;
+  const speeds = hourly?.wind_speed_10m;
+  const directions = hourly?.wind_direction_10m;
+  const gusts = hourly?.wind_gusts_10m;
+  if (!Array.isArray(times) || !Array.isArray(speeds) || !Array.isArray(directions) || !Array.isArray(gusts)) {
+    return [];
+  }
+  const count = Math.min(times.length, speeds.length, directions.length, gusts.length);
+  if (count < 1) {
+    return [];
+  }
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    hour12: true,
+  });
+  const dayFormatter = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+  });
+  return Array.from({ length: count }, (_, index) => {
+    const startTime = times[index];
+    const windSpeed = speeds[index];
+    const direction = directions[index];
+    const windGust = gusts[index];
+    if (typeof startTime !== 'string' || !startTime) {
+      return null;
+    }
+    if (typeof windSpeed !== 'number' || Number.isNaN(windSpeed)) {
+      return null;
+    }
+    if (typeof windGust !== 'number' || Number.isNaN(windGust)) {
+      return null;
+    }
+    const directionDegrees = windDirectionToDegrees(direction);
+    if (typeof directionDegrees !== 'number') {
+      return null;
+    }
+    const time = new Date(startTime);
+    if (!(time instanceof Date) || Number.isNaN(time.getTime())) {
+      return null;
+    }
+    return {
+      startTime,
+      dayLabel: dayFormatter.format(time),
+      timeLabel: formatter.format(time),
+      windSpeed: `${windSpeed}`,
+      windGust: `${windGust}`,
+      directionDegrees,
+    };
+  }).filter((entry) => entry != null);
 });
 
 const currentTideLevelFromHourly = computed(() => {
@@ -1213,6 +1322,81 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
 /* Tide extremes table styles */
 .tide-table-container {
   overflow-x: auto;
+}
+
+.wind-forecast {
+  margin-top: 8px;
+}
+
+.wind-forecast-key-item {
+  font-size: 0.75rem;
+  color: var(--app-muted-text-color);
+  font-weight: 600;
+}
+
+.wind-forecast-grid {
+  display: flex;
+  overflow-x: auto;
+  gap: 1.25rem;
+  padding: 1rem;
+  margin: 0.5rem 0 1rem;
+  min-height: 100px;
+  scrollbar-width: none;
+  background: color-mix(in srgb, var(--app-surface-color) 50%, var(--app-background-color) 50%);
+  border-radius: 12px;
+  border: 1px solid var(--app-border-color);
+}
+
+.wind-forecast-grid::-webkit-scrollbar {
+  display: none;
+}
+
+.wind-forecast-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 3.25rem;
+  gap: 0.35rem;
+}
+
+.wind-forecast-key-cell {
+  min-width: 74px;
+  align-items: flex-start;
+  padding-right: 6px;
+}
+
+.wind-forecast-day {
+  font-size: 0.7rem;
+  color: var(--app-muted-text-color);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wind-forecast-time {
+  font-size: 0.75rem;
+  color: var(--app-muted-text-color);
+}
+
+.wind-forecast-arrow {
+  font-size: 1.25rem;
+  color: #ffffff;
+  min-height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wind-forecast-speed {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--app-text-color);
+  min-height: 1.2rem;
+}
+
+.wind-forecast-gust {
+  font-size: 0.75rem;
+  color: var(--app-muted-text-color);
+  min-height: 1rem;
 }
 
 .tide-extremes-table {
