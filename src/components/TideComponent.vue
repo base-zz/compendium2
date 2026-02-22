@@ -459,10 +459,11 @@ const hourlyWindForecast = computed(() => {
     if (typeof windGust !== 'number' || Number.isNaN(windGust)) {
       return null;
     }
-    const directionDegrees = windDirectionToDegrees(direction);
-    if (typeof directionDegrees !== 'number') {
+    const rawDirection = windDirectionToDegrees(direction);
+    if (typeof rawDirection !== 'number') {
       return null;
     }
+    const directionDegrees = (rawDirection + 180) % 360;
     const time = new Date(startTime);
     if (!(time instanceof Date) || Number.isNaN(time.getTime())) {
       return null;
