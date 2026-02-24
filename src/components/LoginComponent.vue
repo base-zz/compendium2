@@ -255,6 +255,21 @@ async function handleLogin() {
       debugLog('[LOGIN] Login successful, processing response');
       relayConnectionBridge.setRelayServerUrl(isDemoUser ? DEMO_RELAY_URL : PRODUCTION_RELAY_URL);
       debugLog('[LOGIN] Response payload:', response.data);
+
+      const jwtToken =
+        (response.data && typeof response.data.token === 'string' && response.data.token) ||
+        (response.data && typeof response.data.jwt === 'string' && response.data.jwt) ||
+        (response.data && typeof response.data.accessToken === 'string' && response.data.accessToken) ||
+        null;
+
+      if (jwtToken) {
+        localStorage.setItem('authToken', jwtToken);
+        debugLog('[LOGIN] Stored authToken in localStorage');
+      } else {
+        console.warn(
+          '[LOGIN] Login succeeded but no JWT token field found on response. Expected response.data.token (or jwt/accessToken). Push token registration will not work until JWT is persisted.'
+        );
+      }
       
       // Set authentication flag for key-based authentication
       localStorage.setItem('isAuthenticated', 'true');

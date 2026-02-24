@@ -103,6 +103,12 @@ export class NotificationService {
       this.logger.debug('Push registration success', { token: token.value });
       localStorage.setItem('pushToken', token.value);
       this.emitter.emit('tokenChanged', token.value);
+
+      this.registerTokenWithVps(token.value).catch((error) => {
+        this.logger.error('Failed to register push token with VPS', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     });
 
     // Handle notifications when app is open
@@ -125,6 +131,69 @@ export class NotificationService {
     App.addListener('appUrlOpen', (data: { url: string }) => {
       this.handleDeepLink(data.url);
     });
+  }
+
+  private async registerTokenWithVps(deviceToken: string) {
+    if (!deviceToken || typeof deviceToken !== 'string') {
+      this.logger.warn('Skipping VPS push token registration because deviceToken is missing');
+      return;
+    }
+
+    const boatId = localStorage.getItem('activeBoatId');
+    if (!boatId) {
+      this.logger.warn('Skipping VPS push token registration because activeBoatId is missing');
+      return;
+    }
+
+    const jwtToken = localStorage.getItem('authToken');
+    if (!jwtToken) {
+      this.logger.warn('Skipping VPS push token registration because authToken is missing');
+      return;
+    }
+
+    const platform = Capacitor.getPlatform();
+    if (platform !== 'ios' && platform !== 'android') {
+      this.logger.warn('Skipping VPS push token registration because platform is not ios/android', {
+        platform,
+      });
+      return;
+    }
+
+    this.logger.debug('Registering push token with VPS', {
+      platform,
+      boatId,
+      tokenLength: deviceToken.length,
+    });
+
+    const response = await fetch('https://compendiumnav.com/api/push/register-token', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${jwtToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        boatId,
+        platform,
+        token: deviceToken,
+      }),
+    });
+
+    let payload: unknown = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      this.logger.error('VPS push token registration returned non-200', {
+        status: response.status,
+        payload,
+      });
+      return;
+    }
+
+    this.logger.debug('VPS push token registration succeeded', { payload });
   }
 
   private handleNotification(notification: PushNotification) {

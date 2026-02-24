@@ -11,6 +11,7 @@ import { onMounted } from 'vue';
 import { useStateDataStore } from '@/stores/stateDataStore';
 import { useRelayPiniaSync } from '@/services/useRelayPiniaSync';
 import { useDirectPiniaSync } from '@/services/useDirectPiniaSync';
+import { useAlarmSounds } from '@/services/useAlarmSounds';
 import { createLogger } from '@/services/logger';
 import { notificationService } from '@/services/NotificationService';
 
@@ -27,6 +28,8 @@ useRelayPiniaSync();
 // Start direct-to-pinia data sync
 logger.info('Initializing direct-to-pinia sync...');
 useDirectPiniaSync();
+
+useAlarmSounds({ delayMs: 3000 });
 
 onMounted(() => {
   logger.info('App component mounted');
