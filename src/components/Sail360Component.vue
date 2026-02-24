@@ -196,7 +196,7 @@ const windTrueUpdated = computed(
 );
 
 const windTrueAngleUpdated = computed(
-  () => navData.value?.wind?.true?.angle?.value
+  () => navData.value?.wind?.true?.angle?.degrees ?? navData.value?.wind?.true?.angle?.value
 );
 
 const windApparentUpdated = computed(
@@ -204,7 +204,7 @@ const windApparentUpdated = computed(
 );
 
 const windApparentAngleUpdated = computed(
-  () => navData.value?.wind?.apparent?.angle?.value
+  () => navData.value?.wind?.apparent?.angle?.degrees ?? navData.value?.wind?.apparent?.angle?.value
 );
 
 const headingUpdated = computed(

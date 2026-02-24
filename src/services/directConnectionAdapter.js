@@ -49,6 +49,7 @@ class DirectConnectionAdapter {
     this._lastPingAt = null;
     this._lastPongAt = null;
     this._stalenessTimer = null;
+    this._lastMessageType = null;
   }
 
   getReadyStateName(state) {
@@ -227,23 +228,6 @@ class DirectConnectionAdapter {
           if (!this._manualClose) {
             this._scheduleReconnectWithOptions({ immediate: true });
           }
-          reject(error);
-        };
-        this.ws.onclose = (event) => {
-          logger.warn(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`, {
-            readyState: this.ws?.readyState,
-            wasClean: event.wasClean,
-            url: this._wsUrl,
-            lastPingAt: this._lastPingAt,
-            lastPongAt: this._lastPongAt,
-            lastMessageAt: this._lastMessageAt,
-          });
-          this.connectionState.status = 'disconnected';
-          this._clearHeartbeat();
-          this._clearStalenessTimer();
-          if (!this._manualClose) {
-            this._scheduleReconnectWithOptions({ immediate: true });
-          }
         };
         this.ws.onmessage = this.onmessage.bind(this);
       } catch (error) {
@@ -272,9 +256,26 @@ class DirectConnectionAdapter {
           console.log(`Raw message type: ${typeof rawData}`);
           console.log(`Raw message length: ${rawData.length || 'unknown'}`);
           console.log(`Raw message content (first 200 chars):`, rawData.substring(0, 200));
+          console.log("[DIRECT-ADAPTER] Parse error context", {
+            url: this._wsUrl,
+            readyState: this.ws?.readyState,
+            lastMessageType: this._lastMessageType,
+            lastMessageAt: this._lastMessageAt,
+          });
+          logger.warn("[DIRECT-ADAPTER] Parse error context", {
+            url: this._wsUrl,
+            readyState: this.ws?.readyState,
+            lastMessageType: this._lastMessageType,
+            lastMessageAt: this._lastMessageAt,
+          });
           logger.warn("[DIRECT-ADAPTER] Error parsing message:", e);
+          console.warn("[DIRECT-ADAPTER] Error parsing message:", e);
           return;
         }
+      }
+
+      if (msg?.type) {
+        this._lastMessageType = msg.type;
       }
       
       // Only log important message types (not routine patches)
@@ -372,6 +373,22 @@ class DirectConnectionAdapter {
         if (!msg.data) {
           console.warn("[DIRECT-ADAPTER] Missing data in message:", msg);
           return;
+        }
+        if (msg.type === "state:full-update") {
+          const dataKeys = msg.data && typeof msg.data === "object" ? Object.keys(msg.data) : [];
+          const dataSize = JSON.stringify(msg.data).length;
+          console.log("[DIRECT-ADAPTER] Received state:full-update", {
+            dataKeys,
+            dataSize,
+            timestamp: msg.timestamp,
+          });
+          logger.info("[DIRECT-ADAPTER] Received state:full-update", {
+            dataKeys,
+            dataSize,
+            timestamp: msg.timestamp,
+          });
+        } else if (msg.type === "state:patch") {
+          // Patches received but no wind data in them
         }
         stateUpdateProvider._notify(msg);
         this.emit("state-update", { type: msg.type, data: msg.data });

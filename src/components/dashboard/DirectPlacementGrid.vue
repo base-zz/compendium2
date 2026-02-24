@@ -345,7 +345,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
 
 /* Template 5 - Dashboard */
 .template-grid-5 {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr);
   grid-template-rows: 1fr 2fr 1fr;
   grid-template-areas:
     "header header"
@@ -371,7 +371,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
 
 /* Template 6 - Grid (2x3) */
 .template-grid-6 {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr);
   grid-template-rows: 1fr 1fr 1fr;
   grid-template-areas:
     "topLeft topRight"
@@ -405,7 +405,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
 
 /* Template 8 - Anchor Watch (Compact) */
 .template-grid-8 {
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr);
   grid-template-rows: 1fr 2fr;
   grid-template-areas:
     "topLeft topCenter topRight"
@@ -430,7 +430,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
 
 /* Template 9 - Anchor Watch (Map Focus) */
 .template-grid-9 {
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr);
   grid-template-rows: 1fr 3fr;
   grid-template-areas:
     "topLeft topCenter topRight"
@@ -455,7 +455,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
 
 /* Template 10 - Anchor Watch (Wide Row) */
 .template-grid-10 {
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(120px, 1fr);
   grid-template-rows: 1fr 2fr;
   grid-template-areas:
     "topLeft topCenterLeft topCenterRight topRight"
@@ -534,7 +534,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
 
 /* Template 5 - Dashboard */
 .template-grid-5 {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr);
   grid-template-rows: 1fr 2fr 1fr;
   grid-template-areas:
     "header header"
@@ -560,7 +560,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
 
 /* Template 6 - Grid (2x3) */
 .template-grid-6 {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr);
   grid-template-rows: 1fr 1fr 1fr;
   grid-template-areas:
     "topLeft topRight"
@@ -595,7 +595,7 @@ watch(() => dashboardStore.getDashboard(props.dashboardIndex), (newDashboard) =>
 /* Template 4 - Cross layout */
 .template-grid-4 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr);
   grid-template-rows: 2fr 4fr 2fr;
   grid-template-areas:
     "topLeft topRight"

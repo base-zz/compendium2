@@ -125,15 +125,24 @@ const emit = defineEmits(['edit', 'remove', 'mounted', 'add-widget']);
 // Track if widget is ready to be shown
 const isReady = ref(false);
 
-// Initialize state store
+// Initialize state store - use direct access like AnchorInfoGrid
 const stateStore = useStateDataStore();
-const { state: navigationState } = storeToRefs(stateStore);
+
+// Get state directly - access wind directly to ensure reactivity
+const getNavigationState = computed(() => {
+  // Access specific properties to ensure Vue tracks them
+  const wind = stateStore.state?.navigation?.wind;
+  return {
+    wind,
+    _version: stateStore.state?._version || 0
+  };
+});
 
 // Debug state initialization
 // State initialization
 
 // Watch for navigation state changes
-watch(navigationState, () => {
+watch(() => stateStore.state, () => {
   // State change handler
 }, { deep: true });
 
@@ -275,7 +284,7 @@ const widgetData = computed(() => {
   const dataSource = getDataSourceById(data.dataSource);
 
   // Get data from the state using the data source configuration
-  const stateData = getDataFromState(navigationState.value, data.dataSource) || {};
+  const stateData = getDataFromState(getNavigationState.value, data.dataSource) || {};
   
   // Log detailed information about the data for tank widgets
   if (data.type === 'clock') {
@@ -316,6 +325,20 @@ const widgetData = computed(() => {
       units: stateData?.units || data.units || dataSource?.defaultUnits,
       decimalPlaces: data.decimalPlaces ?? 1,
       showThousandsSeparator: data.showThousandsSeparator ?? false,
+      updated: true,
+    };
+  }
+
+  // Wind compass arrow uses same data enrichment as windspeed
+  if (data.type === 'windcompassarrow' || data.type === 'windcompassrotating') {
+    return {
+      ...data,
+      ...stateData,
+      dataConfig: dataSource,
+      label: dataSource?.label || stateData?.label || data.label,
+      displayLabel:
+        dataSource?.displayLabel || stateData?.displayLabel || data.displayLabel,
+      units: stateData?.units || data.units || dataSource?.defaultUnits,
       updated: true,
     };
   }

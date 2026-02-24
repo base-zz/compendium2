@@ -475,8 +475,20 @@ const hourlyWindForecast = computed(() => {
       windSpeed: `${windSpeed}`,
       windGust: `${windGust}`,
       directionDegrees,
+      timeMs: time.getTime(), // Add timestamp for filtering
     };
   }).filter((entry) => entry != null);
+  
+  // Filter to only show hours >= current time
+  const nowMs = Date.now();
+  const futureEntries = result.filter((entry) => entry.timeMs >= nowMs);
+  
+  // If all entries are in the past (edge case), show at least the next few hours from start
+  if (futureEntries.length === 0 && result.length > 0) {
+    return result.slice(0, 12); // Show next 12 hours from beginning of data
+  }
+  
+  return futureEntries;
 });
 
 const currentTideLevelFromHourly = computed(() => {

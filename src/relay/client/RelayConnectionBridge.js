@@ -56,15 +56,26 @@ export function getActiveBoatId() {
  * @returns {string} The client ID
  */
 export function getOrCreateClientId() {
-  let clientId = localStorage.getItem("clientId");
-  if (!clientId) {
-    // Generate a random client ID
-    clientId =
-      "client-" +
-      Math.random().toString(36).substring(2, 15) +
-      Math.random().toString(36).substring(2, 15);
-    localStorage.setItem("clientId", clientId);
+  const storageKey = "clientId";
+
+  if (typeof sessionStorage !== "undefined") {
+    const sessionClientId = sessionStorage.getItem(storageKey);
+    if (typeof sessionClientId === "string" && sessionClientId.length > 0) {
+      return sessionClientId;
+    }
   }
+
+  const clientId =
+    "client-" +
+    Math.random().toString(36).substring(2, 15) +
+    Math.random().toString(36).substring(2, 15);
+
+  if (typeof sessionStorage !== "undefined") {
+    sessionStorage.setItem(storageKey, clientId);
+  } else if (typeof localStorage !== "undefined") {
+    localStorage.setItem(storageKey, clientId);
+  }
+
   return clientId;
 }
 

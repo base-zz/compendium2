@@ -1444,64 +1444,59 @@ export const useStateDataStore = defineStore("stateData", () => {
         typeof patch.path === "string" && patch.path.startsWith("/navigation/wind/")
       );
 
-      if (windPatches.length > 0) {
-        dataLogger("Processing wind data from patch:", windPatches);
+      if (!state.navigation) state.navigation = {};
+      if (!state.navigation.wind) state.navigation.wind = {};
 
-        if (!state.navigation) state.navigation = {};
-        if (!state.navigation.wind) state.navigation.wind = {};
+      windPatches.forEach((patch) => {
+        const pathParts = patch.path.split("/").filter(Boolean);
+        if (pathParts.length < 4) {
+          return;
+        }
 
-        windPatches.forEach((patch) => {
-          const pathParts = patch.path.split("/").filter(Boolean);
-          if (pathParts.length < 4) {
-            return;
+        const [root, section, windType, property, ...rest] = pathParts;
+
+        if (root !== "navigation" || section !== "wind") {
+          return;
+        }
+
+        if (windType !== "apparent" && windType !== "true") {
+          return;
+        }
+
+        if (!state.navigation.wind[windType]) {
+          state.navigation.wind[windType] = {};
+        }
+
+        if (!property) {
+          return;
+        }
+
+        // Ensure the property container exists when we have nested paths
+        if (!state.navigation.wind[windType][property] || typeof state.navigation.wind[windType][property] !== "object") {
+          state.navigation.wind[windType][property] = {};
+        }
+
+        const target = state.navigation.wind[windType][property];
+
+        if (rest.length === 0) {
+          state.navigation.wind[windType][property] = patch.value;
+          dataLogger(`Updated wind.${windType}.${property} =`, patch.value);
+          return;
+        }
+
+        let current = target;
+        for (let i = 0; i < rest.length - 1; i += 1) {
+          const key = rest[i];
+          if (!current[key] || typeof current[key] !== "object") {
+            current[key] = {};
           }
+          current = current[key];
+        }
 
-          const [root, section, windType, property, ...rest] = pathParts;
-
-          if (root !== "navigation" || section !== "wind") {
-            return;
-          }
-
-          if (windType !== "apparent" && windType !== "true") {
-            return;
-          }
-
-          if (!state.navigation.wind[windType]) {
-            state.navigation.wind[windType] = {};
-          }
-
-          if (!property) {
-            return;
-          }
-
-          // Ensure the property container exists when we have nested paths
-          if (!state.navigation.wind[windType][property] || typeof state.navigation.wind[windType][property] !== "object") {
-            state.navigation.wind[windType][property] = {};
-          }
-
-          const target = state.navigation.wind[windType][property];
-
-          if (rest.length === 0) {
-            state.navigation.wind[windType][property] = patch.value;
-            dataLogger(`Updated wind.${windType}.${property} =`, patch.value);
-            return;
-          }
-
-          let current = target;
-          for (let i = 0; i < rest.length - 1; i += 1) {
-            const key = rest[i];
-            if (!current[key] || typeof current[key] !== "object") {
-              current[key] = {};
-            }
-            current = current[key];
-          }
-
-          const finalKey = rest[rest.length - 1];
-          current[finalKey] = patch.value;
-          dataLogger(`Updated wind.${windType}.${property}.${rest.join(".")} =`, patch.value);
-        });
-        return; // Skip the rest of the handler for wind patches
-      }
+        const finalKey = rest[rest.length - 1];
+        current[finalKey] = patch.value;
+        dataLogger(`Updated wind.${windType}.${property}.${rest.join(".")} =`, patch.value);
+      });
     }
 
     // Handle state updates

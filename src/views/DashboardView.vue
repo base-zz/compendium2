@@ -519,7 +519,7 @@ onUnmounted(() => {
 
 .floating-container {
   position: absolute;
-  bottom: 80px;
+  bottom: 20px;
   left: 0;
   right: 0;
   display: flex;
@@ -556,7 +556,7 @@ ion-fab.faded:hover {
 }
 
 .floating-container {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 128px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
 }
 
 .browser-tablet ion-content.content-with-header {
@@ -568,6 +568,6 @@ ion-fab.faded:hover {
 }
 
 .browser-tablet .floating-container {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 176px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 40px);
 }
 </style>

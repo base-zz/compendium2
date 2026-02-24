@@ -59,17 +59,16 @@
         </g>
         
         <!-- Center wind speed display -->
-        <text class="speed-text" x="100" y="115">{{ formattedSpeed }}</text>
-        <text class="units-text" x="100" y="140">{{ units }}</text>
+        <text class="speed-text" x="100" y="115">{{ windSpeed != null ? windSpeed.toFixed(1) : '--' }}</text>
+        <text class="units-text" x="100" y="140">{{ windUnits }}</text>
       </svg>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch, onMounted } from "vue";
 import { useStateDataStore } from "@/stores/stateDataStore";
-import { storeToRefs } from "pinia";
 
 const props = defineProps({
   widgetData: {
@@ -78,170 +77,74 @@ const props = defineProps({
   },
 });
 
-// Get wind data directly from state
 const stateStore = useStateDataStore();
-const { state } = storeToRefs(stateStore);
 
-// Use true wind data from navigation state
-const windData = computed(() => state.value?.navigation?.wind?.true || null);
-const apparentWindData = computed(() => state.value?.navigation?.wind?.apparent || null);
+// Computed properties - these should be reactive
+const windSpeed = computed(() => stateStore.state?.navigation?.wind?.apparent?.speed?.value);
+const windUnits = computed(() => stateStore.state?.navigation?.wind?.apparent?.speed?.units || 'kts');
+const windAngle = computed(() => stateStore.state?.navigation?.wind?.apparent?.angle?.degrees 
+  ?? stateStore.state?.navigation?.wind?.apparent?.angle?.value 
+  ?? stateStore.state?.navigation?.wind?.apparent?.direction?.value);
 
-// Get heading data - prefer true heading, fallback to magnetic or COG
-const headingData = computed(() => {
-  const nav = state.value?.navigation;
-  return nav?.course?.heading?.true || nav?.course?.heading?.magnetic || nav?.course?.cog || null;
-});
-
-const speedData = computed(() => windData.value?.speed || null);
-const directionData = computed(() => windData.value?.direction || null);
-const trueWindAngleData = computed(() => windData.value?.angle || null);
-const apparentWindAngleData = computed(() => apparentWindData.value?.angle || null);
-
-const speedValue = computed(() => {
-  const explicit = speedData.value?.value ?? props.widgetData?.value;
-  return typeof explicit === "number" ? explicit : null;
-});
-
-const units = computed(() => {
-  const suppliedUnits =
-    speedData.value?.units ||
-    props.widgetData?.units ||
-    props.widgetData?.dataConfig?.defaultUnits;
-  return typeof suppliedUnits === "string" ? suppliedUnits : "";
-});
-
-const displayLabel = computed(() =>
-  props.widgetData?.data?.label ||
-  props.widgetData?.data?.widgetTitle ||
-  props.widgetData?.widgetTitle ||
-  props.widgetData?.widgetName ||
-  props.widgetData?.label ||
-  ""
-);
-
-const angleValue = computed(() => {
-  // Priority 1: Use True Wind Direction if available directly (already North-up)
-  // Use .degrees if available, otherwise fall back to .value
-  const twd = directionData.value?.degrees ?? directionData.value?.value ?? directionData.value;
-  if (typeof twd === "number") {
-    return twd;
-  }
-
-  // Priority 2: Calculate from Heading + True Wind Angle
-  const heading = headingData.value?.degrees ?? headingData.value?.value ?? headingData.value;
-  const twa = trueWindAngleData.value?.degrees ?? trueWindAngleData.value?.value ?? trueWindAngleData.value;
-  if (typeof heading === "number" && typeof twa === "number") {
-    return heading + twa;
-  }
-
-  // Priority 3: Calculate from Heading + Apparent Wind Angle (approximation)
-  const awa = apparentWindAngleData.value?.degrees ?? apparentWindAngleData.value?.value ?? apparentWindAngleData.value;
-  if (typeof heading === "number" && typeof awa === "number") {
-    return (heading + awa) % 360;
-  }
-
-  return null;
-});
-
-const formattedSpeed = computed(() => {
-  const speed = speedValue.value;
-  if (speed === null || speed === undefined) {
-    return "--";
-  }
-  return speed.toFixed(1);
-});
+// Missing properties that template uses
+const displayLabel = computed(() => props.widgetData?.displayLabel || props.widgetData?.label || 'Wind');
+const tickMarkers = [10, 20, 40, 50, 70, 80, 100, 110, 130, 140, 160, 170, 190, 200, 220, 230, 250, 260, 280, 290, 310, 320, 340, 350];
 
 const radius = 88;
 const centerX = 100;
 const centerY = 110;
 
-// Normalize angle to 0-360 range
-const normalizedAngle = computed(() => {
-  if (typeof angleValue.value !== "number" || Number.isNaN(angleValue.value)) {
-    return null;
-  }
-  const raw = angleValue.value % 360;
-  return raw >= 0 ? raw : raw + 360;
-});
+const arrowPoints = `${0},${-(radius - 28)} ${-10},${-(radius - 4)} 10,${-(radius - 4)}`;
 
-const displayArrowAngle = computed(() => {
-  if (typeof normalizedAngle.value !== "number") {
-    return null;
-  }
-  return normalizedAngle.value;
-});
-
-// Arrow points inward toward center, positioned on circumference
-const arrowPoints = computed(() => {
-  const tipRadius = radius - 28; // tip sits closer to center
-  const baseRadius = radius - 4;
-  const halfWidth = 10;
-  const tipY = -tipRadius;
-  const baseY = -baseRadius;
-  return `0,${tipY} ${-halfWidth},${baseY} ${halfWidth},${baseY}`;
-});
-
-const arrowStyle = computed(() => ({
+const arrowStyle = {
   fill: "#f87171",
   stroke: "rgba(185, 28, 28, 0.6)",
   strokeWidth: 1.4,
-  transition: "fill 0.2s ease, stroke 0.2s ease",
-}));
+};
 
-// Reference to the arrow group for animation
 const arrowGroupRef = ref(null);
 const currentArrowAngle = ref(0);
-const arrowTransitionReady = ref(false);
 const arrowVisible = ref(false);
 const arrowHasInitialPosition = ref(false);
 
-// Animate rotation using Web Animations API (same approach as Sail360Component)
 function animateArrowRotation(targetAngle) {
-  if (!arrowGroupRef.value) return;
-  
-  // Normalize target to 0-360
   let normalizedTarget = targetAngle % 360;
   if (normalizedTarget < 0) normalizedTarget += 360;
   
-  // Get current angle from ref
+  // Get current normalized angle
   let currentAngle = currentArrowAngle.value % 360;
   if (currentAngle < 0) currentAngle += 360;
   
-  // Find shortest rotation path (handle 350° -> 10° wraparound)
+  // Calculate shortest rotation direction
   let diff = normalizedTarget - currentAngle;
+  
+  // Take shortest path: if diff > 180, go the other way (negative)
   if (diff > 180) diff -= 360;
   if (diff < -180) diff += 360;
   
-  const finalAngle = currentAngle + diff;
-  
-  // Update the ref for next time
-  currentArrowAngle.value = finalAngle;
-  
-  // Use Web Animations API
-  arrowGroupRef.value.animate([
-    { transform: `translate(${centerX}px, ${centerY}px) rotate(${currentAngle}deg)` },
-    { transform: `translate(${centerX}px, ${centerY}px) rotate(${finalAngle}deg)` }
-  ], {
-    duration: 500,
-    iterations: 1,
-    fill: 'forwards',
-    easing: 'ease-in-out'
-  });
+  // Apply the diff to current cumulative angle
+  currentArrowAngle.value += diff;
 }
+
+const arrowGroupStyle = computed(() => ({
+  transform: `translate(${centerX}px, ${centerY}px) rotate(${currentArrowAngle.value}deg)`,
+  transition: 'transform 0.5s ease-in-out'
+}));
 
 onMounted(() => {
   requestAnimationFrame(() => {
-    const initialAngle = displayArrowAngle.value;
-    if (typeof initialAngle === "number") {
-      currentArrowAngle.value = initialAngle;
+    const windAngle = stateStore.state?.navigation?.wind?.apparent?.angle?.degrees 
+      ?? stateStore.state?.navigation?.wind?.apparent?.angle?.value 
+      ?? stateStore.state?.navigation?.wind?.apparent?.direction?.value;
+    if (typeof windAngle === 'number') {
+      currentArrowAngle.value = windAngle;
       arrowHasInitialPosition.value = true;
       arrowVisible.value = true;
-      arrowTransitionReady.value = true;
     }
   });
 });
 
-watch(displayArrowAngle, (newAngle) => {
+watch(() => stateStore.state?.navigation?.wind?.apparent?.angle?.degrees ?? stateStore.state?.navigation?.wind?.apparent?.angle?.value ?? stateStore.state?.navigation?.wind?.apparent?.direction?.value, (newAngle) => {
   if (typeof newAngle !== 'number') {
     return;
   }
@@ -250,41 +153,19 @@ watch(displayArrowAngle, (newAngle) => {
     currentArrowAngle.value = newAngle;
     arrowHasInitialPosition.value = true;
     arrowVisible.value = true;
-    arrowTransitionReady.value = true;
     return;
   }
 
-  if (arrowTransitionReady.value) {
-    animateArrowRotation(newAngle);
-  }
+  animateArrowRotation(newAngle);
 });
 
-const arrowGroupStyle = computed(() => ({
-  transform: `translate(${centerX}px, ${centerY}px) rotate(${currentArrowAngle.value}deg)`,
-}));
+const degreeMarkers = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
 
-// Generate degree markers every 30 degrees
-const degreeMarkers = computed(() => {
-  return [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
-});
-
-// Generate tick markers every 10 degrees (excluding 30-degree markers)
-const tickMarkers = computed(() => {
-  const ticks = [];
-  for (let i = 0; i < 360; i += 10) {
-    if (i % 30 !== 0) {
-      ticks.push(i);
-    }
-  }
-  return ticks;
-});
-
-// Calculate marker position on circle
-function getMarkerPoint(angleDeg, r) {
-  const angleRad = ((angleDeg - 90) * Math.PI) / 180;
+function getMarkerPoint(degrees, r) {
+  const radians = (degrees - 90) * Math.PI / 180;
   return {
-    x: centerX + r * Math.cos(angleRad),
-    y: centerY + r * Math.sin(angleRad),
+    x: centerX + r * Math.cos(radians),
+    y: centerY + r * Math.sin(radians)
   };
 }
 </script>

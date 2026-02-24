@@ -981,12 +981,25 @@ const updateFenceDistanceStats = (fence, targetLonLat) => {
   }
 
   const distanceInFenceUnits = fence.units === "ft" ? distanceMeters * 3.28084 : distanceMeters;
+  const nowMs = Date.now();
+  
   if (Number.isFinite(distanceInFenceUnits) && distanceInFenceUnits !== fence.currentDistance) {
     fence.currentDistance = distanceInFenceUnits;
     fence.currentDistanceUnits = fence.units;
+    
+    // Push to distance history for sparkline
+    if (!Array.isArray(fence.distanceHistory)) {
+      fence.distanceHistory = [];
+    }
+    fence.distanceHistory.push({
+      t: nowMs,
+      v: distanceInFenceUnits
+    });
+    // Keep only last 100 readings to prevent memory bloat
+    if (fence.distanceHistory.length > 100) {
+      fence.distanceHistory = fence.distanceHistory.slice(-100);
+    }
   }
-
-  const nowMs = Date.now();
 
   const existingMinimum =
     typeof fence.minimumDistance === "number" && Number.isFinite(fence.minimumDistance)

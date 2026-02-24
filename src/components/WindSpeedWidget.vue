@@ -77,6 +77,9 @@ const angleValue = computed(() => {
   return typeof raw === "number" ? raw : null;
 });
 
+// Track cumulative angle for shortest path rotation
+const cumulativeAngle = ref(0);
+
 const formattedSpeed = computed(() => {
   if (speedValue.value === null) {
     return "--";
@@ -146,7 +149,19 @@ const normalizedAngle = computed(() => {
     return null;
   }
   const raw = angleValue.value % 360;
-  return raw >= 0 ? raw : raw + 360;
+  const normalized = raw >= 0 ? raw : raw + 360;
+  
+  // Calculate shortest path from current cumulative angle
+  let currentNorm = cumulativeAngle.value % 360;
+  if (currentNorm < 0) currentNorm += 360;
+  
+  let diff = normalized - currentNorm;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  
+  cumulativeAngle.value += diff;
+  
+  return cumulativeAngle.value;
 });
 
 const caretColor = computed(() => {
