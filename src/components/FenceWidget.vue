@@ -23,25 +23,30 @@
           <span class="fence-min-distance">{{ row.minimumSummary }}</span>
         </div>
 
-        <svg
+        <div
           v-if="row.sparklineBars && row.sparklineBars.length"
-          class="fence-sparkline"
-          viewBox="0 0 88 15"
-          preserveAspectRatio="none"
-          role="img"
-          :aria-label="`${row.name} distance trend`"
+          class="fence-sparkline-wrap"
+          aria-hidden="true"
         >
-          <rect
-            v-for="bar in row.sparklineBars"
-            :key="bar.index"
-            :x="bar.x"
-            :y="bar.y"
-            :width="bar.width"
-            :height="bar.height"
-            :fill-opacity="bar.opacity"
-            class="fence-sparkline-bar"
-          />
-        </svg>
+          <svg
+            class="fence-sparkline"
+            viewBox="0 0 88 15"
+            preserveAspectRatio="none"
+            role="img"
+            :aria-label="`${row.name} distance trend`"
+          >
+            <rect
+              v-for="bar in row.sparklineBars"
+              :key="bar.index"
+              :x="bar.x"
+              :y="bar.y"
+              :width="bar.width"
+              :height="bar.height"
+              :fill-opacity="bar.opacity"
+              class="fence-sparkline-bar"
+            />
+          </svg>
+        </div>
       </div>
     </div>
   </div>
@@ -402,9 +407,9 @@ const fenceRows = computed(() => {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 0.3rem;
-  padding: 0.35rem 0.3rem;
-  border-radius: 10px;
+  padding: 0.55rem 0.6rem;
   background: var(--widget-surface-elevated-color);
+  border-radius: 10px;
 }
 
 .fence-row-left {
@@ -499,8 +504,16 @@ const fenceRows = computed(() => {
   color: var(--widget-muted-text-color);
 }
 
-.fence-sparkline {
+.fence-sparkline-wrap {
   grid-column: 1 / -1;
+  width: 100%;
+  height: 15px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.fence-sparkline {
+  display: block;
   width: 100%;
   height: 15px;
   margin-top: 0.08rem;
@@ -509,7 +522,7 @@ const fenceRows = computed(() => {
 }
 
 .fence-sparkline-bar {
-  fill: var(--widget-accent-color, #3b82f6);
+  fill: var(--ion-color-primary-contrast);
   stroke: none;
 }
 </style>

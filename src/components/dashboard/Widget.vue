@@ -128,15 +128,8 @@ const isReady = ref(false);
 // Initialize state store - use direct access like AnchorInfoGrid
 const stateStore = useStateDataStore();
 
-// Get state directly - access wind directly to ensure reactivity
-const getNavigationState = computed(() => {
-  // Access specific properties to ensure Vue tracks them
-  const wind = stateStore.state?.navigation?.wind;
-  return {
-    wind,
-    _version: stateStore.state?._version || 0
-  };
-});
+// Full state for widget data resolution (battery/tank/etc need more than wind)
+const fullState = computed(() => stateStore.state);
 
 // Debug state initialization
 // State initialization
@@ -274,6 +267,10 @@ const adjustContainerSize = () => {
 
 // Get real-time data for the widget based on its type and data source
 const widgetData = computed(() => {
+  // Track wind changes explicitly so wind widgets update reliably.
+  // Do not pass a wind-only object into getDataFromState.
+  const _wind = stateStore.state?.navigation?.wind;
+
   // Start with the widget data
   const data = { ...props.widget };
   if (!data.type && data.displayType) {
@@ -284,7 +281,7 @@ const widgetData = computed(() => {
   const dataSource = getDataSourceById(data.dataSource);
 
   // Get data from the state using the data source configuration
-  const stateData = getDataFromState(getNavigationState.value, data.dataSource) || {};
+  const stateData = getDataFromState(fullState.value, data.dataSource) || {};
   
   // Log detailed information about the data for tank widgets
   if (data.type === 'clock') {
