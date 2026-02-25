@@ -7,13 +7,6 @@
       </ion-list-header>
 
       <!-- Remote Logging Toggle -->
-      <ion-item>
-        <ion-label>Enable Remote Logging</ion-label>
-        <ion-toggle
-          :checked="logging.remote"
-          @ionChange="updateRemoteLogging('remote', $event.detail.checked)"
-        ></ion-toggle>
-      </ion-item>
 
       <!-- Log Level Toggles -->
       <ion-item>

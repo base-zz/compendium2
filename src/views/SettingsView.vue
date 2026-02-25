@@ -102,12 +102,13 @@ const logout = async () => {
     // Clear authentication flags
     localStorage.removeItem('authenticated');
     localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('authToken');
     
     // Clear any user-specific preferences or data if needed
     // await preferencesStore.clearUserData();
     
     // Navigate to login page
-    await router.push('/login');
+    await router.replace('/login');
   } catch (error) {
     console.error('Error during logout:', error);
   }

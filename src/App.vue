@@ -1,5 +1,6 @@
 <template>
   <ion-app>
+    <active-alert-banner />
     <router-view />
     <!-- Notification toast will be shown here -->
   </ion-app>
@@ -14,6 +15,7 @@ import { useDirectPiniaSync } from '@/services/useDirectPiniaSync';
 import { useAlarmSounds } from '@/services/useAlarmSounds';
 import { createLogger } from '@/services/logger';
 import { notificationService } from '@/services/NotificationService';
+import ActiveAlertBanner from '@/components/ActiveAlertBanner.vue';
 
 const logger = createLogger('App') as any;
 logger.info('Initializing application...');

@@ -186,11 +186,23 @@ export const remoteLogger = {
 
 // Initialize the logger when this module is loaded
 if (typeof window !== 'undefined') {
-  remoteLogger.init();
+  if (isRemoteLoggingEnabled()) {
+    remoteLogger.init();
+  }
 }
 
 function isRemoteLoggingEnabled() {
   try {
+    const rawRemoteLoggingFlag = import.meta.env.VITE_REMOTE_LOGGING_ENABLED;
+    if (rawRemoteLoggingFlag === undefined) {
+      return false;
+    }
+
+    const envEnabled = `${rawRemoteLoggingFlag}`.toLowerCase() === 'true';
+    if (!envEnabled) {
+      return false;
+    }
+
     const rawPreferences = localStorage.getItem('userPreferences');
     if (!rawPreferences) {
       return false;

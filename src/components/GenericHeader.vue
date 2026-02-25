@@ -13,6 +13,15 @@
           slot="end"
           v-if="props.title && !new Set(['Login']).has(props.title)"
         >
+          <ion-button
+            v-if="activeAlertCount > 0"
+            fill="clear"
+            class="alerts-button"
+            @click="goToAlerts"
+          >
+            <ion-icon slot="icon-only" :icon="notificationsOutline"></ion-icon>
+            <ion-badge class="alerts-badge">{{ activeAlertCount }}</ion-badge>
+          </ion-button>
           <ion-menu-button class="menu-icon"></ion-menu-button>
         </ion-buttons>
       </ion-toolbar>
@@ -28,9 +37,14 @@ import {
   IonButtons,
   IonMenuButton,
   IonBackButton,
+  IonButton,
+  IonIcon,
+  IonBadge,
 } from "@ionic/vue";
-import { useRoute } from "vue-router";
-import { ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { computed, ref, watch } from "vue";
+import { notificationsOutline } from "ionicons/icons";
+import { useActiveAlerts } from "@/services/activeAlertService";
 // import { useRouter } from "vue-router";
 // const router = useRouter();
 
@@ -43,6 +57,14 @@ const props = defineProps({
 
 const isHeaderVisible = ref(true);
 const route = useRoute();
+const router = useRouter();
+
+const { activeCount } = useActiveAlerts();
+const activeAlertCount = computed(() => activeCount.value);
+
+function goToAlerts() {
+  router.push("/alerts");
+}
 
 watch(
   () => route.path,

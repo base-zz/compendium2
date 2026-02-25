@@ -265,10 +265,15 @@ async function handleLogin() {
       if (jwtToken) {
         localStorage.setItem('authToken', jwtToken);
         debugLog('[LOGIN] Stored authToken in localStorage');
+        console.log('[LOGIN] token received?', true, 'len', jwtToken.length);
+        console.log('[LOGIN] Stored authToken in localStorage', {
+          len: localStorage.getItem('authToken')?.length,
+        });
       } else {
         console.warn(
           '[LOGIN] Login succeeded but no JWT token field found on response. Expected response.data.token (or jwt/accessToken). Push token registration will not work until JWT is persisted.'
         );
+        console.log('[LOGIN] token received?', false, 'len', undefined);
       }
       
       // Set authentication flag for key-based authentication
@@ -307,6 +312,9 @@ async function handleLogin() {
         boatIds = [preferredBoatId, ...boatIds.filter(id => id !== preferredBoatId)];
         boatConnectionStore.setActiveBoatId(preferredBoatId);
         debugLog('[LOGIN] Using boat ID:', preferredBoatId, isDirectConnected ? '(direct connection)' : '(remote connection)');
+        console.log('[BOAT] activeBoatId set', {
+          activeBoatId: localStorage.getItem('activeBoatId'),
+        });
         
         if (shouldRegisterDetectedBoat) {
           try {

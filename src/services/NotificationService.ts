@@ -20,6 +20,7 @@ type NotificationCallback = (data: NotificationData) => void;
 export class NotificationService {
   private static instance: NotificationService;
   private isInitialized = false;
+  private listenersInitialized = false;
   private notificationCallbacks: NotificationCallback[] = [];
   private emitter: Emitter<{ tokenChanged: string }> = mitt();
   private router: Router | null = null;
@@ -51,34 +52,52 @@ export class NotificationService {
     if (this.isInitialized) return;
     
     const platform = Capacitor.getPlatform();
+    console.log('[PUSH] initialize() start', { platform });
+    console.log('[PUSH] prereqs', {
+      hasAuthToken: !!localStorage.getItem('authToken'),
+      hasBoatId: !!localStorage.getItem('activeBoatId'),
+    });
     const isWeb = platform === 'web';
 
     if (isWeb) {
       this.logger.debug('Push notifications not available in web environment');
       this.isInitialized = true; // Mark as initialized to prevent repeated attempts
+      console.log('[PUSH] initialize() end (web - skipped)');
       return;
     }
 
     if (platform === 'android') {
       this.logger.debug('Skipping push notification registration on Android because Firebase is not configured');
       this.isInitialized = true;
+      console.log('[PUSH] initialize() end (android - skipped)');
       return;
     }
     
     try {
       // Request permission to use push notifications
+      console.log('[PUSH] requestPermissions() start');
       const permission = await PushNotifications.requestPermissions();
+      console.log('[PUSH] requestPermissions() result', permission);
       
       if (permission.receive === 'granted') {
-        await PushNotifications.register();
         this.setupListeners();
+        console.log('[PUSH] register() start');
+        await PushNotifications.register();
+        console.log('[PUSH] register() invoked');
         this.isInitialized = true;
         this.logger.debug('Push notifications initialized');
+        console.log('[PUSH] initialize() end (granted)');
+      } else {
+        console.warn('[PUSH] permission not granted', permission);
+        this.isInitialized = true;
+        console.log('[PUSH] initialize() end (not granted)');
       }
     } catch (error) {
       this.logger.error('Error initializing push notifications', { error });
       // Mark as initialized even if there's an error to prevent repeated error logs
       this.isInitialized = true;
+      console.error('[PUSH] initialize() error', error);
+      console.log('[PUSH] initialize() end (error)');
     }
   }
 
@@ -98,8 +117,24 @@ export class NotificationService {
   }
 
   private setupListeners() {
+    if (this.listenersInitialized) {
+      return;
+    }
+
+    this.listenersInitialized = true;
+
     // Handle token refresh
     PushNotifications.addListener('registration', (token) => {
+      console.log('[PUSH] registration event fired', {
+        tokenType: typeof token?.value,
+        tokenLength: token?.value?.length,
+      });
+
+      console.log('[PUSH] prereqs at registration', {
+        hasAuthToken: !!localStorage.getItem('authToken'),
+        hasBoatId: !!localStorage.getItem('activeBoatId'),
+      });
+
       this.logger.debug('Push registration success', { token: token.value });
       localStorage.setItem('pushToken', token.value);
       this.emitter.emit('tokenChanged', token.value);
@@ -108,11 +143,20 @@ export class NotificationService {
         this.logger.error('Failed to register push token with VPS', {
           error: error instanceof Error ? error.message : String(error),
         });
+        console.error('[PUSH] POST /register-token failed', {
+          message: error instanceof Error ? error.message : String(error),
+          err: error,
+        });
       });
+    });
+
+    PushNotifications.addListener('registrationError', (err) => {
+      console.error('[PUSH] registrationError', err);
     });
 
     // Handle notifications when app is open
     PushNotifications.addListener('pushNotificationReceived', (notification: PushNotification) => {
+      console.log('[PUSH] notification received', notification);
       const data = notification.data as NotificationData;
       this.notifications.value.push(data);
       this.logger.debug('Push notification received', data);
@@ -120,6 +164,7 @@ export class NotificationService {
 
     // Handle notification taps
     PushNotifications.addListener('pushNotificationActionPerformed', (action: PushNotificationActionPerformed) => {
+      console.log('[PUSH] notification action performed', action);
       const data = action.notification.data as NotificationData;
       this.logger.debug('Push notification action performed', data);
       
@@ -136,18 +181,27 @@ export class NotificationService {
   private async registerTokenWithVps(deviceToken: string) {
     if (!deviceToken || typeof deviceToken !== 'string') {
       this.logger.warn('Skipping VPS push token registration because deviceToken is missing');
+      console.warn('[PUSH] cannot register token: missing deviceToken');
       return;
     }
 
     const boatId = localStorage.getItem('activeBoatId');
     if (!boatId) {
       this.logger.warn('Skipping VPS push token registration because activeBoatId is missing');
+      console.warn('[PUSH] cannot register token: missing authToken or activeBoatId', {
+        hasAuthToken: !!localStorage.getItem('authToken'),
+        hasBoatId: false,
+      });
       return;
     }
 
     const jwtToken = localStorage.getItem('authToken');
     if (!jwtToken) {
       this.logger.warn('Skipping VPS push token registration because authToken is missing');
+      console.warn('[PUSH] cannot register token: missing authToken or activeBoatId', {
+        hasAuthToken: false,
+        hasBoatId: !!boatId,
+      });
       return;
     }
 
@@ -160,6 +214,12 @@ export class NotificationService {
     }
 
     this.logger.debug('Registering push token with VPS', {
+      platform,
+      boatId,
+      tokenLength: deviceToken.length,
+    });
+
+    console.log('[PUSH] POST /api/push/register-token start', {
       platform,
       boatId,
       tokenLength: deviceToken.length,
@@ -184,6 +244,13 @@ export class NotificationService {
     } catch (error) {
       payload = null;
     }
+
+    console.log('[PUSH] POST /register-token response', {
+      status: response.status,
+      body: payload,
+      hasAuthorizationHeader: !!jwtToken,
+      jwtLength: jwtToken.length,
+    });
 
     if (!response.ok) {
       this.logger.error('VPS push token registration returned non-200', {
