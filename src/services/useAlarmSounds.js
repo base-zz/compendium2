@@ -1,6 +1,7 @@
 import { watch, onUnmounted } from "vue";
 import { useStateDataStore, calculateDistanceMeters } from "@/stores/stateDataStore";
 import { alarmSoundService } from "@/services/alarmSoundService";
+import { createAnchorDraggingAlert } from "@/utils/anchorAlerts";
 
 export function useAlarmSounds({ delayMs }) {
   const stateStore = useStateDataStore();
@@ -237,6 +238,23 @@ export function useAlarmSounds({ delayMs }) {
         alarmSoundService.setAlarmActive("anchor_dragging", true, { delayMs });
         alarmSoundService.setAlarmActive("ais_proximity", false, { delayMs: 0 });
         alarmSoundService.setAlarmActive("fence_alert", false, { delayMs: 0 });
+        
+        // Create visual alert for anchor dragging
+        const state = stateStore.state;
+        const distance = calculateDistanceMeters(
+          state?.navigation?.position?.latitude?.value,
+          state?.navigation?.position?.longitude?.value,
+          state?.anchor?.anchorDropLocation?.position?.latitude?.value,
+          state?.anchor?.anchorDropLocation?.position?.longitude?.value,
+          state?.navigation?.position?.latitude?.value?.units === 'm'
+        );
+        const rodeLength = state?.anchor?.rode?.value || 0;
+        const isMetric = state?.navigation?.position?.latitude?.value?.units === 'm';
+        
+        if (distance != null && rodeLength > 0) {
+          createAnchorDraggingAlert(distance, rodeLength, isMetric);
+        }
+        
         return;
       }
 

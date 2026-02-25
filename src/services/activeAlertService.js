@@ -292,6 +292,19 @@ export function useActiveAlerts() {
     }
     acknowledgedKeys.value.add(alertKey);
     saveAcknowledged();
+    
+    // Also acknowledge any matching alerts in the state store
+    const stateStore = useStateDataStore();
+    const activeAlerts = stateStore.state.alerts?.active || [];
+    const matchingAlerts = activeAlerts.filter(alert => 
+      alert.type === alertKey || alert.path === alertKey || alert.trigger === alertKey
+    );
+    
+    matchingAlerts.forEach(alert => {
+      if (alert.id) {
+        stateStore.acknowledgeAlert(alert.id);
+      }
+    });
   };
 
   const clearAcknowledgements = () => {

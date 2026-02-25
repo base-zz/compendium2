@@ -1,4 +1,4 @@
-<template>
+  <template>
   <ion-page class="page-container">
     <!-- Location acquiring overlay -->
     <div v-if="showLocationModal" class="acquire-location-modal">
@@ -92,6 +92,24 @@
           style="margin-bottom: 18px; width: 80%"
         />
 
+        <div class="slider-label" style="margin-top: 10px;">
+          <strong>Depth at Anchor:</strong>
+          <span class="slider-value">{{ customAnchorDropDepthLabel }}</span>
+        </div>
+        <ion-range
+          v-if="customAnchorDropDepthValue != null"
+          :value="customAnchorDropDepthValue"
+          @ionChange="handleCustomAnchorDropDepthValueChange"
+          :min="0"
+          :max="anchorDropDepthMax"
+          :step="1"
+          ticks="true"
+          color="primary"
+          class="modal-range modal-range-center"
+          style="margin-bottom: 18px; width: 80%"
+        />
+        <div v-else class="text-danger" style="margin-bottom: 18px;">Depth unavailable</div>
+
         <div class="fence-visibility-setting">
           <label for="fence-connector-toggle">Show fence connector lines</label>
           <input
@@ -139,7 +157,7 @@
           <!-- Scope Recommendation -->
           <div v-if="recommendedScope" class="scope-recommendation">
             <div class="recommendation-header">
-              <span>Cable Calculator</span>
+              <span>Chain Calculator</span>
             </div>
             <div v-if="recommendedScope.missingBowRollerToWater" class="suggestion-note">
               Set Bow Roller to Water in Boat Info to enable accurate scope recommendations.
@@ -210,7 +228,7 @@
           <div class="modal-actions">
             <IonButton
               color="primary"
-              @click="() => { console.log('[AnchorView] Button clicked', { anchorDeployed: anchorState?.anchorDeployed }); anchorState?.anchorDeployed ? handleSaveAnchorParameters() : handleSetAnchor(); }"
+              @click="anchorState?.anchorDeployed ? handleSaveAnchorParameters() : handleSetAnchor()"
             >
               {{ anchorState?.anchorDeployed ? "Save Changes" : "Set Anchor" }}
             </IonButton>
@@ -486,7 +504,11 @@
       </div>
 
       <!-- Floating anchor status under the grid -->
-      <div class="floating-anchor-status" :class="anchorStatusClass">
+      <div 
+        class="floating-anchor-status" 
+        :class="anchorStatusClass"
+        @click="handleAnchorStatusClick"
+      >
         {{ anchorStatusText }}
       </div>
       <div class="map-section">
@@ -558,12 +580,227 @@
         </button>
       </div>
     </div>
+    
+    <!-- Anchor State Inspector Modal -->
+    <ion-modal
+      :is-open="showAnchorInspector"
+      @didDismiss="showAnchorInspector = false"
+      css-class="anchor-inspector-modal-root"
+    >
+      <ion-header>
+        <ion-toolbar>
+          <ion-title>Anchor State Inspector</ion-title>
+          <ion-buttons slot="end">
+            <ion-button @click="showAnchorInspector = false">
+              <ion-icon :icon="closeOutline" />
+            </ion-button>
+          </ion-buttons>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="anchor-inspector-content">
+        <div class="inspector-section">
+          <h4>Anchor Status</h4>
+          <div class="inspector-row">
+            <span class="inspector-label">Status:</span>
+            <span class="inspector-value">{{ anchorStatusText }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Anchor Deployed:</span>
+            <span class="inspector-value">{{ anchorState?.anchorDeployed ? 'Yes' : 'No' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Dragging:</span>
+            <span class="inspector-value">{{ anchorState?.dragging ? 'Yes' : 'No' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">AIS Warning:</span>
+            <span class="inspector-value">{{ anchorState?.aisWarning ? 'Yes' : 'No' }}</span>
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <h4>Anchor Drop Location</h4>
+          <div class="inspector-row">
+            <span class="inspector-label">Latitude:</span>
+            <span class="inspector-value">{{ anchorState?.anchorDropLocation?.position?.latitude?.value || 'N/A' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Longitude:</span>
+            <span class="inspector-value">{{ anchorState?.anchorDropLocation?.position?.longitude?.value || 'N/A' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Depth:</span>
+            <span class="inspector-value">
+              {{ anchorState?.anchorDropLocation?.depth?.value || 'N/A' }} 
+              {{ anchorState?.anchorDropLocation?.depth?.units || '' }}
+            </span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Depth Source:</span>
+            <span class="inspector-value">{{ anchorState?.anchorDropLocation?.depth?.depthSource || 'N/A' }}</span>
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <h4>Current Anchor Location</h4>
+          <div class="inspector-row">
+            <span class="inspector-label">Latitude:</span>
+            <span class="inspector-value">{{ anchorState?.anchorLocation?.position?.latitude?.value || 'N/A' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Longitude:</span>
+            <span class="inspector-value">{{ anchorState?.anchorLocation?.position?.longitude?.value || 'N/A' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Drift:</span>
+            <span class="inspector-value">{{ driftDisplay }}</span>
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <h4>Rode & Range Settings</h4>
+          <div class="inspector-row">
+            <span class="inspector-label">Rode Amount:</span>
+            <span class="inspector-value">{{ anchorState?.rode?.amount || 'N/A' }} {{ anchorState?.rode?.units || '' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Critical Range:</span>
+            <span class="inspector-value">{{ anchorState?.criticalRange?.r || 'N/A' }} {{ anchorState?.criticalRange?.units || '' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">AIS Alert Range:</span>
+            <span class="inspector-value">{{ anchorState?.warningRange?.r || 'N/A' }} {{ anchorState?.warningRange?.units || '' }}</span>
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <h4>Current Boat Position</h4>
+          <div class="inspector-row">
+            <span class="inspector-label">Latitude:</span>
+            <span class="inspector-value">{{ navigationState?.position?.latitude?.value || 'N/A' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Longitude:</span>
+            <span class="inspector-value">{{ navigationState?.position?.longitude?.value || 'N/A' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Depth Below Transducer:</span>
+            <span class="inspector-value">
+              {{ navigationState?.depth?.belowTransducer?.value || 'N/A' }} 
+              {{ navigationState?.depth?.belowTransducer?.units || '' }}
+            </span>
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <h4>Dragging Analysis</h4>
+          <div class="inspector-row">
+            <span class="inspector-label">Preconditions Met:</span>
+            <span class="inspector-value">{{ 
+              (anchorState?.anchorDeployed && navigationState?.position?.latitude?.value && navigationState?.position?.longitude?.value) 
+                ? 'YES' : 'NO' 
+            }}</span>
+          </div>
+          
+          <!-- Debug positions -->
+          <div class="inspector-row">
+            <span class="inspector-label">Boat Position:</span>
+            <span class="inspector-value" style="font-size: 0.8em;">
+              {{ navigationState?.position?.latitude?.value?.toFixed(6) || 'N/A' }}, {{ navigationState?.position?.longitude?.value?.toFixed(6) || 'N/A' }}
+            </span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Drop Position:</span>
+            <span class="inspector-value" style="font-size: 0.8em;">
+              {{ anchorState?.anchorDropLocation?.position?.latitude?.value?.toFixed(6) || 'N/A' }}, {{ anchorState?.anchorDropLocation?.position?.longitude?.value?.toFixed(6) || 'N/A' }}
+            </span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Anchor Position:</span>
+            <span class="inspector-value" style="font-size: 0.8em;">
+              {{ anchorState?.anchorLocation?.position?.latitude?.value?.toFixed(6) || 'N/A' }}, {{ anchorState?.anchorLocation?.position?.longitude?.value?.toFixed(6) || 'N/A' }}
+            </span>
+          </div>
+          
+          <!-- Distances (meters) -->
+          <div class="inspector-row">
+            <span class="inspector-label">Distance Boat→Drop:</span>
+            <span class="inspector-value">{{ calculateDistanceBoatFromDrop() }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Distance Anchor→Drop:</span>
+            <span class="inspector-value">{{ calculateDistanceAnchorFromDrop() }}</span>
+          </div>
+          
+          <!-- Rode calculations -->
+          <div class="inspector-row">
+            <span class="inspector-label">Rode Length:</span>
+            <span class="inspector-value">{{ calculateRodeLengthMeters() }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Drop Depth:</span>
+            <span class="inspector-value">{{ calculateDropDepthMeters() }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Effective Rode Radius:</span>
+            <span class="inspector-value">{{ calculateEffectiveRodeRadiusMeters() }}</span>
+          </div>
+          
+          <!-- Threshold checks -->
+          <div class="inspector-row">
+            <span class="inspector-label">Anchor Moved (>{{ isMetric ? '5m' : '16.4ft' }}):</span>
+            <span class="inspector-value">{{ calculateAnchorHasMoved() ? 'YES' : 'NO' }}</span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Rode Circle Violated:</span>
+            <span class="inspector-value">{{ calculateRodeCircleViolated() ? 'YES' : 'NO' }}</span>
+          </div>
+          
+          <!-- Final results -->
+          <div class="inspector-row">
+            <span class="inspector-label">Is Dragging (Final):</span>
+            <span class="inspector-value" :style="{ color: anchorState?.dragging ? 'var(--ion-color-danger)' : 'var(--ion-color-success)' }">
+              {{ anchorState?.dragging ? 'YES' : 'NO' }}
+            </span>
+          </div>
+          <div class="inspector-row">
+            <span class="inspector-label">Rode Circle Violation:</span>
+            <span class="inspector-value">{{ anchorState?.rodeCircleViolation ? 'YES' : 'NO' }}</span>
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <h4>Anchor Actions</h4>
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button 
+              @click="handleResetAnchorHere" 
+              class="reset-anchor-btn"
+              style="flex: 1; padding: 8px 16px; background: var(--ion-color-warning); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;"
+            >
+              Reset Anchor Here
+            </button>
+          </div>
+          <div style="font-size: 12px; color: var(--app-muted-text-color, #64748b); margin-top: 8px;">
+            Use this when the anchor has dragged and you want to reset the anchorage to the current position.
+          </div>
+        </div>
+
+        <div class="inspector-section">
+          <h4>Full Anchor State (JSON)</h4>
+          <pre class="json-display">{{ 
+            anchorState 
+              ? JSON.stringify(anchorState, null, 2) 
+              : 'No anchor state data available' 
+          }}</pre>
+        </div>
+      </ion-content>
+    </ion-modal>
+    
     <GenericHeader title="Anchor"></GenericHeader>
   </ion-page>
 </template>
 
 <script setup>
-console.log("=== ANCHOR VIEW SCRIPT SETUP STARTING ===");
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { createLogger } from "@/services/logger";
@@ -593,6 +830,7 @@ import {
   IonPage,
   IonModal,
   IonButton,
+  IonButtons,
   IonContent,
   IonRange,
   IonSpinner,
@@ -601,8 +839,6 @@ import {
   IonToolbar,
   IonHeader,
   IonTitle,
-  onIonViewDidEnter,
-  onIonViewDidLeave,
   toastController,
 } from "@ionic/vue";
 import { chevronUpOutline, navigate, resizeOutline, addOutline, removeOutline, closeOutline, shieldOutline } from "ionicons/icons";
@@ -1140,6 +1376,28 @@ const navigationState = computed(() => state.value.navigation);
 const anchorState = computed(() => state.value.anchor);
 const alertState = computed(() => state.value.alerts?.active);
 
+const getAnchorDropDepthFromNavigation = () => {
+  const navDepth = navigationState.value?.depth?.belowTransducer;
+  const depthValue = navDepth?.value;
+  const depthUnits = navDepth?.units;
+
+  if (typeof depthValue !== "number" || !Number.isFinite(depthValue)) {
+    return null;
+  }
+
+  if (depthUnits !== "ft" && depthUnits !== "m") {
+    return null;
+  }
+
+  return {
+    depth: {
+      value: depthValue,
+      units: depthUnits,
+    },
+    depthSource: "assumed_from_boat",
+  };
+};
+
 // Calculate anchor depth in preferred units for tide component
 // Returns depth in user's preferred units (ft or m) and the unit label
 const anchorDepthWithUnits = computed(() => {
@@ -1456,6 +1714,274 @@ const aisTargets = computed(() => {
 });
 
 const isDarkMode = computed(() => preferences.value?.display?.darkMode || false);
+
+// Anchor state inspector modal
+const showAnchorInspector = ref(false);
+
+const handleAnchorStatusClick = () => {
+  if (anchorState.value?.anchorDeployed || anchorState.value?.dragging) {
+    showAnchorInspector.value = true;
+  } else if (!anchorState.value?.anchorDeployed) {
+    // Drop anchor now at current location
+    handleDropAnchorNow();
+  }
+};
+
+const handleDropAnchorNow = () => {
+  const stateStore = useStateDataStore();
+  
+  const dropAnchorPayload = {
+    action: "drop_now",
+    anchorDeployed: true
+  };
+  
+  logger.info("Dropping anchor now at current location", dropAnchorPayload);
+  
+  stateStore
+    .sendMessageToServer("anchor:update", dropAnchorPayload, {
+      source: "AnchorView.handleDropAnchorNow",
+      timeout: 5000,
+    })
+    .then((response) => {
+      logger.info("Server acknowledged anchor drop", response);
+      // Server will set the positions and return updated state
+      if (response.data) {
+        state.value.anchor = { ...response.data };
+      }
+    })
+    .catch((error) => {
+      logger.error("Failed to drop anchor", error);
+    });
+};
+
+const handleResetAnchorHere = () => {
+  const stateStore = useStateDataStore();
+  
+  const resetPayload = {
+    action: "reset_anchor_here"
+  };
+  
+  logger.info("Resetting anchor to current location", resetPayload);
+  
+  stateStore
+    .sendMessageToServer("anchor:update", resetPayload, {
+      source: "AnchorView.handleResetAnchorHere",
+      timeout: 5000,
+    })
+    .then((response) => {
+      logger.info("Server acknowledged anchor reset", response);
+      // Server will update positions and return updated state
+      if (response.data) {
+        state.value.anchor = { ...response.data };
+      }
+      // Close the inspector after reset
+      showAnchorInspector.value = false;
+    })
+    .catch((error) => {
+      logger.error("Failed to reset anchor", error);
+    });
+};
+
+// Calculate drift distance for inspector display
+const driftDisplay = computed(() => {
+  if (!anchorState.value?.anchorDeployed) return '--';
+  
+  // Get original position (where anchor was initially calculated to be when dropped)
+  const originalPos = anchorState.value?.anchorLocation?.originalPosition || 
+                     anchorState.value?.anchorDropLocation?.position; // Fallback to drop position
+  // Get current anchor position
+  const currentPos = anchorState.value?.anchorLocation?.position;
+  
+  if (!originalPos || !currentPos) return '--';
+  
+  const origLat = originalPos.latitude?.value;
+  const origLon = originalPos.longitude?.value;
+  const currentLat = currentPos.latitude?.value;
+  const currentLon = currentPos.longitude?.value;
+  
+  if (typeof origLat !== 'number' || typeof origLon !== 'number' ||
+      typeof currentLat !== 'number' || typeof currentLon !== 'number') {
+    return '--';
+  }
+  
+  const distanceMeters = calculateDistanceMeters(origLat, origLon, currentLat, currentLon, true);
+  if (distanceMeters == null || !Number.isFinite(distanceMeters)) return '--';
+  
+  // If drift is 0 or very close to 0, show "0" with units
+  if (distanceMeters < 0.1) {
+    return `0 ${isMetric.value ? 'm' : 'ft'}`;
+  }
+  
+  // Convert to preferred units
+  const distanceInPreferredUnits = isMetric.value ? distanceMeters : distanceMeters * 3.28084;
+  const units = isMetric.value ? 'm' : 'ft';
+  
+  // Format to 1 decimal place for values < 10, 0 decimal places for larger values
+  if (distanceInPreferredUnits < 10) {
+    return `${distanceInPreferredUnits.toFixed(1)} ${units}`;
+  } else {
+    return `${Math.round(distanceInPreferredUnits)} ${units}`;
+  }
+});
+
+// Dragging Analysis Functions (Server Logic Replication)
+const ANCHOR_MOVED_THRESHOLD = 5; // meters
+
+// Internal calculation functions (always return meters)
+const getDistanceBoatFromDropMeters = () => {
+  if (!navigationState.value?.position?.latitude?.value || 
+      !navigationState.value?.position?.longitude?.value ||
+      !anchorState.value?.anchorDropLocation?.position?.latitude?.value ||
+      !anchorState.value?.anchorDropLocation?.position?.longitude?.value) {
+    return null;
+  }
+  
+  const boatLat = navigationState.value.position.latitude.value;
+  const boatLon = navigationState.value.position.longitude.value;
+  const dropLat = anchorState.value.anchorDropLocation.position.latitude.value;
+  const dropLon = anchorState.value.anchorDropLocation.position.longitude.value;
+  
+  return calculateDistanceMeters(boatLat, boatLon, dropLat, dropLon, true);
+};
+
+const getDistanceAnchorFromDropMeters = () => {
+  if (!anchorState.value?.anchorLocation?.position?.latitude?.value ||
+      !anchorState.value?.anchorLocation?.position?.longitude?.value ||
+      !anchorState.value?.anchorDropLocation?.position?.latitude?.value ||
+      !anchorState.value?.anchorDropLocation?.position?.longitude?.value) {
+    return null;
+  }
+  
+  const anchorLat = anchorState.value.anchorLocation.position.latitude.value;
+  const anchorLon = anchorState.value.anchorLocation.position.longitude.value;
+  const dropLat = anchorState.value.anchorDropLocation.position.latitude.value;
+  const dropLon = anchorState.value.anchorDropLocation.position.longitude.value;
+  
+  return calculateDistanceMeters(anchorLat, anchorLon, dropLat, dropLon, true);
+};
+
+const getRodeLengthMeters = () => {
+  if (!anchorState.value?.rode?.amount) return null;
+  
+  const rodeAmount = anchorState.value.rode.amount;
+  const rodeUnits = anchorState.value.rode.units || 'm';
+  
+  if (rodeUnits.toLowerCase().startsWith('ft')) {
+    return rodeAmount / 3.28084;
+  } else {
+    return rodeAmount;
+  }
+};
+
+const getDropDepthMeters = () => {
+  if (!anchorState.value?.anchorDropLocation?.depth?.value ||
+      !anchorState.value?.anchorDropLocation?.depth?.units ||
+      !anchorState.value?.anchorDropLocation?.depth?.depthSource) {
+    return null;
+  }
+  
+  const depthValue = anchorState.value.anchorDropLocation.depth.value;
+  const depthUnits = anchorState.value.anchorDropLocation.depth.units;
+  
+  if (depthUnits.toLowerCase().startsWith('ft')) {
+    return depthValue / 3.28084;
+  } else {
+    return depthValue;
+  }
+};
+
+const getEffectiveRodeRadiusMeters = () => {
+  const rodeLengthMeters = getRodeLengthMeters();
+  const dropDepthMeters = getDropDepthMeters();
+  
+  if (!rodeLengthMeters) return null;
+  if (!dropDepthMeters || dropDepthMeters === 0) {
+    // No depth correction available
+    return rodeLengthMeters;
+  }
+  
+  // Apply depth correction: sqrt(rode^2 - depth^2)
+  if (rodeLengthMeters > dropDepthMeters) {
+    return Math.sqrt(rodeLengthMeters * rodeLengthMeters - dropDepthMeters * dropDepthMeters);
+  } else {
+    // Rode shorter than depth, fall back to rode length
+    return rodeLengthMeters;
+  }
+};
+
+// Display functions (return formatted strings in preferred units)
+const calculateDistanceBoatFromDrop = () => {
+  const distanceMeters = getDistanceBoatFromDropMeters();
+  if (!distanceMeters) return 'N/A';
+  
+  if (isMetric.value) {
+    return `${distanceMeters.toFixed(2)} m`;
+  } else {
+    const distanceFt = distanceMeters * 3.28084;
+    return `${distanceFt.toFixed(2)} ft`;
+  }
+};
+
+const calculateDistanceAnchorFromDrop = () => {
+  const distanceMeters = getDistanceAnchorFromDropMeters();
+  if (!distanceMeters) return 'N/A';
+  
+  if (isMetric.value) {
+    return `${distanceMeters.toFixed(2)} m`;
+  } else {
+    const distanceFt = distanceMeters * 3.28084;
+    return `${distanceFt.toFixed(2)} ft`;
+  }
+};
+
+const calculateRodeLengthMeters = () => {
+  const rodeLengthMeters = getRodeLengthMeters();
+  if (!rodeLengthMeters) return 'N/A';
+  
+  if (isMetric.value) {
+    return `${rodeLengthMeters.toFixed(2)} m`;
+  } else {
+    const rodeLengthFt = rodeLengthMeters * 3.28084;
+    return `${rodeLengthFt.toFixed(2)} ft`;
+  }
+};
+
+const calculateDropDepthMeters = () => {
+  const depthMeters = getDropDepthMeters();
+  if (!depthMeters) return 'N/A';
+  
+  if (isMetric.value) {
+    return `${depthMeters.toFixed(2)} m`;
+  } else {
+    const depthFt = depthMeters * 3.28084;
+    return `${depthFt.toFixed(2)} ft`;
+  }
+};
+
+const calculateEffectiveRodeRadiusMeters = () => {
+  const effectiveRadiusMeters = getEffectiveRodeRadiusMeters();
+  if (!effectiveRadiusMeters) return 'N/A';
+  
+  if (isMetric.value) {
+    return `${effectiveRadiusMeters.toFixed(2)} m`;
+  } else {
+    const effectiveRadiusFt = effectiveRadiusMeters * 3.28084;
+    return `${effectiveRadiusFt.toFixed(2)} ft`;
+  }
+};
+
+const calculateAnchorHasMoved = () => {
+  const distanceAnchorFromDrop = getDistanceAnchorFromDropMeters();
+  return distanceAnchorFromDrop !== null && distanceAnchorFromDrop > ANCHOR_MOVED_THRESHOLD;
+};
+
+const calculateRodeCircleViolated = () => {
+  const distanceBoatFromDrop = getDistanceBoatFromDropMeters();
+  const effectiveRodeRadiusMeters = getEffectiveRodeRadiusMeters();
+  
+  return distanceBoatFromDrop !== null && effectiveRodeRadiusMeters !== null && 
+         distanceBoatFromDrop > effectiveRodeRadiusMeters;
+};
 
 // Floating anchor status computed properties
 const anchorStatusText = computed(() => {
@@ -1829,15 +2355,66 @@ const boatPosition = computed(() => navigationState.value?.position);
 const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
 const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
 
-// console.log("anchorState.value:", anchorState.value);
-// console.log("anchorState getter:", anchorState);
+// Track if boat has valid position for smooth fade-in
+const boatHasValidPosition = ref(false);
+const boatOpacity = ref(0); // Start hidden
+
+// Smooth boat and rode opacity transitions
+const updateBoatAndRodeOpacity = (targetOpacity) => {
+  const startOpacity = boatOpacity.value;
+  const duration = 300; // 300ms fade
+  const startTime = Date.now();
+  
+  const animate = () => {
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Ease-in-out animation
+    const easeProgress = progress < 0.5 
+      ? 2 * progress * progress 
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+    
+    boatOpacity.value = startOpacity + (targetOpacity - startOpacity) * easeProgress;
+    
+    // Update boat feature opacity
+    const boatFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.BOAT);
+    if (boatFeature) {
+      const style = boatFeature.getStyle();
+      if (style) {
+        const clonedStyle = style.clone();
+        const image = clonedStyle.getImage();
+        if (image) {
+          image.setOpacity(boatOpacity.value);
+          boatFeature.setStyle(clonedStyle);
+        }
+      }
+    }
+    
+    // Update rode line opacity simultaneously
+    const rodeFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.RODE);
+    if (rodeFeature) {
+      const style = rodeFeature.getStyle();
+      if (style) {
+        const clonedStyle = style.clone();
+        const stroke = clonedStyle.getStroke();
+        if (stroke) {
+          const strokeOpacity = 0.8 * boatOpacity.value; // Combine stroke opacity with boat opacity
+          stroke.setColor(`rgba(255, 87, 34, ${strokeOpacity})`);
+          rodeFeature.setStyle(clonedStyle);
+        }
+      }
+    }
+    
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    }
+  };
+  
+  animate();
+};
 
 const breadcrumbs = computed(() => {
   const history = anchorState.value?.history || [];
-  // console.log("=== BREADCRUMB COMPUTED ===");
-  // console.log("anchorState.value?.history:", history);
-  // console.log("anchorState.value?.history length:", history?.length);
-  // console.log("========================");
   return history;
 });
 
@@ -2254,6 +2831,11 @@ const updateBoatPosition = debounce(() => {
     pos.longitude.value === null
   ) {
     logger.debug("Skipping boat position update - invalid coordinates");
+    // Hide boat if position becomes invalid
+    if (boatHasValidPosition.value) {
+      boatHasValidPosition.value = false;
+      updateBoatAndRodeOpacity(0);
+    }
     return;
   }
 
@@ -2264,16 +2846,27 @@ const updateBoatPosition = debounce(() => {
   // Additional validation to ensure we have numeric values
   if (typeof lat !== "number" || typeof lon !== "number" || isNaN(lat) || isNaN(lon)) {
     logger.debug("Skipping boat position update - non-numeric coordinates");
+    // Hide boat if position becomes invalid
+    if (boatHasValidPosition.value) {
+      boatHasValidPosition.value = false;
+      updateBoatAndRodeOpacity(0);
+    }
     return;
   }
 
   logger.debug("Updating boat position:", { lat, lon });
 
+  // First valid position - trigger fade-in
+  if (!boatHasValidPosition.value) {
+    boatHasValidPosition.value = true;
+    updateBoatAndRodeOpacity(1); // Fade in both boat and rode
+  }
+
   // Check if boat feature exists
   const boatFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.BOAT);
   
   if (!boatFeature) {
-    // First time - create the feature with full styling
+    // Create the boat feature
     const point = new Point(fromLonLat([lon, lat]));
     
     // Clone style and set rotation
@@ -2282,6 +2875,9 @@ const updateBoatPosition = debounce(() => {
     try {
       const img = boatStyle?.getImage?.();
       if (img && typeof img.setRotation === "function") {
+        // Set initial opacity
+        img.setOpacity(boatOpacity.value);
+        
         const iconOffset = -Math.PI / 4 + Math.PI; // Combined: rotate 135 degrees total to fix boat orientation
         const isAnchorDeployed = state?.anchor?.anchorDeployed === true;
         
@@ -2328,6 +2924,9 @@ const updateBoatPosition = debounce(() => {
       if (style) {
         const img = style.getImage?.();
         if (img && typeof img.setRotation === "function") {
+          // Apply current opacity
+          img.setOpacity(boatOpacity.value);
+          
           const iconOffset = -Math.PI / 4 + Math.PI;
           const isAnchorDeployed = state?.anchor?.anchorDeployed === true;
           
@@ -2781,14 +3380,42 @@ function animateWindRotation(targetRotation, duration = 350) {
 
 // Track if critical circle was already drawn to prevent clearing on re-mount
 // Use sessionStorage to persist across component re-mounts
-let criticalCircleDrawn = ref(sessionStorage.getItem('criticalCircleDrawn') === 'true');
+let criticalCircleDrawn = ref(false); // Reset to false
+
+// Robust critical circle drawing function
+const ensureCriticalCircleDrawn = () => {
+  // Check all conditions
+  if (!anchorState.value?.anchorDeployed) {
+    return false;
+  }
+  
+  if (!anchorState.value?.anchorLocation) {
+    return false;
+  }
+  
+  if (!anchorState.value?.criticalRange?.r || anchorState.value.criticalRange.r <= 0) {
+    return false;
+  }
+  
+  if (!map.value) {
+    return false;
+  }
+  
+  // Force clear and redraw
+  clearFeature(FEATURE_TYPES.CIRCLE);
+  clearFeature(FEATURE_TYPES.WIND);
+  
+  // Call the original function without debounce
+  const originalFunc = updateCriticalRangeCircle;
+  updateCriticalRangeCircle.flush(); // Clear any pending debounced calls
+  originalFunc(); // Call immediately
+  
+  return true;
+};
 
 const updateCriticalRangeCircle = debounce(() => {
   // Check if anchorState exists first
   if (!anchorState.value) {
-    if (criticalCircleDrawn.value) {
-      return; // Don't clear if circle was drawn
-    }
     clearFeature(FEATURE_TYPES.CIRCLE);
     clearFeature(FEATURE_TYPES.WIND);
     return;
@@ -2799,17 +3426,29 @@ const updateCriticalRangeCircle = debounce(() => {
     !anchorState.value.anchorLocation ||
     !anchorState.value.criticalRange
   ) {
-    // Clear any existing critical range circle
-    if (!criticalCircleDrawn.value) {
-      clearFeature(FEATURE_TYPES.CIRCLE);
-      clearFeature(FEATURE_TYPES.WIND);
-    }
+    clearFeature(FEATURE_TYPES.CIRCLE);
+    clearFeature(FEATURE_TYPES.WIND);
     return;
   }
 
-  const position = anchorState.value.anchorLocation.position;
-  const latitude = position.latitude?.value ?? position.latitude;
-  const longitude = position.longitude?.value ?? position.longitude;
+  // Try anchor position first, then drop position as fallback
+  let position = anchorState.value.anchorLocation?.position;
+  let latitude = position?.latitude?.value;
+  let longitude = position?.longitude?.value;
+  
+  // Fallback to drop position if anchor position not available
+  if (!latitude || !longitude) {
+    position = anchorState.value.anchorDropLocation?.position;
+    latitude = position?.latitude?.value;
+    longitude = position?.longitude?.value;
+  }
+  
+  // Validate we have valid coordinates
+  if (typeof latitude !== 'number' || typeof longitude !== 'number' || 
+      isNaN(latitude) || isNaN(longitude)) {
+    console.warn('Invalid anchor position for critical range circle', { latitude, longitude });
+    return;
+  }
   
   // Convert critical range to meters to match AnchorWidget logic
   const rawRadius = anchorState.value.criticalRange?.r;
@@ -2818,6 +3457,7 @@ const updateCriticalRangeCircle = debounce(() => {
   // Validate radius before drawing
   if (typeof rawRadius !== "number" || !Number.isFinite(rawRadius) || rawRadius <= 0) {
     clearFeature(FEATURE_TYPES.CIRCLE);
+    clearFeature(FEATURE_TYPES.WIND);
     return;
   }
   
@@ -2961,8 +3601,8 @@ const updateRodeLine = throttle(() => {
 
   // Get anchor position
   const anchorPos = state?.anchor?.anchorLocation?.position;
-  const anchorLat = anchorPos?.latitude?.value ?? anchorPos?.latitude;
-  const anchorLon = anchorPos?.longitude?.value ?? anchorPos.longitude;
+  const anchorLat = anchorPos?.latitude?.value;
+  const anchorLon = anchorPos?.longitude?.value;
 
   // Validate anchor coordinates (no fallbacks)
   if (typeof anchorLat !== "number" || typeof anchorLon !== "number" || isNaN(anchorLat) || isNaN(anchorLon)) {
@@ -3013,16 +3653,17 @@ const updateRodeLine = throttle(() => {
     //   percentError: rodeLength > 0 ? (Math.abs(actualDistance - rodeLength) / rodeLength) * 100 : 0
     // });
 
-    // Create a custom style with high visibility
+    // Create a custom style with high visibility and current opacity
+    const strokeOpacity = 0.8 * boatOpacity.value; // Combine stroke opacity with boat opacity
     const rodeStyle = new Style({
       stroke: new Stroke({
-        color: "rgba(255, 87, 34, 0.8)", // Deep orange with 0.8 opacity
+        color: `rgba(255, 87, 34, ${strokeOpacity})`, // Apply opacity to stroke color
         width: 3,
         lineDash: [10, 5],
       }),
       zIndex: 100, // Ensure it's on top
     });
-
+    
     const existingRodeFeature = vectorSource.getFeatures().find(
       (feature) => feature.get("type") === FEATURE_TYPES.RODE
     );
@@ -3748,27 +4389,24 @@ watch(
   { immediate: true, deep: true }
 );
 
-// Watch for anchor state changes
+// Watch for anchor state changes - STRATEGY 5
 watch(
   anchorState,
-  () => {
-    // Check if anchorState exists before accessing properties
-    if (!anchorState.value) {
-      return;
-    }
-    
-    if (anchorState.value.anchorDeployed) {
+  (newState, oldState) => {
+    if (newState?.anchorDeployed) {
       updateAnchorPoints();
-      updateCriticalRangeCircle();
-      updateRodeLine();
+      ensureCriticalCircleDrawn(); // Use robust function
+      updateRodeLine(); // Update rode line when anchor is deployed
+      // updateBoatRangeCircle(); // REMOVED - function doesn't exist
     } else {
       clearFeature(FEATURE_TYPES.ANCHOR_DROP_LOCATION);
       clearFeature(FEATURE_TYPES.ANCHOR_LOCATION);
-      clearFeature(FEATURE_TYPES.RODE);
       clearFeature(FEATURE_TYPES.CIRCLE);
+      clearFeature(FEATURE_TYPES.WIND);
+      clearFeature(FEATURE_TYPES.RODE);
     }
   },
-  { deep: true, immediate: true }
+  { immediate: true, deep: true }
 );
 
 // Watch boat position to update rode line when anchor is deployed and detect anchor dragging
@@ -4005,6 +4643,62 @@ watch(breadcrumbs, () => {
 // Modal State
 const showSetAnchorDialog = ref(false);
 
+const customAnchorDropDepthValue = ref(null);
+const customAnchorDropDepthTouched = ref(false);
+
+const anchorDropDepthUnits = computed(() => (isMetric.value ? "m" : "ft"));
+const anchorDropDepthMax = computed(() => (isMetric.value ? 30 : 100));
+
+const customAnchorDropDepthLabel = computed(() => {
+  if (typeof customAnchorDropDepthValue.value !== "number" || !Number.isFinite(customAnchorDropDepthValue.value)) {
+    return "--";
+  }
+
+  if (customAnchorDropDepthTouched.value !== true) {
+    return `${customAnchorDropDepthValue.value} ${anchorDropDepthUnits.value} (boat)`;
+  }
+
+  return `${customAnchorDropDepthValue.value} ${anchorDropDepthUnits.value}`;
+});
+
+const handleCustomAnchorDropDepthValueChange = (event) => {
+  const nextValue = event?.detail?.value;
+  if (typeof nextValue === "number" && Number.isFinite(nextValue)) {
+    customAnchorDropDepthValue.value = nextValue;
+    customAnchorDropDepthTouched.value = true;
+    return;
+  }
+
+  if (typeof nextValue === "string") {
+    const parsed = Number(nextValue);
+    if (Number.isFinite(parsed)) {
+      customAnchorDropDepthValue.value = parsed;
+      customAnchorDropDepthTouched.value = true;
+      return;
+    }
+  }
+};
+
+watch(
+  () => navigationState.value?.depth?.belowTransducer,
+  () => {
+    if (customAnchorDropDepthTouched.value === true) {
+      return;
+    }
+    const fallback = getAnchorDropDepthFromNavigation();
+    if (!fallback) {
+      customAnchorDropDepthValue.value = null;
+      return;
+    }
+    if (typeof fallback.depth?.value !== "number" || !Number.isFinite(fallback.depth.value)) {
+      customAnchorDropDepthValue.value = null;
+      return;
+    }
+    customAnchorDropDepthValue.value = fallback.depth.value;
+  },
+  { immediate: true }
+);
+
 // Calculate recommended scope based on tide data
 const recommendedScope = computed(() => {
   try {
@@ -4096,7 +4790,11 @@ const recommendedScope = computed(() => {
         // Track the closest time to now for current level
         if (timeDiff < closestTimeDiff) {
           closestTimeDiff = timeDiff;
-          currentLevel = seaLevels[i];
+          // Convert current level to meters for consistent calculation
+          const rawCurrentLevel = seaLevels[i];
+          if (typeof rawCurrentLevel === "number" && Number.isFinite(rawCurrentLevel)) {
+            currentLevel = seaLevelUnit === "ft" ? rawCurrentLevel / 3.28084 : rawCurrentLevel;
+          }
         }
 
         // Check if this entry is within our future window
@@ -4107,12 +4805,10 @@ const recommendedScope = computed(() => {
           }
 
           const level = (() => {
-            if (isMetric.value) {
-              if (seaLevelUnit === "ft") return rawLevel / 3.28084;
-              return rawLevel;
-            }
-            if (seaLevelUnit === "m") return rawLevel * 3.28084;
-            return rawLevel;
+            // NOAA tide data is always in feet - always convert to meters for internal calculation
+            if (seaLevelUnit === "ft") return rawLevel / 3.28084;
+            if (seaLevelUnit === "m") return rawLevel;
+            return rawLevel / 3.28084; // default to feet conversion
           })();
 
           if (level > maxFutureLevel) {
@@ -4145,8 +4841,12 @@ const recommendedScope = computed(() => {
         : bowRollerToWaterPayload.value;
 
     // Calculate depth increase from current level to max future level
-    // If we couldn't determine current water level, use the first available data point
-    const referenceLevel = currentLevel !== null ? currentLevel : seaLevels[0] || 0;
+    // If we couldn't determine current water level, use the first available data point (converted to meters)
+    const referenceLevel = currentLevel !== null 
+      ? currentLevel 
+      : (seaLevels[0] != null 
+          ? (seaLevelUnit === "ft" ? seaLevels[0] / 3.28084 : seaLevels[0]) 
+          : 0);
     const depthIncreaseMeters =
       maxFutureLevel !== -Infinity ? Math.max(0, maxFutureLevel - referenceLevel) : 0;
     const targetDepthMeters = depthInMeters + bowRollerToWaterMeters + depthIncreaseMeters;
@@ -4176,12 +4876,20 @@ const recommendedScope = computed(() => {
   }
 });
 
-onIonViewDidEnter(() => {
+onMounted(() => {
   hasCenteredOnBoatThisEntry.value = null;
   hasLoggedFramingDebugThisEntry.value = false;
   hasAppliedDefaultFramingThisEntry.value = false;
   isAnchorViewActive.value = true;
+  
+  // Initialize boat as hidden until valid position is available
+  boatHasValidPosition.value = false;
+  boatOpacity.value = 0;
+  
   updateBoatPosition();
+  
+  // Simple approach: let the anchor state watch handle critical circle
+  
   if (map.value) {
     map.value.updateSize();
 
@@ -4206,7 +4914,7 @@ onIonViewDidEnter(() => {
   });
 });
 
-onIonViewDidLeave(() => {
+onUnmounted(() => {
   isAnchorViewActive.value = false;
 });
 
@@ -4287,19 +4995,15 @@ const handleSaveAnchorParameters = () => {
 
   try {
     const updatedAnchorState = {
-      ...anchorState.value,
       rode: {
-        ...anchorState.value.rode,
         amount: rodeAmount,
         units: preferredUnits,
       },
       criticalRange: {
-        ...anchorState.value.criticalRange,
         r: critical,
         units: preferredUnits,
       },
       warningRange: {
-        ...anchorState.value.warningRange,
         r: warning,
         units: preferredUnits,
       },
@@ -4481,7 +5185,7 @@ const handleSetAnchor = () => {
     } else if (preferredUnits === "ft" && currentRodeUnits === "m") {
       rode = UnitConversion.mToFt(rodeAmount);
     }
-    const depth = navigationState.value?.depth?.value ?? 0; // Use 0 as default if no depth
+    const depth = navigationState.value?.depth?.belowTransducer?.value;
 
     // Debug the values being passed to getComputedAnchorLocation
     logger.debug("Computing anchor location with:", {
@@ -4496,7 +5200,7 @@ const handleSetAnchor = () => {
       { latitude: boatLat, longitude: boatLon },
       rode,
       bearingRad,
-      depth,
+      typeof depth === "number" && Number.isFinite(depth) ? depth : null,
       isMetric.value
     );
 
@@ -4520,36 +5224,24 @@ const handleSetAnchor = () => {
     });
 
     // Log the anchor state before updating
+    const userDepthValid =
+      customAnchorDropDepthTouched.value === true &&
+      typeof customAnchorDropDepthValue.value === "number" &&
+      Number.isFinite(customAnchorDropDepthValue.value);
+
+    const dropDepth = userDepthValid
+      ? {
+          depth: {
+            value: customAnchorDropDepthValue.value,
+            units: anchorDropDepthUnits.value,
+          },
+          depthSource: "user_entered",
+        }
+      : getAnchorDropDepthFromNavigation();
+
     const newAnchorState = {
-      anchorDropLocation: {
-        position: {
-          latitude: { value: boatLat, units: "deg" },
-          longitude: { value: boatLon, units: "deg" },
-        },
-        time: new Date().toISOString(),
-        depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
-        bearing: { value: bearingRad, units: "rad", degrees: bearingDegrees },
-      },
-      anchorLocation: {
-        position: {
-          latitude: { value: computedAnchorLocation.latitude, units: "deg" },
-          longitude: { value: computedAnchorLocation.longitude, units: "deg" },
-        },
-        originalPosition: {
-          latitude: { value: computedAnchorLocation.latitude, units: "deg" },
-          longitude: { value: computedAnchorLocation.longitude, units: "deg" },
-        },
-        time: new Date().toISOString(),
-        depth: navigationState.value?.depth || { value: null, units: "m", feet: null },
-        distancesFromCurrent: {
-          value: 0,
-        },
-        distancesFromDrop: {
-          value: 0,
-        },
-        originalBearing: { value: bearingRad, units: "rad", degrees: bearingDegrees },
-        bearing: { value: bearingRad, units: "rad", degrees: bearingDegrees },
-      },
+      action: "set_after_deploy",
+      anchorDeployed: true,
       rode: {
         amount: rode,
         units: preferredUnits,
@@ -4562,14 +5254,19 @@ const handleSetAnchor = () => {
         r: anchorState.value.warningRange?.r || 15,
         units: preferredUnits,
       },
-      defaultScope: {
-        value: 5,
-        units: "ratio",
-      },
-      dragging: false,
-      anchorDeployed: true,
-      history: [],
-      useDeviceGPS: true,
+      ...(dropDepth ? {
+        anchorDropLocation: {
+          depth: { 
+            value: dropDepth.depth.value, 
+            units: dropDepth.depth.units 
+          },
+          depthSource: dropDepth.depthSource
+        }
+      } : {}),
+      setBearing: { 
+        value: bearingDegrees, 
+        units: "deg" 
+      }
     };
 
     // Log the state that will be sent to the server
@@ -4723,6 +5420,25 @@ const handleUpdateDropLocation = () => {
     latitude: { value: lat, units: "deg" },
     longitude: { value: lon, units: "deg" },
   };
+
+  const userDepthValid =
+    customAnchorDropDepthTouched.value === true &&
+    typeof customAnchorDropDepthValue.value === "number" &&
+    Number.isFinite(customAnchorDropDepthValue.value);
+
+  if (userDepthValid) {
+    anchorState.value.anchorDropLocation.depth = {
+      value: customAnchorDropDepthValue.value,
+      units: anchorDropDepthUnits.value,
+    };
+    anchorState.value.anchorDropLocation.depthSource = "user_entered";
+  } else {
+    const dropDepth = getAnchorDropDepthFromNavigation();
+    if (dropDepth) {
+      anchorState.value.anchorDropLocation.depth = dropDepth.depth;
+      anchorState.value.anchorDropLocation.depthSource = dropDepth.depthSource;
+    }
+  }
 
   showUpdateDialog.value = false;
 };
@@ -5432,6 +6148,28 @@ onMounted(() => {
     // Add event listener for the anchor-dropped event
     window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
     logger.info("Map initialized and event listeners added");
+    
+    // STRATEGY 1: Try immediately after map is ready
+    nextTick(() => {
+      ensureCriticalCircleDrawn();
+    });
+    
+    // STRATEGY 2: Try after 1 second (allow server state to load)
+    setTimeout(() => {
+      ensureCriticalCircleDrawn();
+    }, 1000);
+    
+    // STRATEGY 3: Try after 3 seconds (fallback)
+    setTimeout(() => {
+      ensureCriticalCircleDrawn();
+    }, 3000);
+    
+    // STRATEGY 4: Try when map is fully rendered
+    if (map.value) {
+      map.value.once('postrender', () => {
+        ensureCriticalCircleDrawn();
+      });
+    }
     
     // Start fade timer for FAB buttons
     resetFadeTimer();
@@ -6314,6 +7052,12 @@ h3 {
   width: max-content;
 }
 
+/* Light mode background for tide extremes */
+body:not(.dark) .tide-extremes-card {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
 .tide-extremes-title {
   margin: 0 0 10px 0;
   font-size: 14px;
@@ -6322,6 +7066,12 @@ h3 {
   text-align: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   padding-bottom: 8px;
+}
+
+/* Light mode title for tide extremes */
+body:not(.dark) .tide-extremes-title {
+  color: #1e293b;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .tide-extremes-table {
@@ -6372,6 +7122,39 @@ h3 {
 .tide-extremes-table .low-cell-danger {
   color: #ef4444;
   font-weight: 500;
+}
+
+/* Light mode styles for tide extremes */
+body:not(.dark) .tide-extremes-table th {
+  color: #64748b;
+}
+
+body:not(.dark) .tide-extremes-table td {
+  color: #1e293b;
+}
+
+body:not(.dark) .tide-extremes-table .period-cell {
+  color: #64748b;
+}
+
+body:not(.dark) .tide-extremes-table .high-cell {
+  color: #16a34a;
+}
+
+body:not(.dark) .tide-extremes-table .low-cell {
+  color: #dc2626;
+}
+
+body:not(.dark) .tide-extremes-table .low-cell-safe {
+  color: #16a34a;
+}
+
+body:not(.dark) .tide-extremes-table .low-cell-warning {
+  color: #ea580c;
+}
+
+body:not(.dark) .tide-extremes-table .low-cell-danger {
+  color: #dc2626;
 }
 </style>
 
@@ -6722,5 +7505,124 @@ body.dark .ais-modal-footer,
 body.dark .ais-modal-toolbar {
   --background: var(--app-surface-color, #1f2933);
   background: var(--app-surface-color, #1f2933);
+}
+
+/* Anchor Inspector Modal */
+.anchor-inspector-modal-root .ion-page {
+  background: var(--app-background-color, #ffffff);
+}
+
+.anchor-inspector-content {
+  --padding: 16px;
+}
+
+.inspector-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--app-surface-color, #f8fafc);
+  border-radius: 8px;
+  border: 1px solid var(--app-border-color, #e2e8f0);
+}
+
+.inspector-section h4 {
+  margin: 0 0 12px 0;
+  color: var(--app-text-color, #1e293b);
+  font-size: 1.1em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--app-border-color, #e2e8f0);
+  padding-bottom: 8px;
+}
+
+.inspector-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--app-border-color, #f1f5f9);
+}
+
+.inspector-row:last-child {
+  border-bottom: none;
+}
+
+.inspector-label {
+  font-weight: 500;
+  color: var(--app-muted-text-color, #64748b);
+  flex: 0 0 auto;
+  margin-right: 12px;
+}
+
+.inspector-value {
+  color: var(--app-text-color, #1e293b);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+  text-align: right;
+  flex: 1;
+  word-break: break-all;
+}
+
+.json-display {
+  background: var(--app-surface-color, #f8fafc);
+  border: 2px solid var(--app-border-color, #e2e8f0);
+  border-radius: 4px;
+  padding: 12px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.8em;
+  line-height: 1.4;
+  color: var(--app-text-color, #1e293b);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 100px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Dark mode styles for inspector */
+body.dark .anchor-inspector-modal-root .ion-page {
+  background: var(--app-background-color, #0f172a);
+}
+
+body.dark .inspector-section {
+  background: var(--app-surface-color, #1e293b);
+  border-color: var(--app-border-color, #334155);
+}
+
+body.dark .inspector-section h4 {
+  color: var(--app-text-color, #f8fafc);
+  border-color: var(--app-border-color, #334155);
+}
+
+body.dark .inspector-row {
+  border-color: var(--app-border-color, #334155);
+}
+
+body.dark .inspector-label {
+  color: var(--app-muted-text-color, #94a3b8);
+}
+
+body.dark .inspector-value {
+  color: var(--app-text-color, #f8fafc);
+}
+
+body.dark .json-display {
+  background: var(--app-surface-color, #1e293b);
+  border: 2px solid var(--app-border-color, #334155);
+  color: var(--app-text-color, #f8fafc);
+}
+
+/* Make anchor status clickable */
+.floating-anchor-status {
+  cursor: pointer;
+  transition: all 0.3s ease, box-shadow 0.2s ease;
+}
+
+.floating-anchor-status:hover {
+  transform: translateX(-50%) translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--app-accent-color) 20%, transparent);
+}
+
+.floating-anchor-status:active {
+  transform: translateX(-50%) translateY(0);
 }
 </style>

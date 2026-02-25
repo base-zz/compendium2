@@ -19,10 +19,14 @@ import {
   warningOutline,
   informationCircleOutline,
   closeOutline,
+  checkmarkCircleOutline,
 } from "ionicons/icons";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import { useStateDataStore } from "@/stores/stateDataStore";
 dayjs.extend(relativeTime);
+
+const stateStore = useStateDataStore();
 
 const props = defineProps({
   alert: {
@@ -41,6 +45,13 @@ const close = async () => {
   } else {
     await modalController.dismiss();
   }
+};
+
+const acknowledgeAlert = async () => {
+  if (props.alert.id) {
+    stateStore.acknowledgeAlert(props.alert.id);
+  }
+  await close();
 };
 
 const icon = computed(() => {
@@ -71,6 +82,11 @@ const formattedTime = computed(() =>
           </IonButton>
         </IonButtons>
         <IonTitle>Alert Details</IonTitle>
+        <IonButtons slot="end" v-if="!props.alert.acknowledged">
+          <IonButton @click="acknowledgeAlert" color="success">
+            <IonIcon :icon="checkmarkCircleOutline" slot="icon-only" />
+          </IonButton>
+        </IonButtons>
       </IonToolbar>
     </IonHeader>
     <IonContent class="ion-padding">

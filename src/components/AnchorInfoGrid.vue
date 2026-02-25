@@ -11,7 +11,7 @@
       </div>
       <div class="info-cell" @click="showEditHeadingModal = true">
         <div class="label-div">Heading</div>
-        <div class="metric-div clickable">{{ stateStore.state.anchor?.anchorDeployed ? (stateStore.state.anchor?.anchorDropLocation?.bearing?.degrees != null ? stateStore.state.anchor.anchorDropLocation.bearing.degrees + '°' : '--') : (deviceHeadingDegrees != null ? deviceHeadingDegrees + '°' : '--') }}</div>
+        <div class="metric-div clickable">{{ stateStore.state.anchor?.anchorDeployed ? (stateStore.state.anchor?.anchorDropLocation?.bearing?.value != null ? Math.round(stateStore.state.anchor.anchorDropLocation.bearing.value) + '°' : (deviceHeadingDegrees != null ? Math.round(deviceHeadingDegrees) + '°' : '--')) : (deviceHeadingDegrees != null ? Math.round(deviceHeadingDegrees) + '°' : '--') }}</div>
       </div>
       <div class="info-cell">
         <div class="label-div">Depth</div>
@@ -221,8 +221,8 @@ watch(showEditRodeModal, (val) => {
 
 watch(showEditHeadingModal, (val) => {
   if (val) {
-    if (anchorState.value?.anchorDeployed && anchorState.value?.anchorDropLocation?.bearing?.degrees != null) {
-      editHeadingValue.value = anchorState.value.anchorDropLocation.bearing.degrees;
+    if (anchorState.value?.anchorDeployed && anchorState.value.anchorDropLocation?.bearing?.value != null) {
+      editHeadingValue.value = anchorState.value.anchorDropLocation.bearing.value;
     } else if (deviceHeadingDegrees.value != null) {
       editHeadingValue.value = deviceHeadingDegrees.value;
     } else {
@@ -280,14 +280,15 @@ function confirmEditHeading() {
     if (!anchorState.value.anchorDropLocation) {
       anchorState.value.anchorDropLocation = {};
     }
+
     if (!anchorState.value.anchorDropLocation.bearing) {
       anchorState.value.anchorDropLocation.bearing = {};
     }
-    anchorState.value.anchorDropLocation.bearing.degrees = editHeadingValue.value;
+    anchorState.value.anchorDropLocation.bearing.value = editHeadingValue.value;
     
     // Send update to server via state store
     const { sendMessageToServer } = stateStore;
-    if (sendMessageToServer) {
+    if (typeof sendMessageToServer === 'function') {
       sendMessageToServer('anchor:update', anchorState.value);
     }
   }
@@ -373,16 +374,19 @@ const driftDisplay = computed(() => {
   if (!anchorState.value?.anchorDeployed) return '--';
   
   // Get original position (where anchor was initially calculated to be when dropped)
-  const originalPos = anchorState.value?.anchorLocation?.originalPosition;
+  const originalPos = anchorState.value?.anchorLocation?.originalPosition || 
+                     anchorState.value?.anchorDropLocation?.position; // Fallback to drop position
   // Get current anchor position
   const currentPos = anchorState.value?.anchorLocation?.position;
   
+  // Debug logging removed
+  
   if (!originalPos || !currentPos) return '--';
   
-  const origLat = originalPos.latitude?.value ?? originalPos.latitude;
-  const origLon = originalPos.longitude?.value ?? originalPos.longitude;
-  const currentLat = currentPos.latitude?.value ?? currentPos.latitude;
-  const currentLon = currentPos.longitude?.value ?? currentPos.longitude;
+  const origLat = originalPos.latitude?.value;
+  const origLon = originalPos.longitude?.value;
+  const currentLat = currentPos.latitude?.value;
+  const currentLon = currentPos.longitude?.value;
   
   if (typeof origLat !== 'number' || typeof origLon !== 'number' ||
       typeof currentLat !== 'number' || typeof currentLon !== 'number') {
@@ -391,6 +395,11 @@ const driftDisplay = computed(() => {
   
   const distanceMeters = calculateDistanceMeters(origLat, origLon, currentLat, currentLon, true);
   if (distanceMeters == null || !Number.isFinite(distanceMeters)) return '--';
+  
+  // If drift is 0 or very close to 0, show "0" with units
+  if (distanceMeters < 0.01) {
+    return isMetric.value ? '0 m' : '0 ft';
+  }
   
   // Convert to preferred units
   if (isMetric.value) {
@@ -428,6 +437,11 @@ const driftColorStyle = computed(() => {
   
   const distanceMeters = calculateDistanceMeters(origLat, origLon, currentLat, currentLon, true);
   if (distanceMeters == null || !Number.isFinite(distanceMeters)) return '';
+  
+  // If drift is 0 or very close to 0, use normal text color
+  if (distanceMeters < 0.01) {
+    return 'color: var(--app-text-color); font-weight: 600;';
+  }
   
   // Thresholds: 1.5m (yellow), 3m (red) for metric; 5ft (yellow), 10ft (red) for imperial
   let t;
