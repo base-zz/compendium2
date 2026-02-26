@@ -670,8 +670,9 @@ const tideExtremesTable = computed(() => {
         
         return `${waterDepth}${props.depthUnits === 'm' ? 'm' : 'ft'} -- ${t}`;
       } else {
-        // Show tide height relative to chart datum (always in feet from NOAA)
-        return `${predictedTideHeight.toFixed(1)}ft -- ${t}`;
+        // Show tide height relative to chart datum in user's preferred units
+        const displayHeight = props.depthUnits === 'm' ? (predictedTideHeight * 0.3048).toFixed(1) : predictedTideHeight.toFixed(1);
+        return `${displayHeight}${props.depthUnits === 'm' ? 'm' : 'ft'} -- ${t}`;
       }
     };
     
