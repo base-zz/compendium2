@@ -22,203 +22,25 @@
     </div>
 
     <!-- Modal dialogs -->
-    <ion-modal
-      :is-open="showSetAnchorDialog"
-      @didDismiss="showSetAnchorDialog = false"
-      css-class="set-anchor-modal-root"
-    >
-      <ion-content class="set-anchor-modal">
-        <div class="modal-body">
-          <h3>{{ anchorState?.anchorDeployed ? "Edit Anchor Parameters" : "Set Anchor" }}</h3>
-          <div class="slider-label">
-          <strong>Rode:</strong>
-          <span class="slider-value"
-            >{{ anchorState.rode.amount }} {{ isMetric.value ? "m" : "ft" }}</span
-          >
-        </div>
-        <ion-range
-          v-model="anchorState.rode.amount"
-          :min="0"
-          :max="rodeRangeMax"
-          :step="isMetric.value ? 1 : 5"
-          ticks="true"
-          color="secondary"
-          class="modal-range modal-range-center"
-          style="margin-bottom: 18px; width: 80%"
-        />
-        <div class="slider-label">
-          <strong>Anchor Range:</strong>
-          <span class="slider-value"
-            >{{
-              anchorState.criticalRange && typeof anchorState.criticalRange.r === "number"
-                ? anchorState.criticalRange.r
-                : 0
-            }}
-            {{ isMetric.value ? "m" : "ft" }}</span
-          >
-        </div>
-        <ion-range
-          v-if="anchorState.criticalRange"
-          v-model="anchorState.criticalRange.r"
-          :min="0"
-          :max="criticalRangeMax"
-          :step="isMetric.value ? 1 : 5"
-          ticks="true"
-          color="danger"
-          class="modal-range modal-range-center"
-          style="margin-bottom: 18px; width: 80%"
-        />
-        <div v-else class="text-danger">Critical range not initialized</div>
-        <div class="slider-label">
-          <strong>AIS Alert Range:</strong>
-          <span class="slider-value"
-            >{{
-              anchorState.warningRange && typeof anchorState.warningRange.r === "number"
-                ? anchorState.warningRange.r
-                : 0
-            }}
-            {{ isMetric.value ? "m" : "ft" }}</span
-          >
-        </div>
-        <ion-range
-          v-if="anchorState.warningRange"
-          v-model="anchorState.warningRange.r"
-          :min="0"
-          :max="warningRangeMax"
-          :step="isMetric.value ? 1 : 5"
-          ticks="true"
-          color="warning"
-          class="modal-range modal-range-center"
-          style="margin-bottom: 18px; width: 80%"
-        />
-
-        <div class="fence-visibility-setting">
-          <label for="fence-connector-toggle">Show fence connector lines</label>
-          <input
-            id="fence-connector-toggle"
-            type="checkbox"
-            :checked="fenceConnectorLinesVisible"
-            @change="handleFenceConnectorLinesVisibilityChange"
-          />
-        </div>
-
-          <template v-if="!anchorState?.anchorDeployed">
-            <div class="slider-label">
-              <strong>Bearing:</strong>
-              <span class="slider-value"
-                >{{ anchorState.anchorDropLocation.bearing?.degrees || "--" }}°</span
-              >
-            </div>
-            <div class="slider-label" style="margin-top: 6px; text-transform: none; letter-spacing: normal;">
-              <span>Phone:</span>
-              <span class="slider-value" style="font-size: 1.1em;">
-                {{ deviceHeadingDegrees == null ? "--" : `${deviceHeadingDegrees}°` }}
-              </span>
-            </div>
-            <IonButton
-              color="secondary"
-              size="small"
-              style="margin: 6px auto 10px;"
-              :disabled="hasTriedPhoneBearing && deviceHeadingDegrees == null"
-              @click="applyPhoneBearing"
-            >
-              {{ hasTriedPhoneBearing && deviceHeadingDegrees == null ? 'Phone direction unavailable' : 'Use phone direction' }}
-            </IonButton>
-            <ion-range
-              v-model="anchorState.anchorDropLocation.bearing.degrees"
-              :min="0"
-              :max="360"
-              :step="1"
-              ticks="true"
-              color="primary"
-              class="modal-range modal-range-center"
-              style="margin-bottom: 18px; width: 80%"
-            />
-          </template>
-
-          <!-- Scope Recommendation -->
-          <div v-if="recommendedScope" class="scope-recommendation">
-            <div class="recommendation-header">
-              <span>Cable Calculator</span>
-            </div>
-            <div v-if="recommendedScope.missingBowRollerToWater" class="suggestion-note">
-              Set Bow Roller to Water in Boat Info to enable accurate scope recommendations.
-            </div>
-            <div v-else class="recommendation-details">
-              <div class="recommendation-row">
-                <span>Current Depth:</span>
-                <span
-                  >{{ recommendedScope.currentDepth.toFixed(1) }}
-                  {{ recommendedScope.unit }}</span
-                >
-              </div>
-              <div class="recommendation-row">
-                <span>Max Tide Rise (72h):</span>
-                <span
-                  >+{{ recommendedScope.depthIncrease.toFixed(1) }}
-                  {{ recommendedScope.unit }}</span
-                >
-              </div>
-              <div class="recommendation-row highlight">
-                <span>Max Depth (Projected):</span>
-                <span
-                  >{{ recommendedScope.maxDepth.toFixed(1) }}
-                  {{ recommendedScope.unit }}</span
-                >
-              </div>
-
-              <!-- Scope Ratios -->
-              <div class="scope-ratio">
-                <div class="ratio-row">
-                  <span class="ratio-label">3:1 Scope</span>
-                  <span class="ratio-value"
-                    >{{ Math.round(recommendedScope.scopeLength3to1) }}
-                    {{ recommendedScope.unit }}</span
-                  >
-                </div>
-                <div class="ratio-row active">
-                  <span class="ratio-label">5:1 Scope (Recommended)</span>
-                  <span class="ratio-value"
-                    >{{ Math.round(recommendedScope.scopeLength5to1) }}
-                    {{ recommendedScope.unit }}</span
-                  >
-                </div>
-                <div class="ratio-row">
-                  <span class="ratio-label">7:1 Scope (Storm)</span>
-                  <span class="ratio-value"
-                    >{{ Math.round(recommendedScope.scopeLength7to1) }}
-                    {{ recommendedScope.unit }}</span
-                  >
-                </div>
-              </div>
-            </div>
-            <div v-if="!recommendedScope.missingBowRollerToWater" class="suggestion-note">
-              Based on projected max depth of {{ recommendedScope.maxDepth.toFixed(1)
-            }}{{ recommendedScope.unit }} (current depth
-            {{ recommendedScope.currentDepth.toFixed(1)
-            }}{{ recommendedScope.unit }} +
-            {{ recommendedScope.depthIncrease.toFixed(1)
-            }}{{ recommendedScope.unit }} tide rise +
-            {{ recommendedScope.bowRollerToWater.toFixed(1)
-            }}{{ recommendedScope.unit }} bow roller)
-            </div>
-          </div>
-        </div>
-      </ion-content>
-      <ion-footer class="set-anchor-footer">
-        <ion-toolbar class="set-anchor-toolbar">
-          <div class="modal-actions">
-            <IonButton
-              color="primary"
-              @click="() => { console.log('[AnchorView] Button clicked', { anchorDeployed: anchorState?.anchorDeployed }); anchorState?.anchorDeployed ? handleSaveAnchorParameters() : handleSetAnchor(); }"
-            >
-              {{ anchorState?.anchorDeployed ? "Save Changes" : "Set Anchor" }}
-            </IonButton>
-            <IonButton @click="showSetAnchorDialog = false">Cancel</IonButton>
-          </div>
-        </ion-toolbar>
-      </ion-footer>
-    </ion-modal>
+    <SetAnchorModal
+      v-model:isOpen="showSetAnchorDialog"
+      :anchorState="anchorState"
+      :isMetric="isMetric"
+      :rodeRangeMax="rodeRangeMax"
+      :criticalRangeMax="criticalRangeMax"
+      :warningRangeMax="warningRangeMax"
+      :anchorDropDepthMax="anchorDropDepthMax"
+      :customAnchorDropDepthLabel="customAnchorDropDepthLabel"
+      :customAnchorDropDepthValue="customAnchorDropDepthValue"
+      :fenceConnectorLinesVisible="fenceConnectorLinesVisible"
+      :deviceHeadingDegrees="deviceHeadingDegrees"
+      :hasTriedPhoneBearing="hasTriedPhoneBearing"
+      :recommendedScope="recommendedScope"
+      @save="anchorState?.anchorDeployed ? handleSaveAnchorParameters() : handleSetAnchor()"
+      @update:customAnchorDropDepthValue="customAnchorDropDepthValue = $event"
+      @update:fenceConnectorLinesVisible="fenceConnectorLinesVisible = $event"
+      @apply-phone-bearing="applyPhoneBearing"
+    />
     <UpdateDropModal
       v-model:isOpen="showUpdateDialog"
       @confirm="handleUpdateDropLocation"
@@ -374,6 +196,7 @@ import FenceListModal from "@/components/anchor/FenceListModal.vue";
 import FenceConfigModal from "@/components/anchor/FenceConfigModal.vue";
 import AISModal from "@/components/anchor/AISModal.vue";
 import TideModal from "@/components/anchor/TideModal.vue";
+import SetAnchorModal from "@/components/anchor/SetAnchorModal.vue";
 
 // Router setup
 const router = useRouter();
@@ -1173,6 +996,19 @@ const hasTriedPhoneBearing = ref(false);
 
 // Custom anchor drop depth variable for user-entered depth
 const customAnchorDropDepthValue = ref(null);
+
+// Maximum depth for anchor drop slider (in user's preferred units)
+const anchorDropDepthMax = computed(() => {
+  const maxDepthMeters = 100; // 100 meters max (~330 feet)
+  return isMetric.value ? maxDepthMeters : Math.round(maxDepthMeters * 3.28084);
+});
+
+// Label for custom anchor drop depth slider
+const customAnchorDropDepthLabel = computed(() => {
+  const depth = anchorDepthWithUnits.value?.depth;
+  const units = anchorDepthWithUnits.value?.units;
+  return depth != null && units ? `Depth at Anchor: ${depth.toFixed(1)}${units}` : 'Depth at Anchor: --';
+});
 
 const showPhoneBearingToast = async (message) => {
   try {
