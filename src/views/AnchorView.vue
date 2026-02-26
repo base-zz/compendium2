@@ -246,6 +246,8 @@ import PinchRotate from "ol/interaction/PinchRotate";
 import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import { useMapTools } from "@/utils/mapUtils.js";
 import { useMapFeatures } from "@/utils/mapFeatures";
+import { useMapManagement } from "@/composables/useMapManagement.js";
+import { useMapInteractions } from "@/composables/useMapInteractions.js";
 import { STYLES, createWindIndicatorStyle } from "@/utils/mapStyles";
 import { relayConnectionBridge } from "@/relay/client/RelayConnectionBridge.js";
 import { directConnectionAdapter } from "@/services/directConnectionAdapter.js";
@@ -733,16 +735,53 @@ const updateFenceFeatures = () => {
   });
 };
 
-// Main component setup
-const mapElement = ref(null);
-const map = ref(null);
-const vectorSource = new VectorSource();
+const isDarkMode = computed(() => preferences.value?.display?.darkMode || false);
+
+// Map Management - Simple approach for testing
+const { 
+  map, 
+  mapElement, 
+  isMapRenderReady: isMapRenderReadyFromComposable,
+  initializeMap: initializeMapComposable,
+  addFeature,
+  removeFeature,
+  clearAllFeatures,
+  setCenter,
+  getCenter,
+  setZoom,
+  getZoom,
+  updateSize,
+  on: mapOn,
+  off: mapOff,
+  getFeaturesAtPixel,
+  fromLonLat: fromLonLatFromComposable,
+  toLonLat: toLonLatFromComposable,
+  destroy: destroyMap
+} = useMapManagement('openstreetmap', isDarkMode);
+
+// Keep the original vectorSource and mapFeatures for now
+let vectorSource = new VectorSource();
+let mapFeaturesComposable = useMapFeatures(vectorSource);
+
+// Extract the functions for easier access
+let { updateFeature, updateFeatureGroup, clearFeature, clearAll } = mapFeaturesComposable;
+
+// Map Interactions
 const {
-  updateFeature,
-  updateFeatureGroup,
-  clearFeature,
-  clearAll,
-} = useMapFeatures(vectorSource);
+  measureModeEnabled: measureModeEnabledFromComposable,
+  fenceModeEnabled: fenceModeEnabledFromComposable,
+  measurePinA: measurePinAFromComposable,
+  measurePinB: measurePinBFromComposable,
+  measureLine: measureLineFromComposable,
+  measureLabel: measureLabelFromComposable,
+  measurePinAFollowsBoat: measurePinAFollowsBoatFromComposable,
+  measurePinBFollowsBoat: measurePinBFollowsBoatFromComposable,
+  toggleMeasureMode: toggleMeasureModeFromComposable,
+  toggleFenceMode: toggleFenceModeFromComposable,
+  clearMeasurementFeatures: clearMeasurementFeaturesFromComposable,
+  setupInteractions,
+  cleanup: cleanupInteractions
+} = useMapInteractions(map, vectorSource);
 
 // Store integration
 const stateStore = useStateDataStore();
@@ -1083,8 +1122,6 @@ const aisTargets = computed(() => {
   const result = Object.values(targetsObj);
   return result;
 });
-
-const isDarkMode = computed(() => preferences.value?.display?.darkMode || false);
 
 // Floating anchor status computed properties
 const anchorStatusText = computed(() => {
@@ -1874,6 +1911,11 @@ const updateBoatPosition = debounce(() => {
   const state = stateStore.state;
   const pos = state?.navigation?.position;
 
+  logger.debug("updateBoatPosition called with position:", pos ? {
+    latitude: pos.latitude?.value,
+    longitude: pos.longitude?.value
+  } : "No position data");
+
   // Skip the update if either latitude or longitude is null or undefined
   if (
     !pos ||
@@ -1944,6 +1986,13 @@ const updateBoatPosition = debounce(() => {
     
     updateFeature(FEATURE_TYPES.BOAT, point, boatStyle);
     
+    // Debug: Check if boat feature was added
+    const addedBoatFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.BOAT);
+    logger.debug("Boat feature added successfully:", {
+      featureExists: !!addedBoatFeature,
+      totalFeatures: vectorSource.getFeatures().length
+    });
+    
     // Initialize current boat position for future animations
     const coord = fromLonLat([lon, lat]);
     currentBoatPosition = { lat, lon, x: coord[0], y: coord[1] };
@@ -1998,6 +2047,7 @@ const updateBoatPosition = debounce(() => {
 
 const getBoatCenterCoord = () => {
   const pos = stateStore.state?.navigation?.position;
+  
   if (!pos || !pos.latitude || !pos.longitude) return null;
   if (pos.latitude.value == null || pos.longitude.value == null) return null;
 
@@ -2005,6 +2055,7 @@ const getBoatCenterCoord = () => {
   const lon = pos.longitude.value;
   if (typeof lat !== "number" || typeof lon !== "number") return null;
   if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  
   return fromLonLat([lon, lat]);
 };
 
@@ -3006,10 +3057,49 @@ const updateBreadcrumbs = debounce(() => {
   updateFeatureGroup(FEATURE_TYPES.BREADCRUMB, validCrumbs);
 }, 300);
 
+// Global map cache
+let cachedMap = null;
+let cachedMapElement = null;
+let cachedProvider = null;
+
 // Map Initialization
-const initializeMap = () => {
+const initializeMap = async () => {
   logger.info("Initializing map...");
   logger.debug("Starting map initialization");
+
+  // Check if we have a cached map
+  if (cachedMap && cachedMapElement && cachedProvider) {
+    logger.info("Using cached map instance");
+    map.value = cachedMap;
+    mapElement.value = cachedMapElement;
+    
+    // Minimal setup for cached map
+    isMapRenderReadyFromComposable.value = true;
+    hasAppliedDefaultFramingThisEntry.value = false;
+    
+    // Center immediately if position data is available
+    const pos = stateStore.state?.navigation?.position;
+    if (pos && pos.latitude?.value && pos.longitude?.value) {
+      const view = map.value.getView();
+      const currentCenter = view.getCenter();
+      
+      // Check if current center is close to (0,0) in lon/lat coordinates
+      const currentLonLat = toLonLat(currentCenter);
+      const isAtDefault = Math.abs(currentLonLat[0]) < 1 && Math.abs(currentLonLat[1]) < 1;
+      
+      if (isAtDefault) {
+        const boatCoord = fromLonLat([pos.longitude.value, pos.latitude.value]);
+        view.setCenter(boatCoord);
+        hasAppliedDefaultFramingThisEntry.value = true;
+      }
+    }
+    
+    logger.info("Cached map initialized successfully");
+    return;
+  }
+
+  // No cached map, create new one
+  logger.debug("Creating new map instance");
 
   // Get position from state
   const state = stateStore.state;
@@ -3017,6 +3107,12 @@ const initializeMap = () => {
   const anchor = state?.anchor;
 
   logger.debug("Position data:", pos ? pos : "No position data");
+  logger.debug("Position details:", {
+    latitude: pos?.latitude?.value,
+    longitude: pos?.longitude?.value,
+    hasLat: pos?.latitude?.value != null,
+    hasLon: pos?.longitude?.value != null
+  });
   logger.debug("Anchor state:", anchor);
 
   // Determine center coordinates based on anchor state
@@ -3062,205 +3158,68 @@ const initializeMap = () => {
     logger.debug("Using default position (0,0)");
   }
 
-  const defaultCenter = fromLonLat([centerLon, centerLat]);
-  const defaultZoom = 15;
-
-  // Create the map with minimal interactions initially
-  map.value = new Map({
-    target: mapElement.value,
-    layers: [
-      new TileLayer({ 
-        source: isDarkMode.value 
-          ? new XYZ({
-              url: 'https://{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-              attributions: null
-            })
-          : new OSM({ attributions: null })
-      }),
-      new VectorLayer({ source: vectorSource, zIndex: 5 }),
-    ],
-    view: new View({
-      center: defaultCenter,
-      zoom: defaultZoom,
-      rotation: 0,
-      enableRotation: false,
-      minZoom: 5,
-      maxZoom: 22,
-    }),
-    controls: defaultControls({ zoom: false, attribution: false }),
-    interactions: defaultInteractions({
-      // Start with minimal interactions
-      dragPan: true,
-      pinchZoom: true,
-      altShiftDragRotate: false,
-      pinchRotate: false,
-      mouseWheelZoom: false, // Disable default and add our custom one below
-    }),
-    pixelRatio: window.devicePixelRatio,
-  });
-
-  isMapRenderReady.value = false;
-  map.value.once("postrender", () => {
-    // Use requestAnimationFrame to ensure DOM layout is complete
-    requestAnimationFrame(() => {
-      map.value.updateSize();
-      isMapRenderReady.value = true;
-      hasAppliedDefaultFramingThisEntry.value = false;
-      attachDefaultFramingListener();
-
-      const view = map.value?.getView?.();
-      if (view && typeof view.on === "function") {
-        view.on("change:resolution", () => {
-          updateWindIndicatorScale();
-        });
-      }
-
-      // Keep wind icon scaling smooth during zoom by updating every render frame.
-      map.value.on("postrender", () => {
-        updateWindIndicatorScale();
-      });
-    });
-  });
-
-  if (mapElement.value) {
-    mapElement.value.__ol_map__ = map.value;
-  }
-  window.__anchorMap = map.value;
-
-  // Hard lock map rotation (iOS pinch gestures can still rotate under some conditions)
+  // Initialize map using composable
   try {
-    const view = map.value.getView();
-    if (view && typeof view.setRotation === "function") {
-      view.setRotation(0);
-    }
-
-    map.value.getInteractions().forEach((interaction) => {
-      if (interaction instanceof DragRotate || interaction instanceof PinchRotate) {
-        map.value.removeInteraction(interaction);
-      }
+    await initializeMapComposable({
+      center: [centerLon, centerLat],
+      zoom: 15,
+      isDarkMode: isDarkMode.value
     });
+
+    // Get vector source from the provider and replace our vector source
+    const provider = map.value?.__provider__;
+    if (provider && provider.getVectorSource) {
+      const providerVectorSource = provider.getVectorSource();
+      // Copy features from our vectorSource to provider's vectorSource
+      const features = vectorSource.getFeatures();
+      features.forEach(feature => providerVectorSource.addFeature(feature));
+      
+      // Replace our vectorSource reference
+      vectorSource = providerVectorSource;
+      
+      // Reinitialize useMapFeatures with the new vector source
+      mapFeaturesComposable = useMapFeatures(vectorSource);
+      ({ updateFeature, updateFeatureGroup, clearFeature, clearAll } = mapFeaturesComposable);
+    }
+
+    // Setup interactions
+    setupInteractions();
+
+    // Setup map event listeners
+    mapOn('postrender', () => {
+      updateWindIndicatorScale();
+    });
+
+    isMapRenderReadyFromComposable.value = true;
+    hasAppliedDefaultFramingThisEntry.value = false;
+    attachDefaultFramingListener();
+
+    logger.info("Map initialized successfully");
+    
+    // Cache the map for future use
+    cachedMap = map.value;
+    cachedMapElement = mapElement.value;
+    cachedProvider = map.value?.__provider__;
+    logger.info("Map cached for future use");
   } catch (error) {
-    // Ignore rotation lock failures
+    logger.error("Failed to initialize map:", error);
+    throw error;
   }
-
-  // Capture the default DragPan interaction so we can temporarily disable it while dragging measure pins.
-  dragPanInteraction = null;
-  map.value.getInteractions().forEach((interaction) => {
-    if (interaction instanceof DragPan) {
-      dragPanInteraction = interaction;
-    }
-  });
-
-  // Disable DragPan when a gesture starts on a measurement pin so the Translate interaction can move the pin.
-  let isDraggingMeasurePin = false;
-  let draggedMeasureFeature = null;
-  map.value.on("pointerdown", (evt) => {
-    if (measureModeEnabled.value !== true) return;
-    if (!dragPanInteraction || typeof dragPanInteraction.setActive !== "function") return;
-    const pixel = evt?.pixel;
-    if (!pixel) return;
-    const featuresAtPixel = map.value.getFeaturesAtPixel(pixel, { hitTolerance: 18 });
-    const measurePinFeature = Array.isArray(featuresAtPixel)
-      ? featuresAtPixel.find((feature) => {
-          const type = feature?.get?.("type");
-          return type === FEATURE_TYPES.MEASURE_PIN_A || type === FEATURE_TYPES.MEASURE_PIN_B;
-        })
-      : null;
-    if (measurePinFeature) {
-      isDraggingMeasurePin = true;
-      draggedMeasureFeature = measurePinFeature;
-      dragPanInteraction.setActive(false);
-
-      const draggedType = draggedMeasureFeature?.get?.("type");
-      if (draggedType === FEATURE_TYPES.MEASURE_PIN_A) {
-        measurePinAFollowsBoat.value = false;
-        if (typeof draggedMeasureFeature?.setStyle === "function") {
-          draggedMeasureFeature.setStyle(getMeasurePinStyle("A", false));
-        }
-      }
-      if (draggedType === FEATURE_TYPES.MEASURE_PIN_B) {
-        measurePinBFollowsBoat.value = false;
-        if (typeof draggedMeasureFeature?.setStyle === "function") {
-          draggedMeasureFeature.setStyle(getMeasurePinStyle("B", false));
-        }
-      }
-
-      syncTranslateFeatures();
-    }
-  });
-
-  // Manual drag fallback: move the pin geometry directly on pointerdrag.
-  map.value.on("pointerdrag", (evt) => {
-    if (measureModeEnabled.value !== true) return;
-    if (!isDraggingMeasurePin) return;
-    if (!draggedMeasureFeature) return;
-    const coord = evt?.coordinate;
-    if (!coord || coord.length < 2) return;
-    const geom = draggedMeasureFeature.getGeometry?.();
-    if (!geom || typeof geom.setCoordinates !== "function") return;
-    geom.setCoordinates(coord);
-    updateMeasurementLineAndLabel();
-  });
-
-  map.value.on("pointerup", () => {
-    if (!dragPanInteraction || typeof dragPanInteraction.setActive !== "function") return;
-    if (!isDraggingMeasurePin) return;
-
-    const dragged = draggedMeasureFeature;
-    if (dragged) {
-      const boatLonLat = getBoatLonLatForMeasure();
-      if (boatLonLat) {
-        const boatLon = boatLonLat[0];
-        const boatLat = boatLonLat[1];
-        const draggedType = dragged?.get?.("type");
-        const geom = dragged?.getGeometry?.();
-        const coord = geom?.getCoordinates?.();
-        if (Array.isArray(coord)) {
-          const lonLat = toLonLat(coord);
-          if (Array.isArray(lonLat) && lonLat.length >= 2) {
-            const lon = lonLat[0];
-            const lat = lonLat[1];
-            if (
-              typeof lon === "number" &&
-              typeof lat === "number" &&
-              !Number.isNaN(lon) &&
-              !Number.isNaN(lat)
-            ) {
-              const d = calculateDistanceMeters(lat, lon, boatLat, boatLon, true);
-              if (typeof d === "number" && !Number.isNaN(d) && d <= measureSnapDistanceMeters) {
-                if (draggedType === FEATURE_TYPES.MEASURE_PIN_A) {
-                  applyBoatFollowToPin("A", measurePinA, measurePinAFollowsBoat);
-                }
-                if (draggedType === FEATURE_TYPES.MEASURE_PIN_B) {
-                  applyBoatFollowToPin("B", measurePinB, measurePinBFollowsBoat);
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    isDraggingMeasurePin = false;
-    draggedMeasureFeature = null;
-    dragPanInteraction.setActive(true);
-    syncTranslateFeatures();
-    updateMeasurementLineAndLabel();
-  });
 
   // Add boat feature immediately if we have valid position
   if (hasValidPosition) {
     logger.debug("Adding initial boat feature");
     try {
       // Create a boat feature with the current position
+      const point = new Point(fromLonLat([centerLon, centerLat]));
+      const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
+      
+      // Create the boat feature
       const boatFeature = new Feature({
-        geometry: new Point(fromLonLat([centerLon, centerLat])),
+        geometry: point,
         name: "Boat",
         type: FEATURE_TYPES.BOAT,
       });
-
-      // Clone style and set rotation
-      const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
       
       try {
         const img = boatStyle?.getImage?.();
@@ -3305,22 +3264,26 @@ const initializeMap = () => {
       vectorSource.addFeature(boatFeature);
       
       // Initialize current boat position for animations
-      currentBoatPosition = { lat: centerLat, lon: centerLon, x: defaultCenter[0], y: defaultCenter[1] };
+      const coord = fromLonLat([centerLon, centerLat]);
+      currentBoatPosition = { lat: centerLat, lon: centerLon, x: coord[0], y: coord[1] };
 
       logger.debug("Boat feature added successfully with rotation");
     } catch (error) {
-      logger.error("Error adding boat feature", { error });
+      console.error("Error adding boat feature:", error);
+      logger.error("Error adding boat feature", { error: error.message || error });
     }
   }
 
   // Set willReadFrequently attribute on the canvas for better performance
   // We need to wait for the map to be properly rendered before accessing the canvas
   setTimeout(() => {
-    const canvas = map.value.getViewport().querySelector("canvas");
-    if (canvas) {
-      // The correct way to set willReadFrequently is to get a new context with the attribute
-      canvas.getContext("2d", { willReadFrequently: true });
-      logger.debug("Set willReadFrequently on map canvas for better performance");
+    if (map.value) {
+      const canvas = map.value.getViewport().querySelector("canvas");
+      if (canvas) {
+        // The correct way to set willReadFrequently is to get a new context with the attribute
+        canvas.getContext("2d", { willReadFrequently: true });
+        logger.debug("Set willReadFrequently on map canvas for better performance");
+      }
     }
   }, 100);
 
@@ -3345,17 +3308,43 @@ const initializeMap = () => {
   map.value.on("click", handleMapClick);
 
   // Add both passive and non-passive event listeners as fallback
-  mapElement.value.addEventListener("wheel", handleWheelEvent, { passive: false });
+  if (mapElement.value) {
+    mapElement.value.addEventListener("wheel", handleWheelEvent, { passive: false });
+    // Focus management
+    mapElement.value.tabIndex = 0; // Make focusable
+    mapElement.value.style.outline = "none";
+    mapElement.value.focus();
+  }
   document.addEventListener("wheel", handleWheelEvent, { passive: false, capture: true });
-
-  // Focus management
-  mapElement.value.tabIndex = 0; // Make focusable
-  mapElement.value.style.outline = "none";
-  mapElement.value.focus();
 };
 
 // Watchers
 // Watch for changes in the state's navigation position
+// Watch for position changes and auto-center if map is at default position
+watch(
+  () => stateStore.state?.navigation?.position,
+  (newPosition) => {
+    if (newPosition && newPosition.latitude?.value && newPosition.longitude?.value) {
+      // Only auto-center if map is still at default position (0,0) and hasn't been manually centered
+      if (map.value && !hasAppliedDefaultFramingThisEntry.value) {
+        const view = map.value.getView();
+        const currentCenter = view.getCenter();
+        
+        // Check if current center is close to (0,0) in lon/lat coordinates
+        const currentLonLat = toLonLat(currentCenter);
+        const isAtDefault = Math.abs(currentLonLat[0]) < 1 && Math.abs(currentLonLat[1]) < 1;
+        
+        if (isAtDefault) {
+          const boatCoord = fromLonLat([newPosition.longitude.value, newPosition.latitude.value]);
+          view.setCenter(boatCoord);
+          hasAppliedDefaultFramingThisEntry.value = true;
+        }
+      }
+    }
+  },
+  { immediate: true, deep: true }
+);
+
 watch(
   () => stateStore.state.navigation?.position,
   () => {
@@ -5265,12 +5254,58 @@ let anchorStateLogInterval;
 let fenceGraphLogInterval;
 
 onMounted(() => {
+  console.log("onMounted started at:", Date.now());
   logger.info("Component mounted, initializing map...");
+  
+  // Check if we have a cached map - use it directly without going through composables
+  if (cachedMap && cachedMapElement && cachedProvider) {
+    console.log("Using cached map directly at:", Date.now());
+    map.value = cachedMap;
+    mapElement.value = cachedMapElement;
+    
+    // Minimal setup for cached map
+    isMapRenderReadyFromComposable.value = true;
+    hasAppliedDefaultFramingThisEntry.value = false;
+    
+    // Center immediately if position data is available
+    const pos = stateStore.state?.navigation?.position;
+    if (pos && pos.latitude?.value && pos.longitude?.value) {
+      const view = map.value.getView();
+      const currentCenter = view.getCenter();
+      
+      // Check if current center is close to (0,0) in lon/lat coordinates
+      const currentLonLat = toLonLat(currentCenter);
+      const isAtDefault = Math.abs(currentLonLat[0]) < 1 && Math.abs(currentLonLat[1]) < 1;
+      
+      if (isAtDefault) {
+        const boatCoord = fromLonLat([pos.longitude.value, pos.latitude.value]);
+        view.setCenter(boatCoord);
+        hasAppliedDefaultFramingThisEntry.value = true;
+      }
+    }
+    
+    console.log("Cached map setup complete at:", Date.now());
+    
+    // Add event listener for the anchor-dropped event
+    window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
+    logger.info("Cached map initialized and event listeners added");
+    return; // Skip initializeMap entirely
+  }
+  
+  console.log("Before initializeMap call at:", Date.now());
   try {
     initializeMap();
+    console.log("After initializeMap call at:", Date.now());
     // Add event listener for the anchor-dropped event
     window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
     logger.info("Map initialized and event listeners added");
+    
+    // Trigger auto-centering immediately if position data is available
+    setTimeout(() => {
+      if (!hasAppliedDefaultFramingThisEntry.value) {
+        attachDefaultFramingListener();
+      }
+    }, 100); // Small delay to ensure map is ready
     
     // Start fade timer for FAB buttons
     resetFadeTimer();
