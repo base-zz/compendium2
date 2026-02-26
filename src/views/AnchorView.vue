@@ -297,7 +297,7 @@ function resetFadeTimer() {
 
 const attachDefaultFramingListener = () => {
   if (!map.value) return;
-  if (isMapRenderReady.value !== true) return;
+  if (isMapRenderReadyFromComposable.value !== true) return;
   if (hasAppliedDefaultFramingThisEntry.value === true) return;
 
   const attemptApply = () => {
@@ -492,23 +492,6 @@ const fenceConnectorLinesVisible = computed(() => {
   return true;
 });
 
-const handleFenceConnectorLinesVisibilityChange = async (event) => {
-  if (!anchorState.value) {
-    return;
-  }
-  const nextVisible = event?.target?.checked === true;
-  anchorState.value.fenceConnectorLinesVisible = nextVisible;
-  updateFenceFeatures();
-
-  try {
-    await stateStore.sendMessageToServer("anchor:update", anchorState.value, {
-      source: "AnchorView.handleFenceConnectorLinesVisibilityChange",
-      timeout: 5000,
-    });
-  } catch (error) {
-    logger.error("Failed to persist fence connector line visibility", error);
-  }
-};
 
 const toFenceCoordinateNumber = (value) => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -757,7 +740,7 @@ const {
   fromLonLat: fromLonLatFromComposable,
   toLonLat: toLonLatFromComposable,
   destroy: destroyMap
-} = useMapManagement('openstreetmap', isDarkMode);
+} = useMapManagement('openstreetmap', isDarkMode, { destroyOnUnmount: false });
 
 // Keep the original vectorSource and mapFeatures for now
 let vectorSource = new VectorSource();
@@ -1643,10 +1626,11 @@ const applyDefaultFramingOnEnter = () => {
     return true;
   }
 
-  // No anchor, center on boat
+  // No anchor, center on boat with responsive zoom
   const boatCoord = getBoatCenterCoord();
   if (!boatCoord) return false;
   view.setCenter(boatCoord);
+  view.setZoom(getResponsiveZoom()); // Set responsive zoom when no anchor
   hasAppliedDefaultFramingThisEntry.value = true;
   return true;
 };
@@ -2587,11 +2571,17 @@ watch(
   }
 );
 
+// Watch for dark mode changes and update map tiles
 watch(
-  isDarkMode,
-  () => {
-    // Only update style, don't redraw the entire circle
-    // The circle will update its style automatically through the STYLES reference
+  [isDarkMode, isMapRenderReadyFromComposable], // Watch both dark mode and map readiness
+  ([newDarkMode, mapReady]) => {
+    // Only update if map is ready
+    if (mapReady && map.value) {
+      const provider = map.value.__provider__;
+      if (provider && typeof provider.updateTileSource === 'function') {
+        provider.updateTileSource(newDarkMode);
+      }
+    }
   }
 );
 
@@ -3057,49 +3047,10 @@ const updateBreadcrumbs = debounce(() => {
   updateFeatureGroup(FEATURE_TYPES.BREADCRUMB, validCrumbs);
 }, 300);
 
-// Global map cache
-let cachedMap = null;
-let cachedMapElement = null;
-let cachedProvider = null;
-
 // Map Initialization
 const initializeMap = async () => {
   logger.info("Initializing map...");
   logger.debug("Starting map initialization");
-
-  // Check if we have a cached map
-  if (cachedMap && cachedMapElement && cachedProvider) {
-    logger.info("Using cached map instance");
-    map.value = cachedMap;
-    mapElement.value = cachedMapElement;
-    
-    // Minimal setup for cached map
-    isMapRenderReadyFromComposable.value = true;
-    hasAppliedDefaultFramingThisEntry.value = false;
-    
-    // Center immediately if position data is available
-    const pos = stateStore.state?.navigation?.position;
-    if (pos && pos.latitude?.value && pos.longitude?.value) {
-      const view = map.value.getView();
-      const currentCenter = view.getCenter();
-      
-      // Check if current center is close to (0,0) in lon/lat coordinates
-      const currentLonLat = toLonLat(currentCenter);
-      const isAtDefault = Math.abs(currentLonLat[0]) < 1 && Math.abs(currentLonLat[1]) < 1;
-      
-      if (isAtDefault) {
-        const boatCoord = fromLonLat([pos.longitude.value, pos.latitude.value]);
-        view.setCenter(boatCoord);
-        hasAppliedDefaultFramingThisEntry.value = true;
-      }
-    }
-    
-    logger.info("Cached map initialized successfully");
-    return;
-  }
-
-  // No cached map, create new one
-  logger.debug("Creating new map instance");
 
   // Get position from state
   const state = stateStore.state;
@@ -3162,9 +3113,13 @@ const initializeMap = async () => {
   try {
     await initializeMapComposable({
       center: [centerLon, centerLat],
-      zoom: 15,
+      zoom: getResponsiveZoom(),
       isDarkMode: isDarkMode.value
     });
+
+    // Set map ready immediately after composable initialization
+    isMapRenderReadyFromComposable.value = true;
+    console.log("Map initialized and set as ready");
 
     // Get vector source from the provider and replace our vector source
     const provider = map.value?.__provider__;
@@ -3186,21 +3141,31 @@ const initializeMap = async () => {
     setupInteractions();
 
     // Setup map event listeners
-    mapOn('postrender', () => {
-      updateWindIndicatorScale();
-    });
+    if (map.value && typeof map.value.on === "function") {
+      map.value.on("loadcomplete", () => {
+        try {
+          logger.debug("Map load complete event fired");
+          updateWindIndicatorScale();
+        } catch (error) {
+          console.error("Error in map load complete:", error);
+        }
+      });
+    } else {
+      console.log("Map object not available for event listeners");
+    }
 
-    isMapRenderReadyFromComposable.value = true;
     hasAppliedDefaultFramingThisEntry.value = false;
     attachDefaultFramingListener();
+    
+    // Also set map ready after a short delay as backup
+    setTimeout(() => {
+      if (!isMapRenderReadyFromComposable.value) {
+        console.log("Backup: setting map ready");
+        isMapRenderReadyFromComposable.value = true;
+      }
+    }, 1000);
 
     logger.info("Map initialized successfully");
-    
-    // Cache the map for future use
-    cachedMap = map.value;
-    cachedMapElement = mapElement.value;
-    cachedProvider = map.value?.__provider__;
-    logger.info("Map cached for future use");
   } catch (error) {
     logger.error("Failed to initialize map:", error);
     throw error;
@@ -3260,8 +3225,17 @@ const initializeMap = async () => {
       
       boatFeature.setStyle(boatStyle);
 
-      // Add the boat feature to the vector source
-      vectorSource.addFeature(boatFeature);
+      // Add the boat feature to the vector source only if it doesn't already exist
+      const existingBoatFeature = vectorSource.getFeatures().find(
+        (feature) => feature.get("type") === FEATURE_TYPES.BOAT
+      );
+      
+      if (!existingBoatFeature) {
+        vectorSource.addFeature(boatFeature);
+        logger.debug("Added new boat feature");
+      } else {
+        logger.debug("Boat feature already exists, skipping add");
+      }
       
       // Initialize current boat position for animations
       const coord = fromLonLat([centerLon, centerLat]);
@@ -4987,134 +4961,6 @@ const formatDistance = (distance) => {
   return `${Math.round(converted)} ${unit}`;
 };
 
-const getVesselTypeLabel = (type) => {
-  if (!type) return 'Unknown';
-  const types = {
-    0: 'Not available',
-    1: 'Reserved',
-    2: 'WIG',
-    4: 'Hazardous category A',
-    5: 'Hazardous category B',
-    6: 'Hazardous category C',
-    7: 'Hazardous category D',
-    8: 'Reserved',
-    9: 'Reserved',
-    10: 'Reserved',
-    11: 'Reserved',
-    12: 'Reserved',
-    13: 'Reserved',
-    14: 'Reserved',
-    15: 'Reserved',
-    16: 'Reserved',
-    17: 'Reserved',
-    18: 'Reserved',
-    19: 'Reserved',
-    20: 'Wing in ground (WIG)',
-    21: 'Wing in ground (WIG)',
-    22: 'Wing in ground (WIG)',
-    23: 'Wing in ground (WIG)',
-    24: 'Wing in ground (WIG)',
-    25: 'Wing in ground (WIG)',
-    26: 'Wing in ground (WIG)',
-    27: 'Wing in ground (WIG)',
-    28: 'Wing in ground (WIG)',
-    29: 'SAR aircraft',
-    30: 'Fishing',
-    31: 'Towing',
-    32: 'Towing',
-    33: 'Dredging',
-    34: 'Diving ops',
-    35: 'Military ops',
-    36: 'Sailing',
-    37: 'Pleasure craft',
-    38: 'Reserved',
-    39: 'Reserved',
-    40: 'High speed craft',
-    41: 'High speed craft',
-    42: 'High speed craft',
-    43: 'High speed craft',
-    44: 'High speed craft',
-    45: 'High speed craft',
-    46: 'High speed craft',
-    47: 'High speed craft',
-    48: 'High speed craft',
-    49: 'High speed craft',
-    50: 'Pilot vessel',
-    51: 'SAR vessel',
-    52: 'Tug',
-    53: 'Port tender',
-    54: 'Anti-pollution',
-    55: 'Law enforcement',
-    56: 'Spare',
-    57: 'Spare',
-    58: 'Medical transport',
-    59: 'Noncombatant',
-    60: 'Passenger',
-    61: 'Passenger',
-    62: 'Passenger',
-    63: 'Passenger',
-    64: 'Passenger',
-    65: 'Passenger',
-    66: 'Passenger',
-    67: 'Passenger',
-    68: 'Passenger',
-    69: 'Passenger',
-    70: 'Cargo',
-    71: 'Cargo',
-    72: 'Cargo',
-    73: 'Cargo',
-    74: 'Cargo',
-    75: 'Cargo',
-    76: 'Cargo',
-    77: 'Cargo',
-    78: 'Cargo',
-    79: 'Cargo',
-    80: 'Tanker',
-    81: 'Tanker',
-    82: 'Tanker',
-    83: 'Tanker',
-    84: 'Tanker',
-    85: 'Tanker',
-    86: 'Tanker',
-    87: 'Tanker',
-    88: 'Tanker',
-    89: 'Tanker',
-    90: 'Other',
-    91: 'Other',
-    92: 'Other',
-    93: 'Other',
-    94: 'Other',
-    95: 'Other',
-    96: 'Other',
-    97: 'Other',
-    98: 'Other',
-    99: 'Other'
-  };
-  return types[type] || 'Unknown';
-};
-
-const getNavStatusLabel = (status) => {
-  if (status == null) return 'Unknown';
-  const statuses = {
-    0: 'Under way using engine',
-    1: 'At anchor',
-    2: 'Not under command',
-    3: 'Restricted maneuverability',
-    4: 'Constrained by her draught',
-    5: 'Moored',
-    6: 'Aground',
-    7: 'Engaged in fishing',
-    8: 'Under way sailing',
-    9: 'Reserved',
-    10: 'Reserved',
-    11: 'Reserved',
-    12: 'Reserved',
-    13: 'Reserved',
-    14: 'AIS-SART',
-    15: 'Not defined'
-  };
-  return statuses[status] || 'Unknown';
-};
 
 const handleWheelEvent = (event) => {
   logger.debug("Mouse wheel event", { deltaY: event.deltaY });
@@ -5146,6 +4992,20 @@ const handleWheelEvent = (event) => {
 };
 
 // Custom zoom functions
+
+// Get responsive zoom level based on device type
+const getResponsiveZoom = () => {
+  const width = window.innerWidth;
+  
+  if (width <= 768) {
+    return 16; // Phone
+  } else if (width <= 1024) {
+    return 14; // Tablet
+  } else {
+    return 12; // Desktop
+  }
+};
+
 const zoomIn = () => {
   logger.debug("Zooming in...");
   if (!map.value) return;
@@ -5253,59 +5113,188 @@ function deg2rad(deg) {
 let anchorStateLogInterval;
 let fenceGraphLogInterval;
 
-onMounted(() => {
-  console.log("onMounted started at:", Date.now());
-  logger.info("Component mounted, initializing map...");
+// Check if we have complete data for map initialization
+const isAnchorDataComplete = () => {
+  // Always need boat position
+  const boatLat = boatPosition.value?.latitude?.value;
+  const boatLon = boatPosition.value?.longitude?.value;
+  const hasBoatPos = boatLat && boatLon && typeof boatLat === "number" && typeof boatLon === "number";
   
-  // Check if we have a cached map - use it directly without going through composables
-  if (cachedMap && cachedMapElement && cachedProvider) {
-    console.log("Using cached map directly at:", Date.now());
-    map.value = cachedMap;
-    mapElement.value = cachedMapElement;
-    
-    // Minimal setup for cached map
-    isMapRenderReadyFromComposable.value = true;
-    hasAppliedDefaultFramingThisEntry.value = false;
-    
-    // Center immediately if position data is available
-    const pos = stateStore.state?.navigation?.position;
-    if (pos && pos.latitude?.value && pos.longitude?.value) {
-      const view = map.value.getView();
-      const currentCenter = view.getCenter();
-      
-      // Check if current center is close to (0,0) in lon/lat coordinates
-      const currentLonLat = toLonLat(currentCenter);
-      const isAtDefault = Math.abs(currentLonLat[0]) < 1 && Math.abs(currentLonLat[1]) < 1;
-      
-      if (isAtDefault) {
-        const boatCoord = fromLonLat([pos.longitude.value, pos.latitude.value]);
-        view.setCenter(boatCoord);
-        hasAppliedDefaultFramingThisEntry.value = true;
-      }
-    }
-    
-    console.log("Cached map setup complete at:", Date.now());
-    
-    // Add event listener for the anchor-dropped event
-    window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
-    logger.info("Cached map initialized and event listeners added");
-    return; // Skip initializeMap entirely
+  console.log('Data completeness check:', {
+    hasBoatPos,
+    boatLat,
+    boatLon,
+    anchorDeployed: anchorState.value?.anchorDeployed,
+    anchorTarget: getAnchorTargetCoord(),
+    criticalRange: anchorState.value?.criticalRange?.r,
+    rode: anchorState.value?.rode?.length
+  });
+  
+  if (!hasBoatPos) {
+    logger.debug('Data incomplete: missing boat position');
+    return false;
   }
   
-  console.log("Before initializeMap call at:", Date.now());
-  try {
-    initializeMap();
-    console.log("After initializeMap call at:", Date.now());
-    // Add event listener for the anchor-dropped event
-    window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
-    logger.info("Map initialized and event listeners added");
+  // If anchor is deployed, wait for ALL anchor data including rode
+  if (anchorState.value?.anchorDeployed === true) {
+    const hasAnchorPos = anchorState.value?.anchorLocation?.position;
+    const hasCriticalRange = anchorState.value?.criticalRange?.r;
+    const hasRode = anchorState.value?.rode?.length;
     
-    // Trigger auto-centering immediately if position data is available
+    // For anchor deployed, need boat, anchor, critical range, AND rode
+    // Boat and rode must appear at exactly the same time
+    const hasRequiredAnchorData = hasBoatPos && hasAnchorPos && hasCriticalRange && hasRode;
+    
+    if (!hasRequiredAnchorData) {
+      logger.debug('Anchor deployed but missing data, waiting');
+      return false;
+    }
+    
+    logger.debug('All anchor data available - ready to draw boat and rode together');
+    return true;
+  }
+  
+  // For not anchored, boat position is sufficient
+  logger.debug('Not anchored - boat position sufficient');
+  return true;
+};
+
+// Watch for complete data before initializing map
+const waitForDataAndInitialize = () => {
+  console.log("waitForDataAndInitialize called, checking data completeness");
+  if (isAnchorDataComplete()) {
+    console.log("Data complete, initializing map immediately");
+    initializeMap();
+    // Wait for map to be ready before drawing anything
+    const waitForMapReady = () => {
+      console.log("Checking map readiness, isMapRenderReadyFromComposable:", isMapRenderReadyFromComposable.value);
+      if (isMapRenderReadyFromComposable.value) {
+        console.log("Map ready, drawing features");
+        if (anchorState.value?.anchorDeployed) {
+          // Anchor deployed - apply framing and draw features
+          applyDefaultFramingOnEnter();
+          updateCriticalRangeCircle();
+          updateAnchorPoints();
+          updateBoatPosition();
+        } else {
+          // Not anchored - apply responsive zoom and draw boat
+          attachDefaultFramingListener();
+        }
+      } else {
+        // Map not ready yet, check again
+        console.log("Map not ready, waiting...");
+        setTimeout(waitForMapReady, 50);
+      }
+    };
+    waitForMapReady();
+    return;
+  }
+  
+  // Set up watcher to wait for complete data
+  console.log("Data incomplete, setting up watcher");
+  const unwatch = watch(
+    [
+      () => boatPosition.value?.latitude?.value,
+      () => boatPosition.value?.longitude?.value,
+      () => anchorState.value?.anchorDeployed,
+      () => anchorState.value?.anchorLocation?.position?.latitude?.value,
+      () => anchorState.value?.anchorLocation?.position?.longitude?.value,
+      () => anchorState.value?.criticalRange?.r,
+      () => anchorState.value?.rode?.length
+    ],
+    () => {
+      console.log("Watcher triggered, checking data completeness");
+      if (isAnchorDataComplete()) {
+        console.log("Data now complete, initializing map");
+        unwatch(); // Stop watching
+        initializeMap();
+        // Wait for map to be ready before drawing anything
+        const waitForMapReady = () => {
+          console.log("Checking map readiness, isMapRenderReadyFromComposable:", isMapRenderReadyFromComposable.value);
+          if (isMapRenderReadyFromComposable.value) {
+            console.log("Map ready, drawing features");
+            if (anchorState.value?.anchorDeployed) {
+              // Anchor deployed - apply framing and draw features
+              applyDefaultFramingOnEnter();
+              updateCriticalRangeCircle();
+              updateAnchorPoints();
+              updateBoatPosition();
+            } else {
+              // Not anchored - apply responsive zoom and draw boat
+              attachDefaultFramingListener();
+            }
+          } else {
+            // Map not ready yet, check again
+            console.log("Map not ready, waiting...");
+            setTimeout(waitForMapReady, 50);
+          }
+        };
+        waitForMapReady();
+      }
+    },
+    { immediate: true }
+  );
+  
+  // Fallback: initialize map after 3 seconds even if rode data is missing
+  setTimeout(() => {
+    if (unwatch && !isMapRenderReadyFromComposable.value) {
+      console.log("Fallback: initializing map without rode data");
+      unwatch(); // Stop watching
+      try {
+        initializeMap();
+        console.log("Map initialization completed in fallback");
+      } catch (error) {
+        console.error("Map initialization failed in fallback:", error);
+        return;
+      }
+      // Wait for map to be ready before drawing anything
+      const waitForMapReady = () => {
+        console.log("Checking map readiness, isMapRenderReadyFromComposable:", isMapRenderReadyFromComposable.value);
+        if (isMapRenderReadyFromComposable.value) {
+          console.log("Map ready, drawing features");
+          if (anchorState.value?.anchorDeployed) {
+            // Anchor deployed - apply framing and draw features
+            applyDefaultFramingOnEnter();
+            updateCriticalRangeCircle();
+            updateAnchorPoints();
+            updateBoatPosition();
+          } else {
+            // Not anchored - apply responsive zoom and draw boat
+            attachDefaultFramingListener();
+          }
+        } else {
+          // Map not ready yet, check again
+          console.log("Map not ready, waiting...");
+          setTimeout(waitForMapReady, 50);
+        }
+      };
+      waitForMapReady();
+    }
+  }, 3000);
+};
+
+onMounted(() => {
+  logger.info("Component mounted, initializing map...");
+  
+  try {
+    // Just initialize the map immediately - no waiting for data
+    initializeMap();
+    
+    // Draw features after a short delay
     setTimeout(() => {
-      if (!hasAppliedDefaultFramingThisEntry.value) {
+      if (anchorState.value?.anchorDeployed) {
+        applyDefaultFramingOnEnter();
+        updateCriticalRangeCircle();
+        updateAnchorPoints();
+        updateBoatPosition();
+      } else {
         attachDefaultFramingListener();
       }
-    }, 100); // Small delay to ensure map is ready
+    }, 500);
+    
+    // Add event listener for the anchor-dropped event
+    window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
+    logger.info("Data waiting setup complete and event listeners added");
     
     // Start fade timer for FAB buttons
     resetFadeTimer();
@@ -5335,7 +5324,6 @@ onUnmounted(() => {
     clearInterval(fenceGraphLogInterval);
   }
   clearAll();
-  map.value?.dispose();
   window.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
   document.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
   

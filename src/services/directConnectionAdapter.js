@@ -377,16 +377,12 @@ class DirectConnectionAdapter {
         if (msg.type === "state:full-update") {
           const dataKeys = msg.data && typeof msg.data === "object" ? Object.keys(msg.data) : [];
           const dataSize = JSON.stringify(msg.data).length;
-          console.log("[DIRECT-ADAPTER] Received state:full-update", {
-            dataKeys,
-            dataSize,
-            timestamp: msg.timestamp,
-          });
-          logger.info("[DIRECT-ADAPTER] Received state:full-update", {
-            dataKeys,
-            dataSize,
-            timestamp: msg.timestamp,
-          });
+          // console.log("[DIRECT-ADAPTER] Received state:full-update", {
+          //   dataKeys,
+          //   dataSize,
+          //   timestamp: msg.timestamp,
+          // });
+          logger.info("[DIRECT-ADAPTER] Received state:full-update", msg.data);
         } else if (msg.type === "state:patch") {
           // Patches received but no wind data in them
         }

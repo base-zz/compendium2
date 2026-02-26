@@ -26,6 +26,20 @@ export default class OpenStreetMapProvider {
     this.map = null;
     this.vectorSource = new VectorSource();
     this.interactions = {};
+    
+    // Preload both tile sources for instant switching
+    this.lightTileSource = new OSM({ 
+      attributions: null,
+      preload: Infinity,
+      transition: 0 // No transition for instant switching
+    });
+    
+    this.darkTileSource = new XYZ({
+      url: 'https://{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      attributions: null,
+      preload: Infinity,
+      transition: 0 // No transition for instant switching
+    });
   }
 
   /**
@@ -34,6 +48,22 @@ export default class OpenStreetMapProvider {
   async initialize({ element, isDarkMode = false, center = [0, 0], zoom = 15 }) {
     logger.info('Initializing OpenStreetMap with OpenLayers');
 
+    if (this.map) {
+      if (element && this.map.getTarget() !== element) {
+        this.map.setTarget(element);
+        this.map.updateSize();
+      }
+
+      if (element) {
+        element.__ol_map__ = this.map;
+      }
+      window.__anchorMap = this.map;
+      this.map.__provider__ = this;
+
+      logger.info('Reusing existing OpenStreetMap instance');
+      return this.map;
+    }
+
     const defaultCenter = fromLonLat(center);
     
     // Create the map with minimal interactions initially
@@ -41,18 +71,7 @@ export default class OpenStreetMapProvider {
       target: element,
       layers: [
         new TileLayer({ 
-          source: isDarkMode 
-            ? new XYZ({
-                url: 'https://{a-d}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-                attributions: null,
-                preload: Infinity, // Preload all zoom levels for smooth zooming
-                transition: 250 // Smooth transition between tiles
-              })
-            : new OSM({ 
-                attributions: null,
-                preload: Infinity, // Preload all zoom levels for smooth zooming
-                transition: 250 // Smooth transition between tiles
-              })
+          source: isDarkMode ? this.darkTileSource : this.lightTileSource
         }),
         new VectorLayer({ source: this.vectorSource, zIndex: 5 }),
       ],
@@ -90,6 +109,20 @@ export default class OpenStreetMapProvider {
 
     logger.info('OpenStreetMap initialized successfully');
     return this.map;
+  }
+
+  /**
+   * Update the map tile source based on dark mode
+   */
+  updateTileSource(isDarkMode = false) {
+    if (!this.map) return;
+    
+    const tileLayer = this.map.getLayers().getArray()[0]; // First layer is the tile layer
+    if (!tileLayer) return;
+    
+    // Use preloaded sources for instant switching
+    const newSource = isDarkMode ? this.darkTileSource : this.lightTileSource;
+    tileLayer.setSource(newSource);
   }
 
   /**
@@ -283,11 +316,20 @@ export default class OpenStreetMapProvider {
   }
 
   /**
+   * Detach map from DOM target without destroying state
+   */
+  detach() {
+    if (!this.map) return;
+    this.map.setTarget(null);
+  }
+
+  /**
    * Destroy map
    */
   destroy() {
-    if (this.map) {
-      this.map.setTarget(null);
+    const mapRef = this.map;
+    if (mapRef) {
+      mapRef.setTarget(null);
       this.map = null;
     }
     if (this.vectorSource) {
@@ -295,7 +337,7 @@ export default class OpenStreetMapProvider {
     }
     
     // Clean up global references
-    if (window.__anchorMap === this.map) {
+    if (window.__anchorMap === mapRef) {
       window.__anchorMap = null;
     }
     

@@ -2,16 +2,18 @@ import { ref, computed, onUnmounted } from 'vue';
 import { createLogger } from '@/services/logger';
 
 const logger = createLogger('useMapManagement');
+const sharedProviders = new Map();
 
 /**
  * Map Management Composable
  * Provides provider-agnostic map interface
  */
-export function useMapManagement(provider = 'openstreetmap', isDarkModeRef = null) {
+export function useMapManagement(provider = 'openstreetmap', isDarkModeRef = null, options = {}) {
   const map = ref(null);
   const mapElement = ref(null);
   const isMapRenderReady = ref(false);
   const isDarkMode = computed(() => isDarkModeRef?.value || false);
+  const destroyOnUnmount = options?.destroyOnUnmount ?? true;
 
   // Provider-specific implementations
   const providers = {
@@ -27,9 +29,13 @@ export function useMapManagement(provider = 'openstreetmap', isDarkModeRef = nul
     try {
       logger.info(`Initializing map with provider: ${provider}`);
       
-      // Load provider
-      const providerModule = await providers[provider]();
-      mapProvider = new providerModule.default();
+      // Reuse provider instance when available
+      mapProvider = sharedProviders.get(provider);
+      if (!mapProvider) {
+        const providerModule = await providers[provider]();
+        mapProvider = new providerModule.default();
+        sharedProviders.set(provider, mapProvider);
+      }
       
       // Initialize with provider
       map.value = await mapProvider.initialize({
@@ -158,15 +164,28 @@ export function useMapManagement(provider = 'openstreetmap', isDarkModeRef = nul
   const destroy = () => {
     if (mapProvider) {
       mapProvider.destroy();
+      sharedProviders.delete(provider);
       mapProvider = null;
     }
     map.value = null;
+    mapElement.value = null;
     isMapRenderReady.value = false;
   };
 
   // Cleanup on unmount
   onUnmounted(() => {
-    destroy();
+    if (destroyOnUnmount) {
+      destroy();
+      return;
+    }
+
+    if (mapProvider && typeof mapProvider.detach === 'function') {
+      mapProvider.detach();
+    }
+
+    map.value = null;
+    mapElement.value = null;
+    isMapRenderReady.value = false;
   });
 
   return {
