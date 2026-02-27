@@ -77,31 +77,16 @@ const props = defineProps({
 
 const stateStore = useStateDataStore();
 
-// Computed properties - use apparent wind data (true wind doesn't have direction)
+// Computed properties - use apparent wind speed, true wind direction (same as AnchorView)
 const windSpeed = computed(() => stateStore.state?.navigation?.wind?.apparent?.speed?.value);
 const windUnits = computed(() => stateStore.state?.navigation?.wind?.apparent?.speed?.units ?? 'kts');
 
-// Get apparent wind angle (relative to boat) - check degrees first (set by angle conversion), then value
-const apparentWindAngle = computed(() => stateStore.state?.navigation?.wind?.apparent?.angle?.degrees
-  ?? stateStore.state?.navigation?.wind?.apparent?.angle?.value
-  ?? stateStore.state?.navigation?.wind?.apparent?.direction?.degrees
-  ?? stateStore.state?.navigation?.wind?.apparent?.direction?.value);
-
-// Get boat heading (true heading) - check degrees first (set by angle conversion), then value
-const boatHeading = computed(() => stateStore.state?.navigation?.course?.heading?.true?.degrees
-  ?? stateStore.state?.navigation?.course?.heading?.true?.value);
-
-// Convert apparent wind to North-up reference (true compass wind direction)
+// Use True Wind Direction (TWD) - already North-up reference, not relative to boat
+// Same logic as getTrueWindDirectionDegrees() in AnchorView.vue
 const windAngle = computed(() => {
-  if (typeof apparentWindAngle.value !== 'number') {
-    return undefined;
-  }
-  const heading = typeof boatHeading.value === 'number' ? boatHeading.value : 0;
-  let northUpAngle = apparentWindAngle.value + heading;
-  // Normalize to 0-360
-  northUpAngle = northUpAngle % 360;
-  if (northUpAngle < 0) northUpAngle += 360;
-  return northUpAngle;
+  const windDirection = stateStore.state?.navigation?.wind?.true?.direction;
+  const raw = windDirection?.degrees ?? windDirection?.value ?? windDirection;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 });
 
 // Missing properties that template uses
@@ -240,7 +225,6 @@ function getMarkerPoint(degrees, r) {
 }
 
 .arrow {
-  fill: #ffffff;
   stroke: rgba(0, 0, 0, 0.5);
   stroke-width: 1.5;
 }
