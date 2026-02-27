@@ -689,6 +689,9 @@ const updateFenceFeatures = () => {
 
     const mapCoord = fromLonLat(lonLat);
     const labelText = fence.name || "Fence";
+    const distanceText = fence.currentDistance != null 
+      ? `${Math.round(fence.currentDistance)}${fence.units === "ft" ? "ft" : "m"}`
+      : "--";
 
     const marker = new Feature({ geometry: new Point(mapCoord) });
     marker.set("type", FEATURE_TYPES.FENCE_TARGET);
@@ -710,6 +713,23 @@ const updateFenceFeatures = () => {
       })
     );
     vectorSource.addFeature(marker);
+
+    // Add distance text as separate feature below the point
+    const distanceMarker = new Feature({ geometry: new Point(mapCoord) });
+    distanceMarker.set("type", FEATURE_TYPES.FENCE_TARGET);
+    distanceMarker.setStyle(
+      new Style({
+        text: new Text({
+          text: distanceText,
+          font: "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+          fill: new Fill({ color: "#f9fafb" }),
+          stroke: new Stroke({ color: "rgba(17,24,39,0.8)", width: 3 }),
+          offsetY: 14,
+        }),
+        zIndex: 140,
+      })
+    );
+    vectorSource.addFeature(distanceMarker);
 
     const rangeValue = Number(fence.alertRange);
     if (!Number.isFinite(rangeValue) || rangeValue <= 0) {
