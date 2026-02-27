@@ -129,6 +129,16 @@ export const WIDGET_DATA_SOURCES = [
     description: "True wind speed and angle",
     defaultUnits: "kts",
   },
+  {
+    id: "windCompassTrue",
+    type: "windcompassarrow",
+    category: "Wind",
+    statePath: ["navigation", "wind", "true"],
+    label: "TWC",
+    displayLabel: "True Wind Compass",
+    description: "True wind direction compass (North up)",
+    defaultUnits: "kts",
+  },
 
   // Course data
   {
@@ -488,7 +498,7 @@ export function getDataFromState(state, dataSourceId) {
     return null;
   }
 
-  if (dataSource.type === "windspeed") {
+  if (dataSource.type === "windspeed" || dataSource.type === "windcompassarrow" || dataSource.type === "windcompassrotating") {
     const speed = data && typeof data === "object" ? data.speed : undefined;
     const angle = data && typeof data === "object" ? data.angle : undefined;
     const direction = data && typeof data === "object" ? data.direction : undefined;
