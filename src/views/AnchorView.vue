@@ -3688,12 +3688,14 @@ const recommendedScope = computed(() => {
           }
 
           const level = (() => {
-            if (isMetric.value) {
-              if (seaLevelUnit === "ft") return rawLevel / 3.28084;
-              return rawLevel;
-            }
-            if (seaLevelUnit === "m") return rawLevel * 3.28084;
-            return rawLevel;
+            // ALWAYS WORK IN METERS INTERNALLY - CRITICAL UNIT HANDLING RULE:
+            // All calculations must be done in meters to avoid unit conversion errors.
+            // Only convert to user units (feet/meters) at the very end for display.
+            // This prevents double conversions and ensures consistency across all measurements.
+            // CRITICAL: Always check source data units before conversion!
+            // seaLevelUnit tells us the units of the raw tide data
+            if (seaLevelUnit === "ft") return rawLevel / 3.28084;
+            return rawLevel; // Assume meters if not feet
           })();
 
           if (level > maxFutureLevel) {
@@ -3718,6 +3720,10 @@ const recommendedScope = computed(() => {
     }
 
     // Convert depth to meters if it's in feet (assuming the raw depth is in feet if using imperial)
+    // CRITICAL UNIT HANDLING RULE: All internal calculations must use meters
+    // CRITICAL: Always check source data units before conversion!
+    // reportedDepth comes from navigation.depth.belowTransducer - check its units
+    // bowRollerToWaterPayload.units tells us the units of bow roller measurement
     const depthInMeters = isMetric.value ? reportedDepth : reportedDepth / 3.28084;
 
     const bowRollerToWaterMeters =
@@ -3725,7 +3731,8 @@ const recommendedScope = computed(() => {
         ? bowRollerToWaterPayload.value / 3.28084
         : bowRollerToWaterPayload.value;
 
-    // Calculate depth increase from current level to max future level
+    // Calculate depth increase from current level to max future level (both in meters)
+    // CRITICAL UNIT HANDLING RULE: Both maxFutureLevel and currentLevel are in meters
     // If we couldn't determine current water level, use the first available data point
     const referenceLevel = currentLevel !== null ? currentLevel : seaLevels[0] || 0;
     const depthIncreaseMeters =
@@ -3734,7 +3741,9 @@ const recommendedScope = computed(() => {
 
     // Depth increase calculation details are no longer logged to console
 
-    // Convert to feet if using imperial units
+    // Convert to feet if using imperial units - ONLY CONVERT AT THE END FOR DISPLAY
+    // CRITICAL UNIT HANDLING RULE: Apply unit conversion only once at the very end
+    // CRITICAL: Always verify source units before applying conversions!
     const unitMultiplier = isMetric.value ? 1 : 3.28084;
     const unit = isMetric.value ? "m" : "ft";
 
@@ -4596,7 +4605,7 @@ const handleMapClick = (event) => {
   }
 
   // Get features at the click position
-  const clickedFeatures = map.value.getFeaturesAtPixel(event.pixel);
+  const clickedFeatures = map.value?.getFeaturesAtPixel?.(event.pixel);
 
   if (clickedFeatures && clickedFeatures.length > 0) {
     // Check if any of the features is an AIS target

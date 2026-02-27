@@ -478,9 +478,6 @@ export function getDataFromState(state, dataSourceId) {
 
     // Check if the property exists before accessing it
     if (!(part in data)) {
-      if (dataSource.type === "battery") {
-        console.log(`  - ERROR: '${part}' not found in data at step ${i}`);
-      }
       return null;
     }
 

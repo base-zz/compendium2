@@ -173,34 +173,6 @@ const resolvedComponent = computed(() => {
   
   const component = componentMap[widgetType];
 
-  
-  // Log widget data when the component is a tank
-  if (widgetType === 'tank') {
-
-
-    
-    // Get the data source configuration
-    const dataSource = getDataSourceById(props.widget.dataSource);
-
-    
-    // Log the state path we're trying to access
-    if (dataSource && dataSource.statePath) {
-
-      
-      // Log each level of the state path to find where it's breaking
-      let data = navigationState.value;
-
-      
-      for (const part of dataSource.statePath) {
-
-        data = data && typeof data === 'object' ? data[part] : undefined;
-
-      }
-    }
-    
-
-  }
-  
   return component || null;
 });
 
@@ -282,8 +254,7 @@ const widgetData = computed(() => {
 
   // Get data from the state using the data source configuration
   const stateData = getDataFromState(fullState.value, data.dataSource) || {};
-  
-  // Log detailed information about the data for tank widgets
+
   if (data.type === 'clock') {
     return {
       ...data,
