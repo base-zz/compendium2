@@ -629,6 +629,8 @@ const updateFenceFeatures = () => {
   clearFeature(FEATURE_TYPES.FENCE_RANGE);
   clearFeature(FEATURE_TYPES.FENCE_LINK);
 
+  const isDark = isDarkMode.value === true;
+
   const fences = anchorState.value?.fences;
   if (!Array.isArray(fences) || fences.length === 0) {
     return;
@@ -653,19 +655,35 @@ const updateFenceFeatures = () => {
           fromLonLat(referenceLonLat),
           fromLonLat(lonLat),
         ]);
-        const lineFeature = new Feature({ geometry: lineGeometry });
-        lineFeature.set("type", FEATURE_TYPES.FENCE_LINK);
-        lineFeature.setStyle(
-          new Style({
-            stroke: new Stroke({
-              color: "rgba(250, 204, 21, 0.22)",
-              width: 2,
-              lineDash: [8, 8],
-            }),
-            zIndex: 118,
-          })
-        );
-        vectorSource.addFeature(lineFeature);
+        if (isDark) {
+          const lineFeature = new Feature({ geometry: lineGeometry });
+          lineFeature.set("type", FEATURE_TYPES.FENCE_LINK);
+          lineFeature.setStyle(
+            new Style({
+              stroke: new Stroke({
+                color: "rgba(250, 204, 21, 0.22)",
+                width: 2,
+                lineDash: [8, 8],
+              }),
+              zIndex: 118,
+            })
+          );
+          vectorSource.addFeature(lineFeature);
+        } else {
+          const lineFeatureLM = new Feature({ geometry: lineGeometry });
+          lineFeatureLM.set("type", FEATURE_TYPES.FENCE_LINK);
+          lineFeatureLM.setStyle(
+            new Style({
+              stroke: new Stroke({
+                color: "#D97706",
+                width: 2.5,
+                lineDash: [10, 6],
+              }),
+              zIndex: 118,
+            })
+          );
+          vectorSource.addFeature(lineFeatureLM);
+        }
       }
     }
 
@@ -705,11 +723,11 @@ const updateFenceFeatures = () => {
     rangeFeature.setStyle(
       new Style({
         stroke: new Stroke({
-          color: "rgba(250, 204, 21, 0.65)",
+          color: isDark ? "rgba(250, 204, 21, 0.65)" : "#D97706",
           width: 2,
         }),
         fill: new Fill({
-          color: "rgba(250, 204, 21, 0.12)",
+          color: isDark ? "rgba(250, 204, 21, 0.12)" : "rgba(255, 255, 255, 0.25)",
         }),
         zIndex: 120,
       })
@@ -2496,7 +2514,33 @@ const updateCriticalRangeCircle = debounce(() => {
   const hasCriticalRangeAlert = activeAlerts.some(
     (alert) => alert?.trigger === "critical_range" && alert?.status !== "resolved"
   );
-  const rangeStyle = hasCriticalRangeAlert ? STYLES.CRITICAL_RANGE : STYLES.NORMAL_RANGE;
+  const lightModeCriticalStyle = new Style({
+    stroke: new Stroke({
+      color: "#DC2626",
+      width: 3,
+    }),
+    fill: new Fill({
+      color: "rgba(255, 255, 255, 0.35)",
+    }),
+  });
+
+  const lightModeNormalStyle = new Style({
+    stroke: new Stroke({
+      color: "#15803D",
+      width: 2.5,
+    }),
+    fill: new Fill({
+      color: "rgba(255, 255, 255, 0.30)",
+    }),
+  });
+
+  const rangeStyle = isDarkMode.value
+    ? hasCriticalRangeAlert
+      ? STYLES.CRITICAL_RANGE
+      : STYLES.NORMAL_RANGE
+    : hasCriticalRangeAlert
+      ? lightModeCriticalStyle
+      : lightModeNormalStyle;
   
   updateFeature(FEATURE_TYPES.CIRCLE, circleGeometry, rangeStyle);
   
@@ -3171,82 +3215,7 @@ const initializeMap = async () => {
     throw error;
   }
 
-  // Add boat feature immediately if we have valid position
-  if (hasValidPosition) {
-    logger.debug("Adding initial boat feature");
-    try {
-      // Create a boat feature with the current position
-      const point = new Point(fromLonLat([centerLon, centerLat]));
-      const boatStyle = typeof STYLES.BOAT?.clone === "function" ? STYLES.BOAT.clone() : STYLES.BOAT;
-      
-      // Create the boat feature
-      const boatFeature = new Feature({
-        geometry: point,
-        name: "Boat",
-        type: FEATURE_TYPES.BOAT,
-      });
-      
-      try {
-        const img = boatStyle?.getImage?.();
-        if (img && typeof img.setRotation === "function") {
-          const iconOffset = -Math.PI / 4 + Math.PI; // Same as in updateBoatPosition
-          
-          // Check if anchor is deployed for initial rotation
-          const isAnchorDeployed = anchor?.anchorDeployed === true;
-          
-          if (isAnchorDeployed) {
-            const anchorPos = anchor?.anchorLocation?.position;
-            if (anchorPos) {
-              const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
-              const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
-              if (typeof anchorLat === "number" && typeof anchorLon === "number") {
-                const dLon = anchorLon - centerLon;
-                const dLat = anchorLat - centerLat;
-                const angleToAnchor = Math.atan2(dLon, dLat);
-                img.setRotation(angleToAnchor + iconOffset + Math.PI);
-              }
-            }
-          } else {
-            // Use heading/COG if available
-            const headingTrueDeg = pos?.course?.heading?.true?.value;
-            const cogDeg = pos?.course?.cog?.value;
-            const angleDeg = typeof headingTrueDeg === "number" ? headingTrueDeg 
-              : typeof cogDeg === "number" ? cogDeg : null;
-            
-            if (typeof angleDeg === "number" && Number.isFinite(angleDeg)) {
-              const headingRad = (angleDeg * Math.PI) / 180;
-              img.setRotation(headingRad + iconOffset + Math.PI);
-            }
-          }
-        }
-      } catch (e) {
-        // If rotation fails, continue without rotation
-      }
-      
-      boatFeature.setStyle(boatStyle);
-
-      // Add the boat feature to the vector source only if it doesn't already exist
-      const existingBoatFeature = vectorSource.getFeatures().find(
-        (feature) => feature.get("type") === FEATURE_TYPES.BOAT
-      );
-      
-      if (!existingBoatFeature) {
-        vectorSource.addFeature(boatFeature);
-        logger.debug("Added new boat feature");
-      } else {
-        logger.debug("Boat feature already exists, skipping add");
-      }
-      
-      // Initialize current boat position for animations
-      const coord = fromLonLat([centerLon, centerLat]);
-      currentBoatPosition = { lat: centerLat, lon: centerLon, x: coord[0], y: coord[1] };
-
-      logger.debug("Boat feature added successfully with rotation");
-    } catch (error) {
-      console.error("Error adding boat feature:", error);
-      logger.error("Error adding boat feature", { error: error.message || error });
-    }
-  }
+  // Do not draw boat here. Initial feature rendering is coordinated after map + data readiness.
 
   // Set willReadFrequently attribute on the canvas for better performance
   // We need to wait for the map to be properly rendered before accessing the canvas
@@ -5112,185 +5081,93 @@ function deg2rad(deg) {
 // Lifecycle hooks
 let anchorStateLogInterval;
 let fenceGraphLogInterval;
+let stopInitialFeatureWatcher = null;
+let hasDrawnInitialFeatures = false;
 
-// Check if we have complete data for map initialization
-const isAnchorDataComplete = () => {
-  // Always need boat position
+const hasBoatPosition = () => {
   const boatLat = boatPosition.value?.latitude?.value;
   const boatLon = boatPosition.value?.longitude?.value;
-  const hasBoatPos = boatLat && boatLon && typeof boatLat === "number" && typeof boatLon === "number";
-  
-  console.log('Data completeness check:', {
-    hasBoatPos,
-    boatLat,
-    boatLon,
-    anchorDeployed: anchorState.value?.anchorDeployed,
-    anchorTarget: getAnchorTargetCoord(),
-    criticalRange: anchorState.value?.criticalRange?.r,
-    rode: anchorState.value?.rode?.length
-  });
-  
-  if (!hasBoatPos) {
-    logger.debug('Data incomplete: missing boat position');
-    return false;
-  }
-  
-  // If anchor is deployed, wait for ALL anchor data including rode
-  if (anchorState.value?.anchorDeployed === true) {
-    const hasAnchorPos = anchorState.value?.anchorLocation?.position;
-    const hasCriticalRange = anchorState.value?.criticalRange?.r;
-    const hasRode = anchorState.value?.rode?.length;
-    
-    // For anchor deployed, need boat, anchor, critical range, AND rode
-    // Boat and rode must appear at exactly the same time
-    const hasRequiredAnchorData = hasBoatPos && hasAnchorPos && hasCriticalRange && hasRode;
-    
-    if (!hasRequiredAnchorData) {
-      logger.debug('Anchor deployed but missing data, waiting');
-      return false;
-    }
-    
-    logger.debug('All anchor data available - ready to draw boat and rode together');
-    return true;
-  }
-  
-  // For not anchored, boat position is sufficient
-  logger.debug('Not anchored - boat position sufficient');
-  return true;
+  return typeof boatLat === "number" && typeof boatLon === "number";
 };
 
-// Watch for complete data before initializing map
-const waitForDataAndInitialize = () => {
-  console.log("waitForDataAndInitialize called, checking data completeness");
-  if (isAnchorDataComplete()) {
-    console.log("Data complete, initializing map immediately");
-    initializeMap();
-    // Wait for map to be ready before drawing anything
-    const waitForMapReady = () => {
-      console.log("Checking map readiness, isMapRenderReadyFromComposable:", isMapRenderReadyFromComposable.value);
-      if (isMapRenderReadyFromComposable.value) {
-        console.log("Map ready, drawing features");
-        if (anchorState.value?.anchorDeployed) {
-          // Anchor deployed - apply framing and draw features
-          applyDefaultFramingOnEnter();
-          updateCriticalRangeCircle();
-          updateAnchorPoints();
-          updateBoatPosition();
-        } else {
-          // Not anchored - apply responsive zoom and draw boat
-          attachDefaultFramingListener();
-        }
-      } else {
-        // Map not ready yet, check again
-        console.log("Map not ready, waiting...");
-        setTimeout(waitForMapReady, 50);
-      }
-    };
-    waitForMapReady();
+const hasAnchoredFeatureData = () => {
+  if (!hasBoatPosition()) return false;
+  if (anchorState.value?.anchorDeployed !== true) return false;
+
+  const anchorPos = anchorState.value?.anchorLocation?.position;
+  const anchorLat = anchorPos?.latitude?.value ?? anchorPos?.latitude;
+  const anchorLon = anchorPos?.longitude?.value ?? anchorPos?.longitude;
+  const criticalRange = anchorState.value?.criticalRange?.r;
+  const rodeLength = anchorState.value?.rode?.length;
+
+  return (
+    typeof anchorLat === "number" &&
+    typeof anchorLon === "number" &&
+    typeof criticalRange === "number" &&
+    typeof rodeLength === "number"
+  );
+};
+
+const drawInitialFeaturesIfReady = () => {
+  if (hasDrawnInitialFeatures) return;
+  if (!isMapRenderReadyFromComposable.value) return;
+
+  if (anchorState.value?.anchorDeployed === true) {
+    if (!hasAnchoredFeatureData()) return;
+
+    logger.debug("Initial draw: anchored data ready, drawing boat+rode together");
+    applyDefaultFramingOnEnter();
+    updateAnchorPoints();
+    updateCriticalRangeCircle();
+    updateRodeLine();
+    updateBoatPosition();
+    hasDrawnInitialFeatures = true;
     return;
   }
-  
-  // Set up watcher to wait for complete data
-  console.log("Data incomplete, setting up watcher");
-  const unwatch = watch(
+
+  if (!hasBoatPosition()) return;
+
+  logger.debug("Initial draw: not anchored, drawing boat");
+  attachDefaultFramingListener();
+  updateBoatPosition();
+  hasDrawnInitialFeatures = true;
+};
+
+const startInitialFeatureWatcher = () => {
+  if (stopInitialFeatureWatcher) {
+    stopInitialFeatureWatcher();
+    stopInitialFeatureWatcher = null;
+  }
+
+  stopInitialFeatureWatcher = watch(
     [
+      () => isMapRenderReadyFromComposable.value,
       () => boatPosition.value?.latitude?.value,
       () => boatPosition.value?.longitude?.value,
       () => anchorState.value?.anchorDeployed,
       () => anchorState.value?.anchorLocation?.position?.latitude?.value,
       () => anchorState.value?.anchorLocation?.position?.longitude?.value,
       () => anchorState.value?.criticalRange?.r,
-      () => anchorState.value?.rode?.length
+      () => anchorState.value?.rode?.length,
     ],
     () => {
-      console.log("Watcher triggered, checking data completeness");
-      if (isAnchorDataComplete()) {
-        console.log("Data now complete, initializing map");
-        unwatch(); // Stop watching
-        initializeMap();
-        // Wait for map to be ready before drawing anything
-        const waitForMapReady = () => {
-          console.log("Checking map readiness, isMapRenderReadyFromComposable:", isMapRenderReadyFromComposable.value);
-          if (isMapRenderReadyFromComposable.value) {
-            console.log("Map ready, drawing features");
-            if (anchorState.value?.anchorDeployed) {
-              // Anchor deployed - apply framing and draw features
-              applyDefaultFramingOnEnter();
-              updateCriticalRangeCircle();
-              updateAnchorPoints();
-              updateBoatPosition();
-            } else {
-              // Not anchored - apply responsive zoom and draw boat
-              attachDefaultFramingListener();
-            }
-          } else {
-            // Map not ready yet, check again
-            console.log("Map not ready, waiting...");
-            setTimeout(waitForMapReady, 50);
-          }
-        };
-        waitForMapReady();
+      drawInitialFeaturesIfReady();
+      if (hasDrawnInitialFeatures && stopInitialFeatureWatcher) {
+        stopInitialFeatureWatcher();
+        stopInitialFeatureWatcher = null;
       }
     },
     { immediate: true }
   );
-  
-  // Fallback: initialize map after 3 seconds even if rode data is missing
-  setTimeout(() => {
-    if (unwatch && !isMapRenderReadyFromComposable.value) {
-      console.log("Fallback: initializing map without rode data");
-      unwatch(); // Stop watching
-      try {
-        initializeMap();
-        console.log("Map initialization completed in fallback");
-      } catch (error) {
-        console.error("Map initialization failed in fallback:", error);
-        return;
-      }
-      // Wait for map to be ready before drawing anything
-      const waitForMapReady = () => {
-        console.log("Checking map readiness, isMapRenderReadyFromComposable:", isMapRenderReadyFromComposable.value);
-        if (isMapRenderReadyFromComposable.value) {
-          console.log("Map ready, drawing features");
-          if (anchorState.value?.anchorDeployed) {
-            // Anchor deployed - apply framing and draw features
-            applyDefaultFramingOnEnter();
-            updateCriticalRangeCircle();
-            updateAnchorPoints();
-            updateBoatPosition();
-          } else {
-            // Not anchored - apply responsive zoom and draw boat
-            attachDefaultFramingListener();
-          }
-        } else {
-          // Map not ready yet, check again
-          console.log("Map not ready, waiting...");
-          setTimeout(waitForMapReady, 50);
-        }
-      };
-      waitForMapReady();
-    }
-  }, 3000);
 };
 
-onMounted(() => {
+onMounted(async () => {
   logger.info("Component mounted, initializing map...");
   
   try {
-    // Just initialize the map immediately - no waiting for data
-    initializeMap();
-    
-    // Draw features after a short delay
-    setTimeout(() => {
-      if (anchorState.value?.anchorDeployed) {
-        applyDefaultFramingOnEnter();
-        updateCriticalRangeCircle();
-        updateAnchorPoints();
-        updateBoatPosition();
-      } else {
-        attachDefaultFramingListener();
-      }
-    }, 500);
+    hasDrawnInitialFeatures = false;
+    await initializeMap();
+    startInitialFeatureWatcher();
     
     // Add event listener for the anchor-dropped event
     window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
@@ -5322,6 +5199,10 @@ onUnmounted(() => {
   }
   if (fenceGraphLogInterval) {
     clearInterval(fenceGraphLogInterval);
+  }
+  if (stopInitialFeatureWatcher) {
+    stopInitialFeatureWatcher();
+    stopInitialFeatureWatcher = null;
   }
   clearAll();
   window.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
