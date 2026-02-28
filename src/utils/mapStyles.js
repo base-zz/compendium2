@@ -8,8 +8,8 @@ export const getWindIconSrc = (speedValue, isDarkMode = false) => {
   const windColor = isDarkMode ? '#FFFFFF' : '#007BFF';
   const textColor = isDarkMode ? '#000000' : 'white';
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='68' height='68' viewBox='0 0 68 68'>
-    <path fill='${windColor}' d='M32 8 L56 48 H8 Z'/>
-    <text x='32' y='48' text-anchor='middle' fill='${textColor}' font-size='16' font-weight='bold' font-family='system-ui, -apple-system, sans-serif' transform='rotate(180 32 40)'>${speed}</text>
+    <polygon fill='${windColor}' points='34,8 17,42 26,48 42,48 51,42'/>
+    <text x='34' y='48' text-anchor='middle' fill='${textColor}' font-size='16' font-weight='bold' font-family='system-ui, -apple-system, sans-serif' transform='rotate(180 34 40)'>${speed}</text>
   </svg>`;
   // Add timestamp cache-busting so OpenLayers always regenerates the icon
   const timestamp = Date.now();
@@ -21,7 +21,7 @@ export const getWindIconSrc = (speedValue, isDarkMode = false) => {
 export const getWindTriangleIconSrc = (isDarkMode = false) => {
   const windColor = isDarkMode ? '#FFFFFF' : '#007BFF';
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'>
-    <path fill='${windColor}' d='M32 8 L56 48 H8 Z'/>
+    <polygon fill='${windColor}' points='32,8 15,42 24,48 40,48 49,42'/>
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 };

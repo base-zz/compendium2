@@ -82,10 +82,10 @@
 
       <g v-if="showGeometry && windIndicator">
         <g :transform="`translate(${windIndicator.x} ${windIndicator.y}) rotate(${windIndicator.rotation})`">
-          <path
+          <polygon
             class="wind-indicator"
             :fill="windIndicatorFill"
-            d="M0 -12 L9 7.5 L-9 7.5 Z"
+            points="0,-12 -9,4.5 -3.5,7.5 3.5,7.5 9,4.5"
           />
           <text
             v-if="windSpeedLabel"

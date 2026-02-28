@@ -2309,18 +2309,18 @@ function updateWindIndicatorScale() {
 
 const getWindIndicatorScaleForResolution = (resolution) => {
   if (typeof resolution !== "number" || !Number.isFinite(resolution) || resolution <= 0) {
-    return 0.22;
+    return 0.44;
   }
 
   // Keep the icon at a consistent fraction of the anchor-circle perimeter size on screen.
   const radiusMeters = getWindIndicatorRadiusMeters();
   const circleRadiusPixels = radiusMeters / resolution;
-  const targetIconPixels = circleRadiusPixels * 0.16;
+  const targetIconPixels = circleRadiusPixels * 0.32;
   const iconBasePixels = 64;
 
   // Clamp for readability across devices.
-  const minScale = 0.12;
-  const maxScale = 0.72;
+  const minScale = 0.24;
+  const maxScale = 1.44;
   return Math.max(minScale, Math.min(maxScale, targetIconPixels / iconBasePixels));
 };
 
