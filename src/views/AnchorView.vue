@@ -3015,7 +3015,7 @@ const updateAisTargets = debounce(() => {
         }));
       logger.error("TARGETS DETECTED IN RANGE:", targetsInRangeDetails);
       
-      createAisProximityAlert(targetsInRange, warningRadiusInMeters, isMetric.value);
+      // Server will trigger the alert - removed client-side trigger
     }
 
     // Update the state

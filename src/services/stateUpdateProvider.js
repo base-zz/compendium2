@@ -271,6 +271,21 @@ class StateUpdateProvider {
     this.currentAdapter.on("state:patch", patchListener);
     this._listenerRefs.push({ event: "state:patch", fn: patchListener });
 
+    // Listen for SignalK alerts from server
+    const alertListener = (data) => this._notify({ type: "signalk-alert", data });
+    this.currentAdapter.on("signalk-alert", alertListener);
+    this._listenerRefs.push({ event: "signalk-alert", fn: alertListener });
+
+    // Listen for alert acknowledgment events from server
+    const alertAcknowledgedListener = (data) => this._notify({ type: "alert:acknowledged", data });
+    this.currentAdapter.on("alert:acknowledged", alertAcknowledgedListener);
+    this._listenerRefs.push({ event: "alert:acknowledged", fn: alertAcknowledgedListener });
+
+    // Listen for bulk acknowledgment events from server
+    const bulkAcknowledgedListener = (data) => this._notify({ type: "alerts:bulk_acknowledged", data });
+    this.currentAdapter.on("alerts:bulk_acknowledged", bulkAcknowledgedListener);
+    this._listenerRefs.push({ event: "alerts:bulk_acknowledged", fn: bulkAcknowledgedListener });
+
     // Add more as needed for other domains
   }
 

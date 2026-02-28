@@ -1392,6 +1392,124 @@ export const useStateDataStore = defineStore("stateData", () => {
     //   console.log(`[StateDataStore] Received event type: ${evt.type}`, evt.data ? { dataKeys: Object.keys(evt.data) } : {});
     // }
     
+    // Process alert acknowledgment events from server
+    if (evt.type === 'alert:acknowledged') {
+      if (!state.alerts) state.alerts = { active: [], history: [], definitions: [], processingQueue: [], muted: [], deviceSubscriptions: {} };
+      
+      if (evt.data?.alert) {
+        const alert = evt.data.alert;
+        
+        // Remove from active alerts
+        const activeIndex = state.alerts.active.findIndex(a => a.id === alert.id);
+        if (activeIndex !== -1) {
+          state.alerts.active.splice(activeIndex, 1);
+        }
+        
+        // Add to history
+        if (!state.alerts.history) state.alerts.history = [];
+        const historyIndex = state.alerts.history.findIndex(a => a.id === alert.id);
+        if (historyIndex === -1) {
+          state.alerts.history.push(alert);
+        } else {
+          state.alerts.history[historyIndex] = alert;
+        }
+        
+        logger.info(`Alert acknowledged via server update: ${alert.label} (${alert.trigger})`);
+      }
+      return;
+    }
+    
+    // Process bulk acknowledgment events from server
+    if (evt.type === 'alerts:bulk_acknowledged') {
+      if (!state.alerts) state.alerts = { active: [], history: [], definitions: [], processingQueue: [], muted: [], deviceSubscriptions: {} };
+      
+      if (evt.data?.alerts && Array.isArray(evt.data.alerts)) {
+        evt.data.alerts.forEach(alert => {
+          // Remove from active alerts
+          const activeIndex = state.alerts.active.findIndex(a => a.id === alert.id);
+          if (activeIndex !== -1) {
+            state.alerts.active.splice(activeIndex, 1);
+          }
+          
+          // Add to history
+          if (!state.alerts.history) state.alerts.history = [];
+          const historyIndex = state.alerts.history.findIndex(a => a.id === alert.id);
+          if (historyIndex === -1) {
+            state.alerts.history.push(alert);
+          } else {
+            state.alerts.history[historyIndex] = alert;
+          }
+        });
+        
+        logger.info(`Bulk acknowledged ${evt.data.alerts.length} alerts via server update`);
+      }
+      return;
+    }
+    
+    // Process SignalK alerts from server
+    if (evt.type === 'signalk-alert') {
+      if (!state.alerts) state.alerts = { active: [], history: [], definitions: [], processingQueue: [], muted: [], deviceSubscriptions: {} };
+      
+      if (evt.data) {
+        try {
+          // Server already sends alerts in the correct format, just ensure required fields
+          const alert = {
+            id: evt.data.id || generateUuid(),
+            timestamp: evt.data.timestamp || new Date().toISOString(),
+            status: evt.data.status || 'active',
+            acknowledged: evt.data.acknowledged || false,
+            type: evt.data.type || 'system',
+            category: evt.data.category || 'unknown',
+            source: evt.data.source || 'server',
+            level: evt.data.level || 'warning',
+            label: evt.data.label || 'Alert',
+            message: evt.data.message || '',
+            trigger: evt.data.trigger, // This is the key field for categorization
+            data: evt.data.data || {},
+            autoResolvable: evt.data.autoResolvable !== false,
+            acknowledgedBy: evt.data.acknowledgedBy,
+            acknowledgedAt: evt.data.acknowledgedAt
+          };
+          
+          // Handle acknowledged alerts
+          if (alert.status === 'acknowledged' || alert.acknowledged) {
+            // Remove from active alerts
+            const activeIndex = state.alerts.active.findIndex(a => a.id === alert.id);
+            if (activeIndex !== -1) {
+              state.alerts.active.splice(activeIndex, 1);
+            }
+            
+            // Add to history
+            if (!state.alerts.history) state.alerts.history = [];
+            const historyIndex = state.alerts.history.findIndex(a => a.id === alert.id);
+            if (historyIndex === -1) {
+              state.alerts.history.push(alert);
+            } else {
+              state.alerts.history[historyIndex] = alert;
+            }
+            
+            logger.info(`Alert acknowledged: ${alert.label} (${alert.trigger})`);
+            return;
+          }
+          
+          // Check if alert already exists to prevent duplicates
+          const existingIndex = state.alerts.active.findIndex(a => a.id === alert.id);
+          
+          if (existingIndex === -1) {
+            state.alerts.active.push(alert);
+            logger.info(`Added server alert: ${alert.label} (${alert.trigger})`);
+          } else {
+            // Update existing alert
+            state.alerts.active[existingIndex] = { ...state.alerts.active[existingIndex], ...alert };
+            logger.debug(`Updated server alert: ${alert.label} (${alert.trigger})`);
+          }
+        } catch (error) {
+          logger.error('Error processing signalk-alert:', error.message, evt.data);
+        }
+      }
+      return;
+    }
+    
     // Check for tide:update and weather:update specifically
     if (evt.type === 'tide:update') {
       if (!state.tides) state.tides = {};
