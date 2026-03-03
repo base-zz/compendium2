@@ -181,29 +181,39 @@ function computeFenceAlertFromState(state) {
   });
 }
 
-function getActiveAlertKeysFromState(state) {
-  const keys = [];
-  const alerts = state?.alerts?.active || [];
+const getActiveAlertKeysFromState = (state) => {
+  setTimeout(() => {
+    console.log('[getActiveAlertKeysFromState] Full state:', state);
+    console.log('[getActiveAlertKeysFromState] State alerts:', state?.alerts);
+    console.log('[getActiveAlertKeysFromState] Active alerts:', state?.alerts?.active);
+    console.log('[getActiveAlertKeysFromState] Anchor state:', state?.anchor);
+  }, 5000);
+  
+  const activeAlerts = state?.alerts?.active || [];
+  const keys = new Set();
 
-  // Check for specific alert types in server alerts using trigger field
-  const anchorDraggingAlert = alerts.find(alert => alert.trigger === 'anchor_dragging');
-  const aisProximityAlert = alerts.find(alert => alert.trigger === 'ais_proximity');
-  const criticalRangeAlert = alerts.find(alert => alert.trigger === 'critical_range');
+  // Check alerts from state.alerts.active (server alerts)
+  activeAlerts.forEach((alert) => {
+    if (alert.trigger === "anchor_dragging") {
+      keys.add(ALERT_KEYS.ANCHOR_DRAGGING);
+    }
+    if (alert.trigger === "ais_proximity") {
+      keys.add(ALERT_KEYS.AIS_PROXIMITY);
+    }
+    if (alert.trigger === "critical_range") {
+      keys.add(ALERT_KEYS.FENCE_VIOLATION);
+    }
+  });
 
-  if (anchorDraggingAlert) {
-    keys.push(ALERT_KEYS.ANCHOR_DRAGGING);
+  // Also check anchor state for direct warnings (client-side detection)
+  if (state?.anchor?.aisWarning) {
+    console.log('[getActiveAlertKeysFromState] Found AIS warning in anchor state');
+    keys.add(ALERT_KEYS.AIS_PROXIMITY);
   }
 
-  if (aisProximityAlert) {
-    keys.push(ALERT_KEYS.AIS_PROXIMITY);
-  }
-
-  if (criticalRangeAlert) {
-    keys.push(ALERT_KEYS.FENCE_VIOLATION);
-  }
-
+  console.log('[getActiveAlertKeysFromState] Detected keys:', Array.from(keys));
   return keys;
-}
+};
 
 export function useActiveAlerts() {
   const stateStore = useStateDataStore();
@@ -256,17 +266,10 @@ export function useActiveAlerts() {
 
   const primaryKey = computed(() => {
     const keys = activeKeys.value;
-    if (!Array.isArray(keys) || keys.length === 0) {
-      return null;
-    }
-
-    for (const key of ALERT_PRIORITY) {
-      if (keys.includes(key) && !acknowledgedKeys.value.has(key)) {
-        return key;
-      }
-    }
-
-    return null;
+    console.log('[activeAlertService] activeKeys:', Array.from(keys));
+    const first = keys.values().next().value;
+    console.log('[activeAlertService] primaryKey:', first);
+    return first || null;
   });
 
   watch(

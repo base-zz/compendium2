@@ -1,5 +1,6 @@
 <template>
   <ion-page class="page-container">
+    <GenericHeader title="Anchor"></GenericHeader>
     <!-- Location acquiring overlay -->
     <div v-if="showLocationModal" class="acquire-location-modal">
       <div class="acquire-location-content">
@@ -162,7 +163,6 @@
         @cancel-anchor="showCancelDialog = true"
       />
     </div>
-    <GenericHeader title="Anchor"></GenericHeader>
   </ion-page>
 </template>
 

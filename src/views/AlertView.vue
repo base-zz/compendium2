@@ -16,7 +16,11 @@ const router = useRouter();
 const stateStore = useStateDataStore();
 const { state } = storeToRefs(stateStore);
 
-const activeAlerts = computed(() => state.value.alerts?.active || []);
+const activeAlerts = computed(() => {
+  const alerts = state.value.alerts?.active || [];
+  console.log('[AlertView] Active alerts:', alerts.length, alerts);
+  return alerts;
+});
 const isLoading = ref(true);
 
 const silencedUntilEpochMs = computed(() => alarmSoundService.getSilencedUntilEpochMs());

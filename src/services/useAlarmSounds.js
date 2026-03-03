@@ -62,7 +62,70 @@ export function useAlarmSounds({ delayMs }) {
     }, 5000);
   };
 
-  const stopWatch = watch(
+  const handleAnchorAlert = (alert) => {
+    if (alert) {
+      alarmSoundService.setAlarmActive("anchor_dragging", true, { delayMs });
+      alarmSoundService.setAlarmActive("ais_proximity", false, { delayMs: 0 });
+      alarmSoundService.setAlarmActive("fence_alert", false, { delayMs: 0 });
+    } else {
+      alarmSoundService.setAlarmActive("anchor_dragging", false, { delayMs: 0 });
+    }
+  };
+
+  const handleAisAlert = (alert) => {
+    if (alert) {
+      alarmSoundService.setAlarmActive("ais_proximity", true, { delayMs });
+    } else {
+      alarmSoundService.setAlarmActive("ais_proximity", false, { delayMs: 0 });
+    }
+  };
+
+  const handleFenceAlert = (alert) => {
+    if (alert) {
+      alarmSoundService.setAlarmActive("fence_alert", true, { delayMs });
+    } else {
+      alarmSoundService.setAlarmActive("fence_alert", false, { delayMs: 0 });
+    }
+  };
+
+  watch(
+    () => stateStore.state?.alerts?.active || [],
+    (newAlerts, oldAlerts) => {
+      console.log('[useAlarmSounds] Alerts changed:', {
+        newCount: newAlerts?.length || 0,
+        oldCount: oldAlerts?.length || 0,
+        newAlerts: newAlerts?.map(a => ({ id: a.id, trigger: a.trigger, label: a.label }))
+      });
+      
+      const anchorAlert = newAlerts?.find(a => a.trigger === 'anchor_dragging');
+      const aisAlert = newAlerts?.find(a => a.trigger === 'ais_proximity');
+      const fenceAlert = newAlerts?.find(a => a.trigger === 'critical_range');
+
+      if (anchorAlert) {
+        console.log('[useAlarmSounds] Anchor alert detected:', anchorAlert);
+        handleAnchorAlert(anchorAlert);
+      } else {
+        handleAnchorAlert(null);
+      }
+
+      if (aisAlert) {
+        console.log('[useAlarmSounds] AIS alert detected:', aisAlert);
+        handleAisAlert(aisAlert);
+      } else {
+        handleAisAlert(null);
+      }
+
+      if (fenceAlert) {
+        console.log('[useAlarmSounds] Fence alert detected:', fenceAlert);
+        handleFenceAlert(fenceAlert);
+      } else {
+        handleFenceAlert(null);
+      }
+    },
+    { deep: true, immediate: true }
+  );
+
+  watch(
     () => {
       const alerts = stateStore.state?.alerts?.active || [];
       const silencedUntilEpochMs = alarmSoundService.getSilencedUntilEpochMs();

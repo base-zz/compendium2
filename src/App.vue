@@ -1,24 +1,35 @@
 <template>
   <ion-app>
-    <active-alert-banner />
-    <router-view />
+    <div class="page-wrapper" :class="{ 'has-alert-banner': hasAlertBanner }">
+      <div class="alert-banner-container" v-if="hasAlertBanner">
+        <alert-banner-component />
+      </div>
+      <div class="content-wrapper">
+        <router-view />
+      </div>
+    </div>
     <!-- Notification toast will be shown here -->
   </ion-app>
 </template>
 
 <script setup lang="ts">
 import { IonApp } from '@ionic/vue';
-import { onMounted } from 'vue';
+import { onMounted, computed } from 'vue';
 import { useStateDataStore } from '@/stores/stateDataStore';
 import { useRelayPiniaSync } from '@/services/useRelayPiniaSync';
 import { useDirectPiniaSync } from '@/services/useDirectPiniaSync';
 import { useAlarmSounds } from '@/services/useAlarmSounds';
 import { createLogger } from '@/services/logger';
 import { notificationService } from '@/services/NotificationService';
-import ActiveAlertBanner from '@/components/ActiveAlertBanner.vue';
+import AlertBannerComponent from '@/components/AlertBannerComponent.vue';
+import { useActiveAlerts } from '@/services/activeAlertService';
 
 const logger = createLogger('App') as any;
 logger.info('Initializing application...');
+
+// Check if banner has content
+const { primaryKey } = useActiveAlerts();
+const hasAlertBanner = computed(() => !!primaryKey.value);
 
 // Initialize state data store
 useStateDataStore();
@@ -85,6 +96,36 @@ ion-app {
 
 body.dark ion-app {
   background: #111827 !important;
+}
+
+/* Page wrapper - flex column */
+.page-wrapper {
+  --alert-banner-offset: calc(40px + env(safe-area-inset-top));
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Alert banner container - pinned to app top */
+.alert-banner-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+}
+
+/* Content takes remaining space */
+.content-wrapper {
+  flex: 1;
+  min-height: 100%;
+}
+
+/* Push Ionic pages down by banner + safe area when banner is present */
+.page-wrapper.has-alert-banner .content-wrapper > .ion-page {
+  top: var(--alert-banner-offset);
+  height: calc(100% - var(--alert-banner-offset));
 }
 
 /* Smooth transitions for all elements */
