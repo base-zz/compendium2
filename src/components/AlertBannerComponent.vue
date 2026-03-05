@@ -72,7 +72,6 @@ function handleAcknowledge() {
   width: 100%;
   background: red;
   color: white;
-  padding-top: env(safe-area-inset-top);
 }
 
 .alert-banner-content {

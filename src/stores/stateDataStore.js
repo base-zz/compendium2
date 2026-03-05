@@ -325,24 +325,6 @@ export const useStateDataStore = defineStore("stateData", () => {
         }
       }
 
-      // Clear inappropriate AIS warnings from server
-      if (newAnchor && newAnchor.aisWarning) {
-        const warningRange = newAnchor.warningRange?.r;
-        const isAnchorDeployed = newAnchor.anchorDeployed;
-        const hasValidPosition = updatedState.navigation?.position?.latitude && 
-                               updatedState.navigation?.position?.longitude;
-        
-        if (typeof warningRange !== "number" || warningRange <= 0 || 
-            !isAnchorDeployed || !hasValidPosition) {
-          dataLogger("Clearing inappropriate AIS warning from server", {
-            hasWarningRange: typeof warningRange === "number" && warningRange > 0,
-            isAnchorDeployed,
-            hasValidPosition
-          });
-          newAnchor.aisWarning = false;
-        }
-      }
-
       dataLogger(`Updating ${Object.keys(updatedState).length} keys, preserving others`);
 
       // Update or initialize root-level keys
@@ -524,6 +506,22 @@ export const useStateDataStore = defineStore("stateData", () => {
       deviceSubscriptions: {}, // deviceId => [alert types/categories] (optional)
     };
   }
+
+  const hasActiveAisProximityAlert = (activeAlerts) => {
+    if (!Array.isArray(activeAlerts)) return false;
+
+    return activeAlerts.some((alert) => {
+      if (!alert || typeof alert !== "object") return false;
+      if (alert.trigger !== "ais_proximity") return false;
+      if (alert.acknowledged === true) return false;
+      if (typeof alert.status === "string" && alert.status !== "active") return false;
+      return true;
+    });
+  };
+
+  const anchorAisWarning = computed(() =>
+    hasActiveAisProximityAlert(state.alerts?.active)
+  );
 
   /**
    * Create a new alert object with default values
@@ -2163,6 +2161,7 @@ export const useStateDataStore = defineStore("stateData", () => {
     clearAllAlerts,
     hasActiveAlerts,
     pendingAlertCount,
+    anchorAisWarning,
 
     // Alert Rule Management
     alertRules,

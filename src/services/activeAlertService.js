@@ -41,6 +41,21 @@ export function getAlertTitle(alertKey) {
   return ALERT_TITLE_MAP[alertKey] || alertKey;
 }
 
+function isLikelyIOSClient() {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  const ua = typeof navigator.userAgent === "string" ? navigator.userAgent : "";
+  const platform = typeof navigator.platform === "string" ? navigator.platform : "";
+  const maxTouchPoints = typeof navigator.maxTouchPoints === "number" ? navigator.maxTouchPoints : 0;
+
+  const iOSUserAgent = /iPad|iPhone|iPod/i.test(ua);
+  const iPadOSDesktopUA = platform === "MacIntel" && maxTouchPoints > 1;
+
+  return iOSUserAgent || iPadOSDesktopUA;
+}
+
 function toFiniteNumber(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -182,42 +197,81 @@ function computeFenceAlertFromState(state) {
 }
 
 const getActiveAlertKeysFromState = (state) => {
-  setTimeout(() => {
-    console.log('[getActiveAlertKeysFromState] Full state:', state);
-    console.log('[getActiveAlertKeysFromState] State alerts:', state?.alerts);
-    console.log('[getActiveAlertKeysFromState] Active alerts:', state?.alerts?.active);
-    console.log('[getActiveAlertKeysFromState] Anchor state:', state?.anchor);
-  }, 5000);
-  
-  const activeAlerts = state?.alerts?.active || [];
+  const logIOS = isLikelyIOSClient();
+
+    
+  const activeAlertsRaw = state?.alerts?.active;
+  const activeAlerts = Array.isArray(activeAlertsRaw)
+    ? activeAlertsRaw
+    : activeAlertsRaw && typeof activeAlertsRaw === "object"
+      ? Object.values(activeAlertsRaw)
+      : [];
   const keys = new Set();
 
+  
+  const toTriggerString = (value) => {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (value && typeof value === "object" && typeof value.value === "string") {
+      return value.value;
+    }
+    return "";
+  };
+
+  const toCanonicalTrigger = (value) => {
+    if (typeof value !== "string") {
+      return "";
+    }
+    return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  };
+
   // Check alerts from state.alerts.active (server alerts)
-  activeAlerts.forEach((alert) => {
-    if (alert.trigger === "anchor_dragging") {
+  activeAlerts.forEach((alert, index) => {
+    if (!alert || typeof alert !== "object") {
+      return;
+    }
+
+    const triggerCandidates = [
+      toCanonicalTrigger(toTriggerString(alert.trigger)),
+      toCanonicalTrigger(toTriggerString(alert.key)),
+      toCanonicalTrigger(toTriggerString(alert.type)),
+      toCanonicalTrigger(toTriggerString(alert.alertType)),
+    ];
+
+    
+    let mappedKnownKey = false;
+
+    if (triggerCandidates.includes("anchor_dragging")) {
       keys.add(ALERT_KEYS.ANCHOR_DRAGGING);
+      mappedKnownKey = true;
     }
-    if (alert.trigger === "ais_proximity") {
+    if (triggerCandidates.includes("ais_proximity")) {
       keys.add(ALERT_KEYS.AIS_PROXIMITY);
+      mappedKnownKey = true;
     }
-    if (alert.trigger === "critical_range") {
+    if (triggerCandidates.includes("critical_range")) {
       keys.add(ALERT_KEYS.FENCE_VIOLATION);
+      mappedKnownKey = true;
+    }
+
+    // Non-breaking fallback: if alert is active but uses an unknown trigger label,
+    // still surface a banner using that trigger string.
+    if (mappedKnownKey !== true) {
+      const fallbackTrigger = triggerCandidates.find((candidate) => candidate.length > 0);
+      if (fallbackTrigger) {
+        keys.add(fallbackTrigger);
+      }
     }
   });
 
-  // Also check anchor state for direct warnings (client-side detection)
-  if (state?.anchor?.aisWarning) {
-    console.log('[getActiveAlertKeysFromState] Found AIS warning in anchor state');
-    keys.add(ALERT_KEYS.AIS_PROXIMITY);
-  }
-
-  console.log('[getActiveAlertKeysFromState] Detected keys:', Array.from(keys));
-  return keys;
+    return keys;
 };
 
 export function useActiveAlerts() {
   const stateStore = useStateDataStore();
   const { state } = storeToRefs(stateStore);
+  const logIOS = isLikelyIOSClient();
 
   const acknowledgedKeys = ref(new Set());
 
@@ -266,9 +320,7 @@ export function useActiveAlerts() {
 
   const primaryKey = computed(() => {
     const keys = activeKeys.value;
-    console.log('[activeAlertService] activeKeys:', Array.from(keys));
     const first = keys.values().next().value;
-    console.log('[activeAlertService] primaryKey:', first);
     return first || null;
   });
 
@@ -299,58 +351,89 @@ export function useActiveAlerts() {
     if (!alertKey || typeof alertKey !== "string") {
       return;
     }
-    
-    // Find the alert to acknowledge
-    const stateStore = useStateDataStore();
-    const alert = stateStore.state?.alerts?.active?.find(a => a.trigger === alertKey);
-    
-    if (alert?.id) {
-      // Send acknowledgment to server
-      try {
-        stateUpdateProvider.sendCommand("alert", "acknowledge", {
-          alertId: alert.id,
-          clientId: getClientId(), // Generate or get client ID
-          timestamp: new Date().toISOString()
-        });
-      } catch (error) {
-        console.warn('Failed to send acknowledgment to server:', error);
-        // Fall back to local acknowledgment if server fails
-        acknowledgeLocal(alertKey, alert.id);
+
+    const activeAlertsRaw = stateStore.state?.alerts?.active;
+    const activeAlerts = Array.isArray(activeAlertsRaw)
+      ? activeAlertsRaw
+      : activeAlertsRaw && typeof activeAlertsRaw === "object"
+        ? Object.values(activeAlertsRaw)
+        : [];
+
+    const toTriggerString = (value) => {
+      if (typeof value === "string") {
+        return value;
       }
+      if (value && typeof value === "object" && typeof value.value === "string") {
+        return value.value;
+      }
+      return "";
+    };
+
+    const toCanonicalTrigger = (value) => {
+      if (typeof value !== "string") {
+        return "";
+      }
+      return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    };
+
+    const canonicalAlertKey = toCanonicalTrigger(alertKey);
+    const matchingAlerts = activeAlerts.filter((alert) => {
+      if (!alert || typeof alert !== "object") {
+        return false;
+      }
+
+      const triggerCandidates = [
+        toCanonicalTrigger(toTriggerString(alert.trigger)),
+        toCanonicalTrigger(toTriggerString(alert.key)),
+        toCanonicalTrigger(toTriggerString(alert.type)),
+        toCanonicalTrigger(toTriggerString(alert.alertType)),
+      ];
+
+      return triggerCandidates.includes(canonicalAlertKey);
+    });
+
+    // Immediate local update so banner ACK behaves the same as alert detail ACK.
+    matchingAlerts.forEach((alert) => {
+      if (alert.id) {
+        stateStore.acknowledgeAlert(alert.id);
+      }
+    });
+
+    const clientId = getClientId();
+    const timestamp = new Date().toISOString();
+
+    // Best-effort server acknowledgment after local UI/state update.
+    if (matchingAlerts.length > 0) {
+      matchingAlerts.forEach((alert) => {
+        if (!alert?.id) {
+          return;
+        }
+
+        try {
+          stateUpdateProvider.sendCommand("alert", "acknowledge", {
+            alertId: alert.id,
+            clientId,
+            timestamp,
+          });
+        } catch (error) {
+          console.warn('Failed to send acknowledgment to server:', error);
+        }
+      });
     } else {
-      // No specific alert found, try bulk acknowledgment by trigger
       try {
         stateUpdateProvider.sendCommand("alert", "acknowledge", {
           trigger: alertKey,
-          clientId: getClientId(),
-          timestamp: new Date().toISOString()
+          clientId,
+          timestamp,
         });
       } catch (error) {
         console.warn('Failed to send bulk acknowledgment to server:', error);
-        // Fall back to local acknowledgment
-        acknowledgeLocal(alertKey);
       }
     }
     
     // Add to local acknowledged Set for immediate UI feedback
     acknowledgedKeys.value.add(alertKey);
     saveAcknowledged();
-  };
-
-  // Helper function for local acknowledgment (fallback)
-  const acknowledgeLocal = (alertKey, alertId = null) => {
-    // Also acknowledge any matching alerts in the state store
-    const stateStore = useStateDataStore();
-    const activeAlerts = stateStore.state.alerts?.active || [];
-    const matchingAlerts = alertId 
-      ? activeAlerts.filter(alert => alert.id === alertId)
-      : activeAlerts.filter(alert => alert.trigger === alertKey);
-    
-    matchingAlerts.forEach(alert => {
-      if (alert.id) {
-        stateStore.acknowledgeAlert(alert.id);
-      }
-    });
   };
 
   // Helper function to get/generate client ID

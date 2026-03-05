@@ -16,7 +16,6 @@
 import { IonApp } from '@ionic/vue';
 import { onMounted, computed } from 'vue';
 import { useStateDataStore } from '@/stores/stateDataStore';
-import { useRelayPiniaSync } from '@/services/useRelayPiniaSync';
 import { useDirectPiniaSync } from '@/services/useDirectPiniaSync';
 import { useAlarmSounds } from '@/services/useAlarmSounds';
 import { createLogger } from '@/services/logger';
@@ -34,12 +33,8 @@ const hasAlertBanner = computed(() => !!primaryKey.value);
 // Initialize state data store
 useStateDataStore();
 
-// Start relay-to-pinia data sync
-logger.info('Initializing relay-to-pinia sync...');
-useRelayPiniaSync();
-
-// Start direct-to-pinia data sync
-logger.info('Initializing direct-to-pinia sync...');
+// Start single-source state sync (mode selected by SmartConnectionManager)
+logger.info('Initializing state sync...');
 useDirectPiniaSync();
 
 useAlarmSounds({ delayMs: 3000 });
@@ -100,7 +95,7 @@ body.dark ion-app {
 
 /* Page wrapper - flex column */
 .page-wrapper {
-  --alert-banner-offset: calc(40px + env(safe-area-inset-top));
+  --alert-banner-offset: 40px;
   width: 100%;
   min-height: 100%;
   display: flex;
@@ -110,7 +105,7 @@ body.dark ion-app {
 /* Alert banner container - pinned to app top */
 .alert-banner-container {
   position: fixed;
-  top: 0;
+  top: env(safe-area-inset-top, 0px);
   left: 0;
   right: 0;
   z-index: 1000;

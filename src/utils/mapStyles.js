@@ -1,4 +1,4 @@
-import { Style, Fill, Stroke, Icon, Text } from "ol/style";
+import { Style, Fill, Stroke, Icon } from "ol/style";
 import CircleStyle from "ol/style/Circle";
 
 const BOAT_ICON_SRC = "/img/navigate.svg";
@@ -26,45 +26,26 @@ export const getWindTriangleIconSrc = (isDarkMode = false) => {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 };
 
-// Create wind indicator style with rotating triangle and heads-up text
-export const createWindIndicatorStyle = (speedValue, isDarkMode = false, rotation = 0, scaleOverride = null) => {
-  const speed = speedValue != null ? Math.round(speedValue) : '';
-  const textColor = isDarkMode ? '#000000' : '#FFFFFF';
+// Create wind indicator style with rotating triangle only
+export const createWindIndicatorStyle = (isDarkMode = false, rotation = 0, scaleOverride = null) => {
   const defaultScale = window.innerWidth < 768 ? 0.6 : 1.0;
   const triangleScale = typeof scaleOverride === "number" && Number.isFinite(scaleOverride)
     ? scaleOverride
     : defaultScale;
-  const textFontSize = Math.max(9, Math.round(14 * triangleScale));
-  
-  return [
-    // Rotating triangle
-    new Style({
-      image: new Icon({
-        src: getWindTriangleIconSrc(isDarkMode),
-        anchor: [0.5, 0.5],
-        anchorXUnits: "fraction",
-        anchorYUnits: "fraction",
-        imgSize: [64, 64],
-        scale: triangleScale,
-        rotateWithView: false,
-        rotation: rotation,
-      }),
-      zIndex: 96,
+
+  return new Style({
+    image: new Icon({
+      src: getWindTriangleIconSrc(isDarkMode),
+      anchor: [0.5, 0.5],
+      anchorXUnits: "fraction",
+      anchorYUnits: "fraction",
+      imgSize: [64, 64],
+      scale: triangleScale,
+      rotateWithView: false,
+      rotation: rotation,
     }),
-    // Heads-up text (no rotation)
-    new Style({
-      image: new CircleStyle({
-        radius: 0, // Invisible, just for positioning
-      }),
-      text: new Text({
-        text: String(speed),
-        font: `bold ${textFontSize}px system-ui, -apple-system, sans-serif`,
-        fill: new Fill({ color: textColor }),
-        offsetY: 2, // Center in triangle (triangle points up, centroid is slightly below center)
-      }),
-      zIndex: 97,
-    }),
-  ];
+    zIndex: 96,
+  });
 };
 
 export const createStyle = (config) => {

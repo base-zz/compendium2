@@ -310,6 +310,11 @@ class DirectConnectionAdapter {
         this.emit('anchor:reset:ack', msg);
         return;
       }
+      if (msg.type === "anchor:update:ack") {
+        logger.info('[DIRECT-ADAPTER] Received anchor:update:ack', msg);
+        this.emit('anchor:update:ack', msg);
+        return;
+      }
       if (msg.type === "weather:update") {
         try {
           // Extract the weather data, handling different possible structures
@@ -375,8 +380,6 @@ class DirectConnectionAdapter {
           return;
         }
         if (msg.type === "state:full-update") {
-          const dataKeys = msg.data && typeof msg.data === "object" ? Object.keys(msg.data) : [];
-          const dataSize = JSON.stringify(msg.data).length;
           // console.log("[DIRECT-ADAPTER] Received state:full-update", {
           //   dataKeys,
           //   dataSize,

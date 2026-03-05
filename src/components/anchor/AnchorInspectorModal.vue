@@ -31,7 +31,19 @@
         </div>
         <div class="inspector-row">
           <span class="inspector-label">AIS Warning:</span>
-          <span class="inspector-value">{{ anchorState?.aisWarning ? 'Yes' : 'No' }}</span>
+          <span class="inspector-value">{{ hasActiveAisAlert ? 'Yes' : 'No' }}</span>
+        </div>
+      </div>
+
+      <div v-if="hasActiveAisAlert" class="inspector-section">
+        <h4>AIS Proximity Targets</h4>
+        <div v-if="aisTargetsForInspector.length === 0" class="inspector-row">
+          <span class="inspector-label">Targets:</span>
+          <span class="inspector-value">No target details available</span>
+        </div>
+        <div v-for="(target, index) in aisTargetsForInspector" :key="`${target.mmsi || 'unknown'}-${index}`" class="inspector-row">
+          <span class="inspector-label">{{ target.name || 'Unknown Vessel' }} ({{ target.mmsi || 'N/A' }}):</span>
+          <span class="inspector-value">{{ target.distanceLabel }}</span>
         </div>
       </div>
 
@@ -54,7 +66,7 @@
         </div>
         <div class="inspector-row">
           <span class="inspector-label">Depth Source:</span>
-          <span class="inspector-value">{{ anchorState?.anchorDropLocation?.depth?.depthSource || 'N/A' }}</span>
+          <span class="inspector-value">{{ anchorState?.anchorDropLocation?.depthSource || 'N/A' }}</span>
         </div>
       </div>
 
@@ -217,11 +229,14 @@
 <script setup>
 import { IonModal, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonContent } from '@ionic/vue';
 import { closeOutline } from 'ionicons/icons';
+import { computed } from 'vue';
+import { useStateDataStore } from '@/stores/stateDataStore';
 
 const props = defineProps({
   isOpen: { type: Boolean, required: true },
   anchorState: { type: Object, required: true },
   navigationState: { type: Object, required: true },
+  aisAlertTargets: { type: Array, required: false },
   anchorStatusText: { type: String, required: true },
   driftDisplay: { type: String, required: true },
   isMetric: { type: Boolean, required: true },
@@ -234,13 +249,35 @@ const props = defineProps({
   calculateRodeCircleViolated: { type: Function, required: true }
 });
 
-// Debug: Log props when they change
-console.log('[AnchorInspectorModal] Props received:', {
-  anchorState: props.anchorState,
-  navigationState: props.navigationState,
-  anchorStatusText: props.anchorStatusText,
-  driftDisplay: props.driftDisplay,
-  isMetric: props.isMetric
+const stateStore = useStateDataStore();
+
+const hasActiveAisAlert = computed(() => stateStore.anchorAisWarning === true);
+
+const aisTargetsForInspector = computed(() => {
+  if (!Array.isArray(props.aisAlertTargets)) {
+    return [];
+  }
+
+  return props.aisAlertTargets
+    .filter((target) => target && typeof target === 'object')
+    .map((target) => {
+      const distanceMeters = target.distanceMeters;
+      const distanceLabel = (() => {
+        if (typeof distanceMeters !== 'number' || Number.isNaN(distanceMeters)) {
+          return 'N/A';
+        }
+        if (props.isMetric) {
+          return `${distanceMeters.toFixed(1)} m`;
+        }
+        return `${(distanceMeters * 3.28084).toFixed(1)} ft`;
+      })();
+
+      return {
+        mmsi: target.mmsi,
+        name: target.name,
+        distanceLabel,
+      };
+    });
 });
 
 const emit = defineEmits(['update:isOpen', 'reset-anchor']);

@@ -175,8 +175,7 @@ export class AlertNotificationService {
 
   private async showLocalNotification(title: string, body: string, data: any) {
     try {
-      console.log('Creating local notification:', { title, body, data });
-      
+            
       const notificationId = parseInt(data.alertId.replace(/[^0-9]/g, '').slice(-8)) || Date.now();
       
       await LocalNotifications.schedule({
@@ -194,18 +193,16 @@ export class AlertNotificationService {
         }]
       });
 
-      console.log('Local notification scheduled successfully');
-
+      
       // Listen for notification clicks
       await LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
-        console.log('Local notification clicked:', action);
-        if (action.notification.extra?.alertType) {
+                if (action.notification.extra?.alertType) {
           this.navigateToAlert(action.notification.extra.alertType);
         }
       });
 
     } catch (error) {
-      console.error('Error scheduling local notification:', error);
+      // Error scheduling local notification
     }
   }
 
@@ -214,12 +211,9 @@ export class AlertNotificationService {
       // Request permission if needed
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         const permission = await Notification.requestPermission();
-        console.log('Notification permission:', permission);
       }
 
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        console.log('Creating browser notification:', { title, body, data });
-        
         const notification = new Notification(title, {
           body,
           data,
@@ -228,8 +222,7 @@ export class AlertNotificationService {
           requireInteraction: data.level === 'critical' // Keep critical notifications visible
         });
 
-        console.log('Browser notification created successfully');
-
+        
         // Auto-close non-critical notifications after 5 seconds
         if (data.level !== 'critical') {
           setTimeout(() => {
@@ -239,7 +232,6 @@ export class AlertNotificationService {
 
         // Handle notification click
         notification.onclick = () => {
-          console.log('Notification clicked, navigating to:', data.alertType);
           // Navigate to alert view when clicked
           this.navigateToAlert(data.alertType);
           notification.close();

@@ -133,6 +133,16 @@
               <span>Max Tide Rise (72h):</span>
               <span>+{{ recommendedScope.depthIncrease.toFixed(1) }} {{ recommendedScope.unit }}</span>
             </div>
+            <div class="recommendation-row">
+              <span>Bow Roller Height:</span>
+              <span>
+                {{
+                  typeof recommendedScope.bowRollerToWater === "number" && !Number.isNaN(recommendedScope.bowRollerToWater)
+                    ? `${recommendedScope.bowRollerToWater.toFixed(1)} ${recommendedScope.unit}`
+                    : "N/A"
+                }}
+              </span>
+            </div>
             <div class="recommendation-row highlight">
               <span>Max Depth (Projected):</span>
               <span>{{ recommendedScope.maxDepth.toFixed(1) }} {{ recommendedScope.unit }}</span>
@@ -161,6 +171,10 @@
             {{ recommendedScope.bowRollerToWater.toFixed(1) }}{{ recommendedScope.unit }} bow roller)
           </div>
         </div>
+
+        <div v-if="serverValidationError" class="text-danger" style="margin-top: 12px; text-align: center;">
+          {{ serverValidationError }}
+        </div>
       </div>
     </ion-content>
     
@@ -173,7 +187,7 @@
           >
             {{ isDeployed ? "Save Changes" : "Set Anchor" }}
           </IonButton>
-          <IonButton @click="close">Cancel</IonButton>
+          <IonButton @click="handleCancel">Cancel</IonButton>
         </div>
       </ion-toolbar>
     </ion-footer>
@@ -198,17 +212,23 @@ const props = defineProps({
   deviceHeadingDegrees: { type: Number, default: null },
   hasTriedPhoneBearing: { type: Boolean, required: true },
   recommendedScope: { type: Object, default: null },
+  serverValidationError: { type: String, required: true },
 });
 
 const emit = defineEmits([
   'update:isOpen', 
   'save', 
+  'cancel',
   'update:customAnchorDropDepthValue',
   'update:fenceConnectorLinesVisible',
   'apply-phone-bearing'
 ]);
 
 const close = () => emit('update:isOpen', false);
+const handleCancel = () => {
+  emit('cancel');
+  close();
+};
 
 const isDeployed = computed(() => props.anchorState?.anchorDeployed);
 
@@ -305,7 +325,7 @@ const handleFenceConnectorLinesVisibilityChange = (e) => {
 }
 .recommendation-header {
   font-weight: bold;
-  color: var(--ion-color-primary, #3880ff);
+  color: #ffffff;
   margin-bottom: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -342,10 +362,10 @@ const handleFenceConnectorLinesVisibilityChange = (e) => {
   color: var(--ion-color-step-600, #cccccc);
 }
 .ratio-row.active {
-  color: var(--ion-color-secondary, #3dc2ff);
+  color: #facc15;
   font-weight: bold;
   font-size: 1.05em;
-  background: rgba(61, 194, 255, 0.1);
+  background: rgba(250, 204, 21, 0.14);
   padding: 6px 8px;
   border-radius: 4px;
   margin: 4px -8px;

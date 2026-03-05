@@ -175,7 +175,27 @@ const aisWarningEffective = computed(() => {
   if (warningRadius === 0) {
     return false;
   }
-  return anchorState.value?.aisWarning === true;
+
+  const activeAlerts = state.value?.alerts?.active;
+  if (!Array.isArray(activeAlerts)) {
+    return false;
+  }
+
+  return activeAlerts.some((alert) => {
+    if (!alert || typeof alert !== 'object') {
+      return false;
+    }
+    if (alert.trigger !== 'ais_proximity') {
+      return false;
+    }
+    if (alert.acknowledged === true) {
+      return false;
+    }
+    if (typeof alert.status === 'string' && alert.status !== 'active') {
+      return false;
+    }
+    return true;
+  });
 });
 
 function convertLengthToPreferred(value, units) {

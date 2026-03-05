@@ -957,6 +957,15 @@ export class RelayConnectionBridge {
       return;
     }
 
+    if (type === 'anchor:update:ack') {
+      remoteLogger.log(
+        "RELAY-BRIDGE",
+        "Received anchor:update:ack from server"
+      );
+      this.emit('anchor:update:ack', message);
+      return;
+    }
+
     // Handle state update messages
     if (type === "state:full-update" || type === "state:patch") {
       // Make sure the data structure is correct
