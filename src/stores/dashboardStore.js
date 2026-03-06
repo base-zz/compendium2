@@ -743,6 +743,84 @@ export const useDashboardStore = defineStore("dashboards", () => {
           'bottom bottom bottom bottom'
         ]
       }
+    },
+    {
+      id: 11,
+      name: 'Anchor Watch (5x5 Split)',
+      deviceTypes: ['tablet'],
+      areas: [
+        'div1',
+        'div2',
+        'div3',
+        'div4',
+        'div5',
+        'div6',
+        'div7',
+        'div8'
+      ],
+      layout: {
+        div1: { x: 0, y: 0, width: 33.3333, height: 25 },
+        div2: { x: 33.3333, y: 0, width: 33.3333, height: 25 },
+        div3: { x: 66.6667, y: 0, width: 33.3333, height: 25 },
+        div4: { x: 0, y: 25, width: 33.3333, height: 25 },
+        div5: { x: 33.3333, y: 25, width: 66.6667, height: 25 },
+        div6: { x: 0, y: 50, width: 66.6667, height: 50 },
+        div7: { x: 66.6667, y: 50, width: 33.3333, height: 25 },
+        div8: { x: 66.6667, y: 75, width: 33.3333, height: 25 }
+      },
+      gridTemplate: {
+        columns: 'repeat(3, 1fr)',
+        rows: 'repeat(4, 1fr)',
+        areas: [
+          'div1 div2 div3',
+          'div4 div5 div5',
+          'div6 div6 div7',
+          'div6 div6 div8'
+        ]
+      }
+    },
+    {
+      id: 12,
+      name: 'Anchor Watch (3x4 Grid)',
+      deviceTypes: ['tablet'],
+      areas: [
+        'cell1',
+        'cell2',
+        'cell3',
+        'cell4',
+        'cell5',
+        'cell6',
+        'cell7',
+        'cell8',
+        'cell9',
+        'cell10',
+        'cell11',
+        'cell12'
+      ],
+      layout: {
+        cell1: { x: 0, y: 0, width: 33.3333, height: 25 },
+        cell2: { x: 33.3333, y: 0, width: 33.3333, height: 25 },
+        cell3: { x: 66.6667, y: 0, width: 33.3333, height: 25 },
+        cell4: { x: 0, y: 25, width: 33.3333, height: 25 },
+        cell5: { x: 33.3333, y: 25, width: 33.3333, height: 25 },
+        cell6: { x: 66.6667, y: 25, width: 33.3333, height: 25 },
+        cell7: { x: 0, y: 50, width: 33.3333, height: 25 },
+        cell8: { x: 33.3333, y: 50, width: 33.3333, height: 25 },
+        cell9: { x: 66.6667, y: 50, width: 33.3333, height: 25 },
+        cell10: { x: 0, y: 75, width: 33.3333, height: 25 },
+        cell11: { x: 33.3333, y: 75, width: 33.3333, height: 25 },
+        cell12: { x: 66.6667, y: 75, width: 33.3333, height: 25 }
+      },
+      gridTemplate: {
+        columns: 'repeat(3, 1fr)',
+        rows: 'repeat(4, 1fr)',
+        areas: [
+          'cell1 cell2 cell3',
+          'cell4 cell5 cell6',
+          'cell7 cell8 cell9',
+          'cell10 cell11 cell12'
+        ]
+      }
     }
   ];
 
