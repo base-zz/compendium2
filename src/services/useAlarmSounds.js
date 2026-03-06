@@ -90,33 +90,33 @@ export function useAlarmSounds({ delayMs }) {
 
   watch(
     () => stateStore.state?.alerts?.active || [],
-    (newAlerts, oldAlerts) => {
-      console.log('[useAlarmSounds] Alerts changed:', {
-        newCount: newAlerts?.length || 0,
-        oldCount: oldAlerts?.length || 0,
-        newAlerts: newAlerts?.map(a => ({ id: a.id, trigger: a.trigger, label: a.label }))
-      });
+    (newAlerts) => {
+      // console.log('[useAlarmSounds] Alerts changed:', {
+      //   newCount: newAlerts?.length || 0,
+      //   oldCount: oldAlerts?.length || 0,
+      //   newAlerts: newAlerts?.map(a => ({ id: a.id, trigger: a.trigger, label: a.label }))
+      // });
       
       const anchorAlert = newAlerts?.find(a => a.trigger === 'anchor_dragging');
       const aisAlert = newAlerts?.find(a => a.trigger === 'ais_proximity');
       const fenceAlert = newAlerts?.find(a => a.trigger === 'critical_range');
 
       if (anchorAlert) {
-        console.log('[useAlarmSounds] Anchor alert detected:', anchorAlert);
+        // console.log('[useAlarmSounds] Anchor alert detected:', anchorAlert);
         handleAnchorAlert(anchorAlert);
       } else {
         handleAnchorAlert(null);
       }
 
       if (aisAlert) {
-        console.log('[useAlarmSounds] AIS alert detected:', aisAlert);
+        // console.log('[useAlarmSounds] AIS alert detected:', aisAlert);
         handleAisAlert(aisAlert);
       } else {
         handleAisAlert(null);
       }
 
       if (fenceAlert) {
-        console.log('[useAlarmSounds] Fence alert detected:', fenceAlert);
+        // console.log('[useAlarmSounds] Fence alert detected:', fenceAlert);
         handleFenceAlert(fenceAlert);
       } else {
         handleFenceAlert(null);
@@ -191,7 +191,6 @@ export function useAlarmSounds({ delayMs }) {
   );
 
   onUnmounted(() => {
-    stopWatch();
     stopAlternation();
     stopAll();
     window.removeEventListener("pointerdown", enableOnce);

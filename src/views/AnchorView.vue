@@ -1144,19 +1144,19 @@ logger.debug("Current state:", state.value);
 logger.debug("Anchor state:", anchorState.value);
 logger.debug("Alert state:", alertState.value);
 
-// Log full state every minute for debugging
-const logFullStateInterval = setInterval(() => {
-  console.log("[AnchorView] Full state snapshot:", {
-    timestamp: new Date().toISOString(),
-    fullState: state.value
-  });
-}, 60000); // 60 seconds
+// // Log full state every minute for debugging
+// const logFullStateInterval = setInterval(() => {
+//   console.log("[AnchorView] Full state snapshot:", {
+//     timestamp: new Date().toISOString(),
+//     fullState: state.value
+//   });
+// }, 60000); // 60 seconds
 
-// Log immediately on component setup
-console.log("[AnchorView] Full state snapshot (initial):", {
-  timestamp: new Date().toISOString(),
-  fullState: state.value
-});
+// // Log immediately on component setup
+// console.log("[AnchorView] Full state snapshot (initial):", {
+//   timestamp: new Date().toISOString(),
+//   fullState: state.value
+// });
 
 // Map tools
 const { validateCoordinates } = useMapTools(map, vectorSource);
@@ -3241,11 +3241,11 @@ useAnchorViewLifecycle({
   cleanupMeasureMode,
   clearAll,
   handleWheelEvent,
-  onCleanup: () => {
-    if (logFullStateInterval) {
-      clearInterval(logFullStateInterval);
-    }
-  },
+  // onCleanup: () => {
+  //   if (logFullStateInterval) {
+  //     clearInterval(logFullStateInterval);
+  //   }
+  // },
 });
 
 </script>

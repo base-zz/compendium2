@@ -20,8 +20,8 @@ export function useAnchorMapInitialization({
   handleWheelEvent,
 }) {
   const initializeMap = async () => {
-    logger.info("Initializing map...");
-    logger.debug("Starting map initialization");
+    // logger.info("Initializing map...");
+    // logger.debug("Starting map initialization");
 
     const currentState = stateStore.state;
     const pos = currentState?.navigation?.position;
@@ -84,7 +84,7 @@ export function useAnchorMapInitialization({
       });
 
       isMapRenderReadyFromComposable.value = true;
-      console.log("Map initialized and set as ready");
+      // console.log("Map initialized and set as ready");
 
       const provider = map.value?.__provider__;
       if (provider && provider.getVectorSource) {
