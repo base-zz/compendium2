@@ -234,6 +234,8 @@ import { useAnchorFeatureRegistry } from "@/composables/anchor/useAnchorFeatureR
 import { useAnchorAnimation } from "@/composables/anchor/useAnchorAnimation.js";
 import { useAnchorMeasureMode } from "@/composables/anchor/useAnchorMeasureMode.js";
 import { useAnchorFenceMode } from "@/composables/anchor/useAnchorFenceMode.js";
+import { useAnchorFencePersistence } from "@/composables/anchor/useAnchorFencePersistence.js";
+import { useAisModalTarget } from "@/composables/anchor/useAisModalTarget.js";
 import { useMapManagement } from "@/composables/useMapManagement.js";
 import { useMapInteractions } from "@/composables/useMapInteractions.js";
 import { STYLES, createWindIndicatorStyle } from "@/utils/mapStyles";
@@ -795,124 +797,6 @@ const attachDefaultFramingListener = () => {
   attemptApply();
   if (typeof map.value.render === "function") {
     map.value.render();
-  }
-};
-
-const handleFenceSave = async () => {
-  if (!anchorState.value) {
-    logger.warn("Cannot save fence: anchorState is undefined");
-    fenceValidationError.value = "Anchor state is unavailable.";
-    return;
-  }
-  if (!selectedFenceTarget.value) {
-    logger.warn("Cannot save fence: selectedFenceTarget is undefined");
-    fenceValidationError.value = "Select a fence target first.";
-    return;
-  }
-  if (!fenceReferenceType.value) {
-    logger.warn("Cannot save fence: reference type is not selected");
-    fenceValidationError.value = "Select a reference (Boat or Anchor Drop).";
-    return;
-  }
-
-  const parsedRange = Number(fenceRangeInput.value);
-  if (!Number.isFinite(parsedRange) || parsedRange <= 0) {
-    logger.warn("Cannot save fence: invalid alert range", { value: fenceRangeInput.value });
-    fenceValidationError.value = "Enter a valid alert range.";
-    return;
-  }
-
-  fenceValidationError.value = null;
-
-  if (!Array.isArray(anchorState.value.fences)) {
-    anchorState.value.fences = [];
-  }
-
-  const units = isMetric.value ? "m" : "ft";
-  const target = selectedFenceTarget.value;
-  const fallbackName = target.targetType === "ais" ? "AIS Fence" : "Point Fence";
-  const nextFence = {
-    id: `fence-${Date.now()}`,
-    name: fenceName.value && fenceName.value.trim() ? fenceName.value.trim() : fallbackName,
-    enabled: true,
-    targetType: target.targetType,
-    targetRef: target.targetRef,
-    referenceType: fenceReferenceType.value,
-    alertRange: parsedRange,
-    units,
-    currentDistance: null,
-    currentDistanceUnits: units,
-    minimumDistance: null,
-    minimumDistanceUnits: units,
-    minimumDistanceUpdatedAt: null,
-    distanceHistory: [],
-    inAlert: false,
-    createdAt: Date.now(),
-  };
-
-  anchorState.value.fences.push(nextFence);
-
-  const existingFenceDropDepth = normalizeDepthDatum(anchorState.value.anchorDropLocation?.depth);
-  const navigationFenceDepth = normalizeDepthDatum(navigationState.value?.depth);
-  const resolvedFenceDropDepth = (existingFenceDropDepth?.value != null)
-    ? existingFenceDropDepth
-    : (navigationFenceDepth?.value != null ? navigationFenceDepth : existingFenceDropDepth || navigationFenceDepth);
-
-  if (anchorState.value.anchorDropLocation && resolvedFenceDropDepth) {
-    anchorState.value.anchorDropLocation = {
-      ...anchorState.value.anchorDropLocation,
-      depth: resolvedFenceDropDepth,
-      depthSource: typeof anchorState.value.anchorDropLocation.depthSource === "string"
-        ? anchorState.value.anchorDropLocation.depthSource
-        : "assumed_from_boat",
-    };
-  }
-
-  try {
-    await stateStore.sendMessageToServer("anchor:update", anchorState.value, {
-      source: "AnchorView.handleFenceSave",
-      timeout: 5000,
-    });
-  } catch (error) {
-    logger.error("Failed to persist fence to server", error);
-  }
-
-  updateFenceFeatures();
-  showFenceConfigModal.value = false;
-  fenceModeEnabled.value = false;
-  resetFenceDraft();
-};
-
-const removeFence = async (fenceId) => {
-  if (!anchorState.value || !Array.isArray(anchorState.value.fences)) {
-    return;
-  }
-  anchorState.value.fences = anchorState.value.fences.filter((fence) => fence.id !== fenceId);
-  updateFenceFeatures();
-
-  const existingFenceDropDepth = normalizeDepthDatum(anchorState.value.anchorDropLocation?.depth);
-  const navigationFenceDepth = normalizeDepthDatum(navigationState.value?.depth);
-  const resolvedFenceDropDepth = (existingFenceDropDepth?.value != null)
-    ? existingFenceDropDepth
-    : (navigationFenceDepth?.value != null ? navigationFenceDepth : existingFenceDropDepth || navigationFenceDepth);
-
-  if (anchorState.value.anchorDropLocation && resolvedFenceDropDepth) {
-    anchorState.value.anchorDropLocation = {
-      ...anchorState.value.anchorDropLocation,
-      depth: resolvedFenceDropDepth,
-      depthSource: typeof anchorState.value.anchorDropLocation.depthSource === "string"
-        ? anchorState.value.anchorDropLocation.depthSource
-        : "assumed_from_boat",
-    };
-  }
-
-  try {
-    await stateStore.sendMessageToServer("anchor:update", anchorState.value, {
-      source: "AnchorView.removeFence",
-      timeout: 5000,
-    });
-  } catch (error) {
-    logger.error("Failed to persist fence removal", error);
   }
 };
 
@@ -1730,6 +1614,11 @@ const {
   logger,
   getAnchorState: () => anchorState.value,
   disableMeasureMode: disableMeasureModeForFence,
+});
+
+const { buildAisModalTarget } = useAisModalTarget({
+  isMetric,
+  calculateDistanceMeters,
 });
 
 const boatPosition = computed(() => navigationState.value?.position);
@@ -3896,6 +3785,29 @@ const normalizeDepthDatum = (depthCandidate) => {
   return null;
 };
 
+const {
+  handleFenceSave,
+  removeFence,
+} = useAnchorFencePersistence({
+  logger,
+  stateStore,
+  anchorState,
+  navigationState,
+  isMetric,
+  selectedFenceTarget,
+  fenceName,
+  fenceRangeInput,
+  fenceReferenceType,
+  fenceValidationError,
+  normalizeDepthDatum,
+  updateFenceFeatures,
+  onFenceSaved: () => {
+    showFenceConfigModal.value = false;
+    fenceModeEnabled.value = false;
+    resetFenceDraft();
+  },
+});
+
 const handleSaveAnchorParameters = () => {
   console.log("[AnchorView] handleSaveAnchorParameters called");
   if (!anchorState.value) {
@@ -4803,159 +4715,18 @@ const openAISModal = (aisFeature) => {
   // Look up the full AIS target data from the store
   const mmsiStr = String(mmsi);
   const raw = state.value.aisTargets?.[mmsiStr];
-  
   if (!raw) {
     logger.warn(`[AIS Modal] No AIS target found in store for MMSI: ${mmsi}`);
-    selectedAISTarget.value = {
-      mmsi: mmsi,
-      name: name || "Unknown Vessel",
-    };
   } else {
     logger.debug(`[AIS Modal] Found raw target data:`, raw);
-    
-    // Helper functions matching AISTargetView
-    const toNumericValue = (val) => {
-      if (val == null) return null;
-      if (typeof val === "number") return Number.isFinite(val) ? val : null;
-      if (typeof val === "object" && val.value != null) {
-        const numeric = Number(val.value);
-        return Number.isFinite(numeric) ? numeric : null;
-      }
-      return null;
-    };
-    
-    // Format to 1 decimal place
-    const format1Dec = (val) => {
-      if (val == null) return null;
-      return Number(val).toFixed(1);
-    };
-    
-    // Get position directly from raw.position (matching AISTargetView)
-    const lat = toNumericValue(raw.position?.latitude);
-    const lon = toNumericValue(raw.position?.longitude);
-    
-    // Get SOG from raw.sog or navigationDetails.speedOverGround (in knots from store)
-    const sogKnots = toNumericValue(raw.sog) ?? toNumericValue(raw.navigationDetails?.speedOverGround);
-    let sog = null;
-    if (sogKnots != null) {
-      if (isMetric.value) {
-        // Convert knots to km/h (1 knot = 1.852 km/h)
-        sog = format1Dec(sogKnots * 1.852) + " km/h";
-      } else {
-        // Convert knots to mph (1 knot = 1.15078 mph)
-        sog = format1Dec(sogKnots * 1.15078) + " mph";
-      }
-    }
-    
-    // Get COG - use convertedValue if available (already in degrees)
-    const cogObj = raw.cog || raw.navigationDetails?.courseOverGroundTrue;
-    const cogDegrees = cogObj?.convertedValue ?? (toNumericValue(cogObj) != null ? (toNumericValue(cogObj) * 180 / Math.PI) : null);
-    const cog = cogDegrees != null ? format1Dec(cogDegrees) + "°" : null;
-    
-    // Get vessel type from raw.shipType (matching AISTargetView)
-    const vesselType = raw.shipType || raw.shipTypeDetails?.name || null;
-    
-    // Navigation status
-    const navStatus = raw.status || raw.navigationDetails?.status || null;
-    
-    // Get callsign directly (matching AISTargetView)
-    const callsign = raw.callsign || raw.communication?.callsignVhf || null;
-    
-    // Get destination
-    const destination = raw.destination || null;
-    
-    // Get dimensions using same logic as AISTargetView (in meters)
-    const lengthMeters = toNumericValue(raw.design?.length?.value?.overall) 
-      ?? toNumericValue(raw.design?.length?.overall)
-      ?? toNumericValue(raw.length?.value?.overall)
-      ?? toNumericValue(raw.length?.overall)
-      ?? toNumericValue(raw.length?.value)
-      ?? toNumericValue(raw.length);
-    
-    const beamMeters = toNumericValue(raw.design?.beam?.value)
-      ?? toNumericValue(raw.design?.beam)
-      ?? toNumericValue(raw.beam?.value)
-      ?? toNumericValue(raw.beam);
-    
-    const draftMeters = toNumericValue(raw.design?.draft?.value?.current)
-      ?? toNumericValue(raw.design?.draft?.current)
-      ?? toNumericValue(raw.draft?.value?.current)
-      ?? toNumericValue(raw.draft?.current)
-      ?? toNumericValue(raw.draft?.value)
-      ?? toNumericValue(raw.draft);
-    
-    // Convert dimensions to user preference
-    let length = null, beam = null, draft = null;
-    if (lengthMeters != null) {
-      if (isMetric.value) {
-        length = format1Dec(lengthMeters) + " m";
-      } else {
-        // Convert to feet (1 m = 3.28084 ft)
-        length = format1Dec(lengthMeters * 3.28084) + " ft";
-      }
-    }
-    if (beamMeters != null) {
-      if (isMetric.value) {
-        beam = format1Dec(beamMeters) + " m";
-      } else {
-        beam = format1Dec(beamMeters * 3.28084) + " ft";
-      }
-    }
-    if (draftMeters != null) {
-      if (isMetric.value) {
-        draft = format1Dec(draftMeters) + " m";
-      } else {
-        draft = format1Dec(draftMeters * 3.28084) + " ft";
-      }
-    }
-    
-    // Calculate distance and convert to user preference
-    let distance = null;
-    const ownPos = state.value?.navigation?.position;
-    if (lat != null && lon != null && ownPos) {
-      const ownLat = toNumericValue(ownPos.latitude);
-      const ownLon = toNumericValue(ownPos.longitude);
-      if (ownLat != null && ownLon != null) {
-        const distanceMeters = calculateDistanceMeters(ownLat, ownLon, lat, lon, true);
-        if (Number.isFinite(distanceMeters)) {
-          if (isMetric.value) {
-            // Convert to meters or km
-            if (distanceMeters >= 1000) {
-              distance = format1Dec(distanceMeters / 1000) + " km";
-            } else {
-              distance = format1Dec(distanceMeters) + " m";
-            }
-          } else {
-            // Convert to feet or nautical miles
-            const distanceNm = distanceMeters / 1852;
-            if (distanceNm >= 0.1) {
-              distance = format1Dec(distanceNm) + " nm";
-            } else {
-              const distanceFt = distanceMeters * 3.28084;
-              distance = format1Dec(distanceFt) + " ft";
-            }
-          }
-        }
-      }
-    }
-    
-    selectedAISTarget.value = {
-      mmsi: raw.mmsi || mmsi,
-      name: raw.name || name || "Unknown Vessel",
-      latitude: lat,
-      longitude: lon,
-      sog: sog,
-      cog: cog,
-      vesselType: vesselType,
-      navStatus: navStatus,
-      callsign: callsign,
-      destination: destination,
-      length: length,
-      beam: beam,
-      draft: draft,
-      distance: distance,
-    };
   }
+
+  selectedAISTarget.value = buildAisModalTarget({
+    raw,
+    mmsi,
+    name,
+    ownPosition: state.value?.navigation?.position,
+  });
   
   showAISModal.value = true;
 };
