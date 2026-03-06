@@ -227,12 +227,12 @@ import { fromLonLat, toLonLat } from "ol/proj";
 import { Point } from "ol/geom";
 import Polygon from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
-import Collection from "ol/Collection";
-import Translate from "ol/interaction/Translate";
 
 import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import { useMapTools } from "@/utils/mapUtils.js";
-import { useMapFeatures } from "@/utils/mapFeatures";
+import { useAnchorFeatureRegistry } from "@/composables/anchor/useAnchorFeatureRegistry.js";
+import { useAnchorAnimation } from "@/composables/anchor/useAnchorAnimation.js";
+import { useAnchorMeasureMode } from "@/composables/anchor/useAnchorMeasureMode.js";
 import { useMapManagement } from "@/composables/useMapManagement.js";
 import { useMapInteractions } from "@/composables/useMapInteractions.js";
 import { STYLES, createWindIndicatorStyle } from "@/utils/mapStyles";
@@ -1274,44 +1274,23 @@ const {
   mapElement, 
   isMapRenderReady: isMapRenderReadyFromComposable,
   initializeMap: initializeMapComposable,
-  addFeature,
-  removeFeature,
-  clearAllFeatures,
-  setCenter,
-  getCenter,
-  setZoom,
-  getZoom,
-  updateSize,
-  on: mapOn,
-  off: mapOff,
-  getFeaturesAtPixel,
-  fromLonLat: fromLonLatFromComposable,
-  toLonLat: toLonLatFromComposable,
-  destroy: destroyMap
 } = useMapManagement('openstreetmap', isDarkMode, { destroyOnUnmount: false });
 
-// Keep the original vectorSource and mapFeatures for now
+// Keep a mutable vectorSource reference so we can swap to provider source after map init
 let vectorSource = new VectorSource();
-let mapFeaturesComposable = useMapFeatures(vectorSource);
 
-// Extract the functions for easier access
-let { updateFeature, updateFeatureGroup, clearFeature, clearAll } = mapFeaturesComposable;
+const {
+  updateFeature,
+  updateFeatureGroup,
+  clearFeature,
+  clearAll,
+  getFeatureByType,
+  resetCache: resetFeatureRegistry,
+} = useAnchorFeatureRegistry(() => vectorSource);
 
 // Map Interactions
 const {
-  measureModeEnabled: measureModeEnabledFromComposable,
-  fenceModeEnabled: fenceModeEnabledFromComposable,
-  measurePinA: measurePinAFromComposable,
-  measurePinB: measurePinBFromComposable,
-  measureLine: measureLineFromComposable,
-  measureLabel: measureLabelFromComposable,
-  measurePinAFollowsBoat: measurePinAFollowsBoatFromComposable,
-  measurePinBFollowsBoat: measurePinBFollowsBoatFromComposable,
-  toggleMeasureMode: toggleMeasureModeFromComposable,
-  toggleFenceMode: toggleFenceModeFromComposable,
-  clearMeasurementFeatures: clearMeasurementFeaturesFromComposable,
   setupInteractions,
-  cleanup: cleanupInteractions
 } = useMapInteractions(map, vectorSource);
 
 // Calculate anchor depth in preferred units for tide component
@@ -1716,14 +1695,6 @@ const anchorStatusClass = computed(() => {
   return 'status-not-anchored';
 });
 
-const measureModeEnabled = ref(false);
-const measurePinAFollowsBoat = ref(false);
-const measurePinBFollowsBoat = ref(false);
-const measurePinA = ref(null);
-const measurePinB = ref(null);
-const measureLine = ref(null);
-const measureLabel = ref(null);
-
 const fenceModeEnabled = ref(false);
 const showFenceConfigModal = ref(false);
 const showFenceListModal = ref(false);
@@ -1732,359 +1703,6 @@ const fenceName = ref("");
 const fenceRangeInput = ref("");
 const fenceReferenceType = ref("");
 const fenceValidationError = ref(null);
-
-const measureSnapDistanceMeters = 5;
-
-let modifyInteraction;
-let dragPanInteraction;
-
-const getMeasurePinStyle = (labelText, isSnappedToBoat) => {
-  const darkMode = isDarkMode.value === true;
-  const alpha = isSnappedToBoat === true ? 0.2 : 0.95;
-  const fillColor = (() => {
-    if (labelText === "A") return `rgba(239,68,68,${alpha})`;
-    if (labelText === "B") return `rgba(34,197,94,${alpha})`;
-    return darkMode ? `rgba(248,250,252,${alpha})` : `rgba(99,102,241,${alpha})`;
-  })();
-  const strokeColor = (() => {
-    if (isSnappedToBoat === true) {
-      return darkMode ? "rgba(15,23,42,0.2)" : "rgba(255,255,255,0.2)";
-    }
-    return darkMode ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.95)";
-  })();
-  const textColor = isSnappedToBoat === true ? "rgba(255,255,255,0.2)" : "#ffffff";
-
-  return new Style({
-    image: new CircleStyle({
-      radius: 10,
-      fill: new Fill({ color: fillColor }),
-      stroke: new Stroke({ color: strokeColor, width: 3 }),
-    }),
-    text: new Text({
-      text: labelText,
-      font: "700 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-      fill: new Fill({ color: textColor }),
-      offsetY: 0,
-    }),
-    zIndex: 120,
-  });
-};
-
-const MEASURE_LINE_STYLE = new Style({
-  stroke: new Stroke({
-    color: "rgba(250,204,21,0.95)",
-    width: 4,
-  }),
-  zIndex: 110,
-});
-
-const getMeasureLabelStyle = (labelText) => {
-  const darkMode = isDarkMode.value === true;
-  const textColor = darkMode ? "#111827" : "#f9fafb";
-  const bgColor = darkMode ? "rgba(248,250,252,0.92)" : "rgba(17,24,39,0.85)";
-  const borderColor = darkMode ? "rgba(15,23,42,0.35)" : "rgba(248,250,252,0.25)";
-
-  return new Style({
-    text: new Text({
-      text: labelText,
-      font: "600 13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-      fill: new Fill({ color: textColor }),
-      backgroundFill: new Fill({ color: bgColor }),
-      backgroundStroke: new Stroke({ color: borderColor, width: 2 }),
-      padding: [6, 8, 6, 8],
-      offsetY: -14,
-    }),
-    zIndex: 130,
-  });
-};
-
-const getBoatLonLatForMeasure = () => {
-  const pos = stateStore.state?.navigation?.position;
-  if (!pos || !pos.latitude || !pos.longitude) return null;
-  const lat = pos.latitude.value;
-  const lon = pos.longitude.value;
-  if (lat == null || lon == null) return null;
-  if (typeof lat !== "number" || typeof lon !== "number") return null;
-  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
-  return [lon, lat];
-};
-
-const clearMeasurementFeatures = () => {
-  clearFeature(FEATURE_TYPES.MEASURE_PIN_A);
-  clearFeature(FEATURE_TYPES.MEASURE_PIN_B);
-  clearFeature(FEATURE_TYPES.MEASURE_LINE);
-  clearFeature(FEATURE_TYPES.MEASURE_LABEL);
-  measurePinA.value = null;
-  measurePinB.value = null;
-  measureLine.value = null;
-  measureLabel.value = null;
-  measurePinAFollowsBoat.value = false;
-  measurePinBFollowsBoat.value = false;
-};
-
-const ensureTranslateInteraction = () => {
-  if (!map.value) return;
-  if (modifyInteraction) return;
-
-  modifyInteraction = new Translate({
-    features: new Collection(),
-    hitTolerance: 12,
-  });
-
-  modifyInteraction.on("translatestart", (evt) => {
-    if (dragPanInteraction && typeof dragPanInteraction.setActive === "function") {
-      dragPanInteraction.setActive(false);
-    }
-    const moved = evt?.features;
-    if (!moved || typeof moved.forEach !== "function") return;
-    moved.forEach((feature) => {
-      const type = feature?.get?.("type");
-      if (type === FEATURE_TYPES.MEASURE_PIN_A) {
-        measurePinAFollowsBoat.value = false;
-        if (typeof feature?.setStyle === "function") {
-          feature.setStyle(getMeasurePinStyle("A", false));
-        }
-      }
-      if (type === FEATURE_TYPES.MEASURE_PIN_B) {
-        measurePinBFollowsBoat.value = false;
-        if (typeof feature?.setStyle === "function") {
-          feature.setStyle(getMeasurePinStyle("B", false));
-        }
-      }
-    });
-  });
-
-  modifyInteraction.on("translateend", (evt) => {
-    if (dragPanInteraction && typeof dragPanInteraction.setActive === "function") {
-      dragPanInteraction.setActive(true);
-    }
-
-    const boatLonLat = getBoatLonLatForMeasure();
-    if (boatLonLat) {
-      const boatLon = boatLonLat[0];
-      const boatLat = boatLonLat[1];
-      const tryResnap = (feature) => {
-        const type = feature?.get?.("type");
-        if (type !== FEATURE_TYPES.MEASURE_PIN_A && type !== FEATURE_TYPES.MEASURE_PIN_B) {
-          return;
-        }
-        const geom = feature?.getGeometry?.();
-        const coord = geom?.getCoordinates?.();
-        if (!Array.isArray(coord)) return;
-        const lonLat = toLonLat(coord);
-        if (!Array.isArray(lonLat) || lonLat.length < 2) return;
-        const lon = lonLat[0];
-        const lat = lonLat[1];
-        if (typeof lon !== "number" || typeof lat !== "number") return;
-        if (Number.isNaN(lon) || Number.isNaN(lat)) return;
-
-        const d = calculateDistanceMeters(lat, lon, boatLat, boatLon, true);
-        if (typeof d !== "number" || Number.isNaN(d)) return;
-        if (d > measureSnapDistanceMeters) return;
-
-        if (type === FEATURE_TYPES.MEASURE_PIN_A) {
-          applyBoatFollowToPin("A", measurePinA, measurePinAFollowsBoat);
-        }
-        if (type === FEATURE_TYPES.MEASURE_PIN_B) {
-          applyBoatFollowToPin("B", measurePinB, measurePinBFollowsBoat);
-        }
-      };
-
-      const moved = evt?.features;
-      if (moved && typeof moved.forEach === "function") {
-        moved.forEach((feature) => {
-          tryResnap(feature);
-        });
-      }
-    }
-
-    syncTranslateFeatures();
-    updateMeasurementLineAndLabel();
-  });
-
-  const interactions = map.value.getInteractions?.();
-  if (interactions && typeof interactions.insertAt === "function") {
-    interactions.insertAt(0, modifyInteraction);
-  } else {
-    map.value.addInteraction(modifyInteraction);
-  }
-};
-
-const syncTranslateFeatures = () => {
-  if (!modifyInteraction) return;
-  const collection = modifyInteraction.getFeatures?.();
-  if (!collection) return;
-
-  collection.clear();
-  if (measurePinA.value) {
-    collection.push(measurePinA.value);
-  }
-  if (measurePinB.value) {
-    collection.push(measurePinB.value);
-  }
-};
-
-const updateMeasurementLineAndLabel = () => {
-  if (!measurePinA.value || !measurePinB.value) {
-    clearFeature(FEATURE_TYPES.MEASURE_LINE);
-    clearFeature(FEATURE_TYPES.MEASURE_LABEL);
-    measureLine.value = null;
-    measureLabel.value = null;
-    return;
-  }
-
-  const geomA = measurePinA.value.getGeometry?.();
-  const geomB = measurePinB.value.getGeometry?.();
-  const coordA = geomA?.getCoordinates?.();
-  const coordB = geomB?.getCoordinates?.();
-  if (!Array.isArray(coordA) || !Array.isArray(coordB)) return;
-
-  const lineGeom = new LineString([coordA, coordB]);
-  if (!measureLine.value) {
-    const lineFeature = new Feature({ geometry: lineGeom });
-    lineFeature.set("type", FEATURE_TYPES.MEASURE_LINE);
-    lineFeature.setStyle(MEASURE_LINE_STYLE);
-    vectorSource.addFeature(lineFeature);
-    measureLine.value = lineFeature;
-  } else {
-    measureLine.value.setGeometry(lineGeom);
-  }
-
-  const lonLatA = toLonLat(coordA);
-  const lonLatB = toLonLat(coordB);
-  const distanceValue = calculateDistanceMeters(lonLatA[1], lonLatA[0], lonLatB[1], lonLatB[0], isMetric.value);
-  const unitLabel = isMetric.value ? "m" : "ft";
-  const distanceText = typeof distanceValue === "number" ? `${Math.round(distanceValue)} ${unitLabel}` : "--";
-
-  const midCoord = [(coordA[0] + coordB[0]) / 2, (coordA[1] + coordB[1]) / 2];
-  const labelGeom = new Point(midCoord);
-
-  if (!measureLabel.value) {
-    const labelFeature = new Feature({ geometry: labelGeom });
-    labelFeature.set("type", FEATURE_TYPES.MEASURE_LABEL);
-    labelFeature.setStyle(getMeasureLabelStyle(distanceText));
-    vectorSource.addFeature(labelFeature);
-    measureLabel.value = labelFeature;
-  } else {
-    measureLabel.value.setGeometry(labelGeom);
-    measureLabel.value.setStyle(getMeasureLabelStyle(distanceText));
-  }
-};
-
-const applyBoatFollowToPin = (pinType, pinRef, followsRef) => {
-  const boatLonLat = getBoatLonLatForMeasure();
-  if (!boatLonLat) return;
-  const coord = fromLonLat(boatLonLat);
-  if (!pinRef.value) {
-    const feature = new Feature({ geometry: new Point(coord) });
-    feature.set(
-      "type",
-      pinType === "A" ? FEATURE_TYPES.MEASURE_PIN_A : FEATURE_TYPES.MEASURE_PIN_B
-    );
-    feature.setStyle(getMeasurePinStyle(pinType, true));
-    vectorSource.addFeature(feature);
-    pinRef.value = feature;
-  } else {
-    pinRef.value.setGeometry(new Point(coord));
-    pinRef.value.setStyle(getMeasurePinStyle(pinType, true));
-  }
-  followsRef.value = true;
-};
-
-const tryCreateOrUpdateMeasurePin = (pinType, lonLatClicked) => {
-  const clickedCoord = fromLonLat(lonLatClicked);
-  const boatLonLat = getBoatLonLatForMeasure();
-  const shouldSnapToBoat = (() => {
-    if (!boatLonLat) return false;
-    const d = calculateDistanceMeters(lonLatClicked[1], lonLatClicked[0], boatLonLat[1], boatLonLat[0], true);
-    return typeof d === "number" && d <= measureSnapDistanceMeters;
-  })();
-
-  if (pinType === "A") {
-    if (shouldSnapToBoat) {
-      applyBoatFollowToPin("A", measurePinA, measurePinAFollowsBoat);
-    } else {
-      measurePinAFollowsBoat.value = false;
-      if (!measurePinA.value) {
-        const feature = new Feature({ geometry: new Point(clickedCoord) });
-        feature.set("type", FEATURE_TYPES.MEASURE_PIN_A);
-        feature.setStyle(getMeasurePinStyle("A", false));
-        vectorSource.addFeature(feature);
-        measurePinA.value = feature;
-      } else {
-        measurePinA.value.setGeometry(new Point(clickedCoord));
-        measurePinA.value.setStyle(getMeasurePinStyle("A", false));
-      }
-    }
-  }
-
-  if (pinType === "B") {
-    if (shouldSnapToBoat) {
-      applyBoatFollowToPin("B", measurePinB, measurePinBFollowsBoat);
-    } else {
-      measurePinBFollowsBoat.value = false;
-      if (!measurePinB.value) {
-        const feature = new Feature({ geometry: new Point(clickedCoord) });
-        feature.set("type", FEATURE_TYPES.MEASURE_PIN_B);
-        feature.setStyle(getMeasurePinStyle("B", false));
-        vectorSource.addFeature(feature);
-        measurePinB.value = feature;
-      } else {
-        measurePinB.value.setGeometry(new Point(clickedCoord));
-        measurePinB.value.setStyle(getMeasurePinStyle("B", false));
-      }
-    }
-  }
-
-  syncTranslateFeatures();
-  updateMeasurementLineAndLabel();
-};
-
-const toggleMeasureMode = async () => {
-  measureModeEnabled.value = !measureModeEnabled.value;
-  
-  // Force DOM reflow to ensure iOS Safari applies CSS immediately
-  if (measureModeEnabled.value) {
-    await nextTick();
-    // Force a reflow on the measure button specifically
-    const measureButton = document.querySelector('.measure-toggle');
-    if (measureButton) {
-      measureButton.offsetHeight;
-    }
-    
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    setTimeout(() => {
-      ensureTranslateInteraction();
-      syncTranslateFeatures();
-    }, 0);
-    return;
-  }
-
-  clearMeasurementFeatures();
-  if (modifyInteraction && map.value) {
-    map.value.removeInteraction(modifyInteraction);
-    modifyInteraction = null;
-  }
-};
-
-const boatPosition = computed(() => navigationState.value?.position);
-const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
-const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
-
-// console.log("anchorState.value:", anchorState.value);
-// console.log("anchorState getter:", anchorState);
-
-const breadcrumbs = computed(() => {
-  const anchorHistory = anchorState.value?.history;
-  if (Array.isArray(anchorHistory) && anchorHistory.length > 0) {
-    return anchorHistory;
-  }
-  const trackedBreadcrumbs = storeBreadcrumbs.value;
-  if (Array.isArray(trackedBreadcrumbs) && trackedBreadcrumbs.length > 0) {
-    return trackedBreadcrumbs;
-  }
-  return [];
-});
 
 // Unit system handling
 const isMetric = computed(() => {
@@ -2105,6 +1723,55 @@ const isMetric = computed(() => {
   }
   // Default to imperial (legacy behavior)
   return false;
+});
+
+const getBoatLonLatForMeasure = () => {
+  const pos = stateStore.state?.navigation?.position;
+  if (!pos || !pos.latitude || !pos.longitude) return null;
+  const lat = pos.latitude.value;
+  const lon = pos.longitude.value;
+  if (lat == null || lon == null) return null;
+  if (typeof lat !== "number" || typeof lon !== "number") return null;
+  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  return [lon, lat];
+};
+
+const {
+  measureModeEnabled,
+  toggleMeasureMode,
+  handleMeasureMapClick,
+  syncMeasurementWithBoat,
+  cleanupMeasureMode,
+} = useAnchorMeasureMode({
+  map,
+  isDarkMode,
+  isMetric,
+  getVectorSource: () => vectorSource,
+  featureTypes: FEATURE_TYPES,
+  clearFeature,
+  calculateDistanceMeters,
+  fromLonLat,
+  toLonLat,
+  getBoatLonLatForMeasure,
+});
+
+const boatPosition = computed(() => navigationState.value?.position);
+const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
+const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
+
+// console.log("anchorState.value:", anchorState.value);
+// console.log("anchorState getter:", anchorState);
+
+const breadcrumbs = computed(() => {
+  const anchorHistory = anchorState.value?.history;
+  if (Array.isArray(anchorHistory) && anchorHistory.length > 0) {
+    return anchorHistory;
+  }
+  const trackedBreadcrumbs = storeBreadcrumbs.value;
+  if (Array.isArray(trackedBreadcrumbs) && trackedBreadcrumbs.length > 0) {
+    return trackedBreadcrumbs;
+  }
+  return [];
 });
 
 // ScaleLine watch removed - no longer using this control
@@ -2281,189 +1948,20 @@ watch(
 
 // Feature Updates
 
-// Boat position animation state
-let currentBoatPosition = null; // { lat, lon, x, y } in map coordinates
-let boatAnimationFrame = null;
-let currentRodeLine = null; // { boat: {x, y}, anchor: {x, y} } in map coordinates
-let rodeAnimationFrame = null;
-
-// Animate boat position with interpolation - also updates rode line to keep them synced
-function animateBoatPosition(targetLat, targetLon, duration = 500) {
-  const targetCoord = fromLonLat([targetLon, targetLat]);
-  
-  // Get anchor position for rode line (anchor doesn't move during boat animation)
-  const state = stateStore.state;
-  const anchorPos = state?.anchor?.anchorLocation?.position;
-  let anchorCoord = null;
-  if (anchorPos) {
-    const anchorLat = anchorPos.latitude?.value ?? anchorPos.latitude;
-    const anchorLon = anchorPos.longitude?.value ?? anchorPos.longitude;
-    if (typeof anchorLat === "number" && typeof anchorLon === "number") {
-      anchorCoord = fromLonLat([anchorLon, anchorLat]);
-    }
-  }
-  
-  // If no current position, just set it directly
-  if (!currentBoatPosition) {
-    currentBoatPosition = { lat: targetLat, lon: targetLon, x: targetCoord[0], y: targetCoord[1] };
-    updateBoatFeaturePosition(targetCoord[0], targetCoord[1]);
-    // Also set rode line if anchor exists
-    if (anchorCoord) {
-      currentRodeLine = { 
-        boat: { x: targetCoord[0], y: targetCoord[1] }, 
-        anchor: { x: anchorCoord[0], y: anchorCoord[1] } 
-      };
-      const rodeFeature = vectorSource.getFeatures().find(
-        (feature) => feature.get("type") === FEATURE_TYPES.RODE
-      );
-      if (!rodeFeature && anchorState.value?.anchorDeployed) {
-        updateRodeLine();
-      } else {
-        updateRodeFeaturePosition(targetCoord[0], targetCoord[1], anchorCoord[0], anchorCoord[1]);
-      }
-    }
-    return;
-  }
-  
-  // Cancel any existing boat animation
-  if (boatAnimationFrame) {
-    cancelAnimationFrame(boatAnimationFrame);
-    boatAnimationFrame = null;
-  }
-  
-  // Cancel any existing rode animation to prevent conflicts
-  if (rodeAnimationFrame) {
-    cancelAnimationFrame(rodeAnimationFrame);
-    rodeAnimationFrame = null;
-  }
-  
-  const startX = currentBoatPosition.x;
-  const startY = currentBoatPosition.y;
-  const startTime = performance.now();
-  
-  function step(now) {
-    const elapsed = now - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    
-    // Ease-in-out easing
-    const easeProgress = progress < 0.5 
-      ? 2 * progress * progress 
-      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-    
-    const currentX = startX + (targetCoord[0] - startX) * easeProgress;
-    const currentY = startY + (targetCoord[1] - startY) * easeProgress;
-    
-    // Update current position
-    currentBoatPosition.x = currentX;
-    currentBoatPosition.y = currentY;
-    currentBoatPosition.lat = targetLat;
-    currentBoatPosition.lon = targetLon;
-    
-    // Update the boat feature
-    updateBoatFeaturePosition(currentX, currentY);
-    
-    // Also update rode line in the same frame if anchor is deployed
-    if (anchorState.value?.anchorDeployed && anchorCoord) {
-      currentRodeLine = { 
-        boat: { x: currentX, y: currentY }, 
-        anchor: { x: anchorCoord[0], y: anchorCoord[1] } 
-      };
-      const rodeFeature = vectorSource.getFeatures().find(
-        (feature) => feature.get("type") === FEATURE_TYPES.RODE
-      );
-      if (!rodeFeature) {
-        updateRodeLine();
-      } else {
-        updateRodeFeaturePosition(currentX, currentY, anchorCoord[0], anchorCoord[1]);
-      }
-    }
-    
-    if (progress < 1) {
-      boatAnimationFrame = requestAnimationFrame(step);
-    }
-  }
-  
-  boatAnimationFrame = requestAnimationFrame(step);
-}
-
-// Update boat feature position
-function updateBoatFeaturePosition(x, y) {
-  const boatFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.BOAT);
-  if (!boatFeature) return;
-  
-  const geometry = boatFeature.getGeometry();
-  if (geometry && typeof geometry.setCoordinates === 'function') {
-    geometry.setCoordinates([x, y]);
-    boatFeature.changed();
-  }
-}
-
-// Animate rode line position
-function animateRodeLine(targetBoatX, targetBoatY, targetAnchorX, targetAnchorY, duration = 500) {
-  // If no current rode line, just create it directly
-  if (!currentRodeLine) {
-    currentRodeLine = { 
-      boat: { x: targetBoatX, y: targetBoatY }, 
-      anchor: { x: targetAnchorX, y: targetAnchorY } 
-    };
-    updateRodeFeaturePosition(targetBoatX, targetBoatY, targetAnchorX, targetAnchorY);
-    return;
-  }
-  
-  // Cancel any existing animation
-  if (rodeAnimationFrame) {
-    cancelAnimationFrame(rodeAnimationFrame);
-    rodeAnimationFrame = null;
-  }
-  
-  const startBoatX = currentRodeLine.boat.x;
-  const startBoatY = currentRodeLine.boat.y;
-  const startAnchorX = currentRodeLine.anchor.x;
-  const startAnchorY = currentRodeLine.anchor.y;
-  const startTime = performance.now();
-  
-  function step(now) {
-    const elapsed = now - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    
-    // Ease-in-out easing
-    const easeProgress = progress < 0.5 
-      ? 2 * progress * progress 
-      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-    
-    const currentBoatX = startBoatX + (targetBoatX - startBoatX) * easeProgress;
-    const currentBoatY = startBoatY + (targetBoatY - startBoatY) * easeProgress;
-    const currentAnchorX = startAnchorX + (targetAnchorX - startAnchorX) * easeProgress;
-    const currentAnchorY = startAnchorY + (targetAnchorY - startAnchorY) * easeProgress;
-    
-    // Update current position
-    currentRodeLine.boat.x = currentBoatX;
-    currentRodeLine.boat.y = currentBoatY;
-    currentRodeLine.anchor.x = currentAnchorX;
-    currentRodeLine.anchor.y = currentAnchorY;
-    
-    // Update the rode feature
-    updateRodeFeaturePosition(currentBoatX, currentBoatY, currentAnchorX, currentAnchorY);
-    
-    if (progress < 1) {
-      rodeAnimationFrame = requestAnimationFrame(step);
-    }
-  }
-  
-  rodeAnimationFrame = requestAnimationFrame(step);
-}
-
-// Update rode feature position
-function updateRodeFeaturePosition(boatX, boatY, anchorX, anchorY) {
-  const rodeFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.RODE);
-  if (!rodeFeature) return;
-  
-  const geometry = rodeFeature.getGeometry();
-  if (geometry && typeof geometry.setCoordinates === 'function') {
-    geometry.setCoordinates([[boatX, boatY], [anchorX, anchorY]]);
-    rodeFeature.changed();
-  }
-}
+const {
+  animateBoatPosition,
+  setCurrentBoatPositionFromLatLon,
+  getAnimatedBoatLonLat,
+  stopAnimations,
+} = useAnchorAnimation({
+  fromLonLat,
+  toLonLat,
+  getFeatureByType,
+  featureTypes: FEATURE_TYPES,
+  getState: () => stateStore.state,
+  getAnchorState: () => anchorState.value,
+  onRodeMissing: () => updateRodeLine(),
+});
 
 const updateBoatPosition = debounce(() => {
   // Get the raw state to ensure we're accessing the data directly
@@ -2500,7 +1998,7 @@ const updateBoatPosition = debounce(() => {
   logger.debug("Updating boat position:", { lat, lon });
 
   // Check if boat feature exists
-  const boatFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.BOAT);
+  const boatFeature = getFeatureByType(FEATURE_TYPES.BOAT);
   
   if (!boatFeature) {
     // First time - create the feature with full styling
@@ -2546,15 +2044,14 @@ const updateBoatPosition = debounce(() => {
     updateFeature(FEATURE_TYPES.BOAT, point, boatStyle);
     
     // Debug: Check if boat feature was added
-    const addedBoatFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.BOAT);
+    const addedBoatFeature = getFeatureByType(FEATURE_TYPES.BOAT);
     logger.debug("Boat feature added successfully:", {
       featureExists: !!addedBoatFeature,
       totalFeatures: vectorSource.getFeatures().length
     });
     
     // Initialize current boat position for future animations
-    const coord = fromLonLat([lon, lat]);
-    currentBoatPosition = { lat, lon, x: coord[0], y: coord[1] };
+    setCurrentBoatPositionFromLatLon(lat, lon);
   } else {
     // Feature exists - update rotation and animate position
     try {
@@ -2794,7 +2291,7 @@ let hadAisTargetsInWarningRange = false;
 
 // Update wind feature with specific rotation value
 function updateWindFeatureWithRotation(rotation) {
-  const windFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.WIND);
+  const windFeature = getFeatureByType(FEATURE_TYPES.WIND);
   if (!windFeature) return;
   
   // Get style - could be a function, single style, or array of styles
@@ -2829,7 +2326,7 @@ function updateWindIndicatorScale() {
   if (typeof zoom !== "number" || !Number.isFinite(zoom)) return;
   if (typeof resolution !== "number" || !Number.isFinite(resolution) || resolution <= 0) return;
 
-  const windFeature = vectorSource.getFeatures().find((f) => f.get("type") === FEATURE_TYPES.WIND);
+  const windFeature = getFeatureByType(FEATURE_TYPES.WIND);
   if (!windFeature) return;
 
   const nextScale = getWindIndicatorScaleForResolution(resolution);
@@ -2905,7 +2402,7 @@ const updateWindIndicator = (centerLat, centerLon, radiusInMeters) => {
   const targetRotation = Math.atan2(dLon, dLat);
 
   // Check if wind feature already exists
-  const existingFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.WIND);
+  const existingFeature = getFeatureByType(FEATURE_TYPES.WIND);
   
   if (existingFeature) {
     // Get current position for direct updates
@@ -3200,10 +2697,10 @@ const updateRodeLine = throttle(() => {
   const pos = state?.navigation?.position;
   let boatLat, boatLon;
   
-  if (boatAnimationFrame && currentBoatPosition) {
-    const coord = toLonLat([currentBoatPosition.x, currentBoatPosition.y]);
-    boatLon = coord[0];
-    boatLat = coord[1];
+  const animatedBoatLonLat = getAnimatedBoatLonLat();
+  if (animatedBoatLonLat) {
+    boatLon = animatedBoatLonLat.lon;
+    boatLat = animatedBoatLonLat.lat;
   } else if (pos?.latitude?.value != null && pos?.longitude?.value != null) {
     // Try to get boat position from state (same as initialization logic)
     boatLat = pos.latitude.value;
@@ -3291,9 +2788,7 @@ const updateRodeLine = throttle(() => {
       zIndex: 100, // Ensure it's on top
     });
 
-    const existingRodeFeature = vectorSource.getFeatures().find(
-      (feature) => feature.get("type") === FEATURE_TYPES.RODE
-    );
+    const existingRodeFeature = getFeatureByType(FEATURE_TYPES.RODE);
 
     if (existingRodeFeature) {
       const geometry = existingRodeFeature.getGeometry();
@@ -3697,9 +3192,8 @@ const initializeMap = async () => {
       // Replace our vectorSource reference
       vectorSource = providerVectorSource;
       
-      // Reinitialize useMapFeatures with the new vector source
-      mapFeaturesComposable = useMapFeatures(vectorSource);
-      ({ updateFeature, updateFeatureGroup, clearFeature, clearAll } = mapFeaturesComposable);
+      // Reset feature cache so future lookups use the provider-managed source
+      resetFeatureRegistry();
     }
 
     // Setup interactions
@@ -3862,19 +3356,7 @@ watch(
     updateFenceFeatures();
 
     if (measureModeEnabled.value) {
-      let updated = false;
-      if (measurePinAFollowsBoat.value === true) {
-        applyBoatFollowToPin("A", measurePinA, measurePinAFollowsBoat);
-        updated = true;
-      }
-      if (measurePinBFollowsBoat.value === true) {
-        applyBoatFollowToPin("B", measurePinB, measurePinBFollowsBoat);
-        updated = true;
-      }
-      if (updated) {
-        syncTranslateFeatures();
-        updateMeasurementLineAndLabel();
-      }
+      syncMeasurementWithBoat();
     }
 
     // Check if anchorState exists before accessing properties
@@ -5295,16 +4777,7 @@ const handleMapClick = (event) => {
     type: event.type,
   });
 
-  if (measureModeEnabled.value) {
-    const lonLatClicked = toLonLat(event.coordinate);
-    if (!measurePinA.value) {
-      tryCreateOrUpdateMeasurePin("A", lonLatClicked);
-      return;
-    }
-    if (!measurePinB.value) {
-      tryCreateOrUpdateMeasurePin("B", lonLatClicked);
-      return;
-    }
+  if (handleMeasureMapClick(event)) {
     return;
   }
 
@@ -5931,6 +5404,8 @@ onUnmounted(() => {
     stopInitialFeatureWatcher();
     stopInitialFeatureWatcher = null;
   }
+  stopAnimations();
+  cleanupMeasureMode();
   clearAll();
   window.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
   document.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
