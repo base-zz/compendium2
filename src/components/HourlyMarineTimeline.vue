@@ -5,14 +5,14 @@
       <div class="marine-forecast-cell marine-forecast-key-cell">
         <div class="marine-forecast-day">&nbsp;</div>
         <div class="marine-forecast-time">&nbsp;</div>
-        <div class="marine-forecast-key-item">Wind Dir</div>
-        <div class="marine-forecast-key-item">Wind kn</div>
-        <div class="marine-forecast-key-item">Gust (kn)</div>
+        <div class="marine-forecast-key-item marine-forecast-key-arrow-row">Wind Dir</div>
+        <div class="marine-forecast-key-item marine-forecast-key-value-row">Wind kn</div>
+        <div class="marine-forecast-key-item marine-forecast-key-subvalue-row">Gust (kn)</div>
         <div class="marine-forecast-divider" aria-hidden="true"></div>
-        <div class="marine-forecast-key-item">Wave Dir</div>
-        <div class="marine-forecast-key-item">Wave {{ waveHeightUnitLabel }}</div>
-        <div class="marine-forecast-key-item">Period s</div>
-        <div class="marine-forecast-key-item">Swell {{ waveHeightUnitLabel }}</div>
+        <div class="marine-forecast-key-item marine-forecast-key-arrow-row">Wave Dir</div>
+        <div class="marine-forecast-key-item marine-forecast-key-value-row">Wave {{ waveHeightUnitLabel }}</div>
+        <div class="marine-forecast-key-item marine-forecast-key-subvalue-row">Period s</div>
+        <div class="marine-forecast-key-item marine-forecast-key-subvalue-row">Swell {{ waveHeightUnitLabel }}</div>
       </div>
 
       <div
@@ -306,6 +306,20 @@ const hourlyMarineForecast = computed(() => {
   color: var(--app-muted-text-color);
   font-weight: 600;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+}
+
+.marine-forecast-key-arrow-row {
+  min-height: 1.5rem;
+}
+
+.marine-forecast-key-value-row {
+  min-height: 1.2rem;
+}
+
+.marine-forecast-key-subvalue-row {
+  min-height: 1rem;
 }
 
 .marine-forecast-day {

@@ -177,8 +177,7 @@
 </template>
 
 <script setup>
-console.log("=== ANCHOR VIEW SCRIPT SETUP STARTING ===");
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { createLogger } from "@/services/logger";
 import {
@@ -213,28 +212,35 @@ import {
   IonPage,
   IonButton,
   IonSpinner,
-  onIonViewDidEnter,
-  onIonViewDidLeave,
   toastController,
 } from "@ionic/vue";
 
 // OpenLayers imports
 import VectorSource from "ol/source/Vector";
 import Feature from "ol/Feature";
-import { Style, Stroke, Fill, Text } from "ol/style";
+import { Style, Stroke, Fill } from "ol/style";
 import CircleStyle from "ol/style/Circle";
 import { fromLonLat, toLonLat } from "ol/proj";
 import { Point } from "ol/geom";
 import Polygon from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
 
-import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import { useMapTools } from "@/utils/mapUtils.js";
 import { useAnchorFeatureRegistry } from "@/composables/anchor/useAnchorFeatureRegistry.js";
 import { useAnchorAnimation } from "@/composables/anchor/useAnchorAnimation.js";
 import { useAnchorMeasureMode } from "@/composables/anchor/useAnchorMeasureMode.js";
 import { useAnchorFenceMode } from "@/composables/anchor/useAnchorFenceMode.js";
 import { useAnchorFencePersistence } from "@/composables/anchor/useAnchorFencePersistence.js";
+import { useAnchorFenceFeatures } from "@/composables/anchor/useAnchorFenceFeatures.js";
+import { useAnchorDropNowFlow } from "@/composables/anchor/useAnchorDropNowFlow.js";
+import { useAnchorResetCommands } from "@/composables/anchor/useAnchorResetCommands.js";
+import { useAnchorUpdateAcks } from "@/composables/anchor/useAnchorUpdateAcks.js";
+import { useAnchorMapClickActions } from "@/composables/anchor/useAnchorMapClickActions.js";
+import { useAnchorViewWatchers } from "@/composables/anchor/useAnchorViewWatchers.js";
+import { useAnchorMapInitialization } from "@/composables/anchor/useAnchorMapInitialization.js";
+import { useAnchorViewLifecycle } from "@/composables/anchor/useAnchorViewLifecycle.js";
+import { useAnchorDepthResolution } from "@/composables/anchor/useAnchorDepthResolution.js";
+import { useAnchorCommands } from "@/composables/anchor/useAnchorCommands.js";
 import { useAisModalTarget } from "@/composables/anchor/useAisModalTarget.js";
 import { useMapManagement } from "@/composables/useMapManagement.js";
 import { useMapInteractions } from "@/composables/useMapInteractions.js";
@@ -279,6 +285,8 @@ const dropNowCapturedDepth = ref(null);
 const dropNowValidationError = ref("");
 const pendingAnchorUpdateAction = ref(null);
 const hasAppliedDropNowMeasuredPrefill = ref(false);
+const showSetAnchorDialog = ref(false);
+const showDropAnchorDialog = ref(false);
 
 const isLengthUnits = (unitsCandidate) => unitsCandidate === "m" || unitsCandidate === "ft";
 
@@ -508,253 +516,28 @@ const applyDropNowMeasuredPrefill = () => {
   return true;
 };
 
-const isDropNowDeploying = computed(() => {
-  const deploymentPhase = anchorState.value?.deploymentPhase;
-  if (deploymentPhase === "deploying") {
-    return true;
-  }
-  if (typeof deploymentPhase === "string") {
-    return false;
-  }
-  return dropNowSessionActive.value === true;
+const {
+  isDropNowDeploying,
+  confirmDropAnchor,
+  handleFinalizeDropNow,
+  handleSetAnchorModalCancel,
+} = useAnchorDropNowFlow({
+  logger,
+  stateStore,
+  anchorState,
+  showSetAnchorDialog,
+  showDropAnchorDialog,
+  dropNowSessionActive,
+  dropNowCapturedDepth,
+  dropNowValidationError,
+  pendingAnchorUpdateAction,
+  hasAppliedDropNowMeasuredPrefill,
+  isLengthUnits,
+  resolveRealtimeDropDepthDatum,
+  applyDropNowMeasuredPrefill,
+  resolveFinalizeBearingDegrees,
+  resolveDropNowDepthForFinalize,
 });
-
-watch(
-  () => [anchorState.value?.deploymentPhase, anchorState.value?.dropSession?.measured],
-  ([deploymentPhase]) => {
-    if (deploymentPhase === "deploying") {
-      dropNowSessionActive.value = true;
-      if (hasAppliedDropNowMeasuredPrefill.value !== true) {
-        const prefillApplied = applyDropNowMeasuredPrefill();
-        if (prefillApplied === true) {
-          hasAppliedDropNowMeasuredPrefill.value = true;
-        }
-      }
-      return;
-    }
-
-    if (typeof deploymentPhase === "string" && deploymentPhase !== "deploying") {
-      dropNowSessionActive.value = false;
-      dropNowCapturedDepth.value = null;
-      dropNowValidationError.value = "";
-      pendingAnchorUpdateAction.value = null;
-      hasAppliedDropNowMeasuredPrefill.value = false;
-      return;
-    }
-
-    if (dropNowSessionActive.value !== true) {
-      hasAppliedDropNowMeasuredPrefill.value = false;
-    }
-  },
-  { immediate: true, deep: true }
-);
-
-const confirmDropAnchor = () => {
-  dropNowValidationError.value = "";
-
-  const dropDepth = resolveRealtimeDropDepthDatum();
-  if (!dropDepth) {
-    logger.warn("Cannot start drop_now workflow - missing realtime depth datum");
-    return;
-  }
-
-  dropNowCapturedDepth.value = dropDepth;
-  dropNowSessionActive.value = true;
-
-  if (anchorState.value) {
-    anchorState.value.anchorDeployed = true;
-    if (!anchorState.value.anchorDropLocation || typeof anchorState.value.anchorDropLocation !== "object") {
-      anchorState.value.anchorDropLocation = {};
-    }
-    anchorState.value.anchorDropLocation.depth = dropDepth;
-    anchorState.value.anchorDropLocation.depthSource = "real_time_measurement";
-  }
-
-  const payload = {
-    type: "anchor:update",
-    data: {
-      action: "drop_now",
-      anchorDeployed: true,
-      anchorDropLocation: {
-        depth: dropDepth,
-        depthSource: "real_time_measurement",
-      },
-    },
-  };
-
-  pendingAnchorUpdateAction.value = "drop_now";
-
-  stateStore
-    .sendMessageToServer("anchor:update", payload.data, {
-      source: "AnchorView.confirmDropAnchor",
-      timeout: 5000,
-    })
-    .then((success) => {
-      if (success !== true) {
-        pendingAnchorUpdateAction.value = null;
-        dropNowSessionActive.value = false;
-        dropNowCapturedDepth.value = null;
-        showDropAnchorDialog.value = true;
-        return;
-      }
-
-      showDropAnchorDialog.value = false;
-    })
-    .catch((error) => {
-      pendingAnchorUpdateAction.value = null;
-      dropNowSessionActive.value = false;
-      dropNowCapturedDepth.value = null;
-      showDropAnchorDialog.value = true;
-      logger.error("Failed to send drop_now update", error);
-    });
-};
-
-const handleFinalizeDropNow = () => {
-  if (!anchorState.value) {
-    logger.warn("Cannot finalize drop_now workflow - anchorState missing");
-    return;
-  }
-
-  const rodeUnits = anchorState.value?.rode?.units;
-  const warningRangeUnits = anchorState.value?.warningRange?.units;
-  const criticalRangeUnits = anchorState.value?.criticalRange?.units;
-  if (!isLengthUnits(rodeUnits) || !isLengthUnits(warningRangeUnits) || !isLengthUnits(criticalRangeUnits)) {
-    dropNowValidationError.value = "Finalize requires explicit units for rode and ranges (ft or m).";
-    logger.warn("Cannot finalize drop_now workflow - missing required units", {
-      rodeUnits,
-      warningRangeUnits,
-      criticalRangeUnits,
-    });
-    return;
-  }
-
-  dropNowValidationError.value = "";
-
-  const rodeAmount = anchorState.value?.rode?.amount;
-  const warningRange = anchorState.value?.warningRange?.r;
-  const criticalRange = anchorState.value?.criticalRange?.r;
-  const bearingDegrees = resolveFinalizeBearingDegrees();
-
-  if (typeof rodeAmount !== "number" || Number.isNaN(rodeAmount)) {
-    logger.warn("Cannot finalize drop_now workflow - invalid rode amount", { rodeAmount });
-    return;
-  }
-  if (typeof warningRange !== "number" || Number.isNaN(warningRange)) {
-    logger.warn("Cannot finalize drop_now workflow - invalid warning range", { warningRange });
-    return;
-  }
-  if (typeof criticalRange !== "number" || Number.isNaN(criticalRange)) {
-    logger.warn("Cannot finalize drop_now workflow - invalid critical range", { criticalRange });
-    return;
-  }
-  if (typeof bearingDegrees !== "number" || Number.isNaN(bearingDegrees)) {
-    dropNowValidationError.value = "Finalize requires a valid bearing (device or server-measured).";
-    logger.warn("Cannot finalize drop_now workflow - invalid set bearing", { bearingDegrees });
-    return;
-  }
-
-  const dropDepth = resolveDropNowDepthForFinalize();
-  if (!dropDepth || typeof dropDepth !== "object") {
-    dropNowValidationError.value = "Finalize requires depth and depth source from drop_now.";
-    logger.warn("Cannot finalize drop_now workflow - missing captured drop depth");
-    return;
-  }
-  if (typeof dropDepth.value !== "number" || Number.isNaN(dropDepth.value)) {
-    logger.warn("Cannot finalize drop_now workflow - invalid captured drop depth value", { dropDepth });
-    return;
-  }
-  if (dropDepth.units !== "m" && dropDepth.units !== "ft") {
-    logger.warn("Cannot finalize drop_now workflow - invalid captured drop depth units", { dropDepth });
-    return;
-  }
-
-  const payload = {
-    type: "anchor:update",
-    data: {
-      action: "finalize_drop_now",
-      anchorDeployed: true,
-      rode: {
-        amount: rodeAmount,
-        units: rodeUnits,
-      },
-      warningRange: {
-        r: warningRange,
-        units: warningRangeUnits,
-      },
-      criticalRange: {
-        r: criticalRange,
-        units: criticalRangeUnits,
-      },
-      setBearing: {
-        value: bearingDegrees,
-        units: "deg",
-      },
-      anchorDropLocation: {
-        depth: dropDepth,
-        depthSource: "real_time_measurement",
-      },
-    },
-  };
-
-  showSetAnchorDialog.value = false;
-
-  pendingAnchorUpdateAction.value = "finalize_drop_now";
-
-  stateStore
-    .sendMessageToServer("anchor:update", payload.data, {
-      source: "AnchorView.handleFinalizeDropNow",
-      timeout: 5000,
-    })
-    .then((success) => {
-      if (success !== true) {
-        pendingAnchorUpdateAction.value = null;
-        dropNowValidationError.value = "Unable to send finalize request. Please retry.";
-        showSetAnchorDialog.value = true;
-        return;
-      }
-    })
-    .catch((error) => {
-      pendingAnchorUpdateAction.value = null;
-      dropNowValidationError.value = "Unable to send finalize request. Please retry.";
-      logger.error("Failed to send finalize_drop_now update", error);
-    });
-};
-
-const handleSetAnchorModalCancel = () => {
-  if (isDropNowDeploying.value !== true) {
-    return;
-  }
-
-  const payload = {
-    type: "anchor:update",
-    data: {
-      action: "cancel_drop_now",
-      anchorDeployed: false,
-    },
-  };
-
-  pendingAnchorUpdateAction.value = "cancel_drop_now";
-  dropNowSessionActive.value = false;
-  dropNowCapturedDepth.value = null;
-  dropNowValidationError.value = "";
-
-  if (anchorState.value) {
-    anchorState.value.anchorDeployed = false;
-  }
-
-  stateStore
-    .sendMessageToServer("anchor:update", payload.data, {
-      source: "AnchorView.handleSetAnchorModalCancel",
-      timeout: 5000,
-    })
-    .then(() => {
-      pendingAnchorUpdateAction.value = null;
-    })
-    .catch((error) => {
-      pendingAnchorUpdateAction.value = null;
-      logger.error("Failed to send cancel_drop_now update", error);
-    });
-};
 
 const hasLoggedFramingDebugThisEntry = ref(false);
 const hasAppliedDefaultFramingThisEntry = ref(false);
@@ -800,37 +583,6 @@ const attachDefaultFramingListener = () => {
   }
 };
 
-const getFenceTargetLonLat = (fence) => {
-  if (!fence || !fence.targetType || !fence.targetRef) {
-    return null;
-  }
-
-  if (fence.targetType === "point") {
-    const lat = fence.targetRef.latitude;
-    const lon = fence.targetRef.longitude;
-    if (typeof lat !== "number" || typeof lon !== "number") {
-      return null;
-    }
-    return [lon, lat];
-  }
-
-  if (fence.targetType === "ais") {
-    const mmsi = fence.targetRef.mmsi;
-    if (mmsi == null) {
-      return null;
-    }
-    const rawTarget = state.value?.aisTargets?.[String(mmsi)];
-    const lat = rawTarget?.position?.latitude?.value ?? rawTarget?.position?.latitude;
-    const lon = rawTarget?.position?.longitude?.value ?? rawTarget?.position?.longitude;
-    if (typeof lat !== "number" || typeof lon !== "number") {
-      return null;
-    }
-    return [lon, lat];
-  }
-
-  return null;
-};
-
 const fenceConnectorLinesVisible = computed(() => {
   if (!anchorState.value) {
     return false;
@@ -841,270 +593,6 @@ const fenceConnectorLinesVisible = computed(() => {
   }
   return true;
 });
-
-
-const toFenceCoordinateNumber = (value) => {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  if (value && typeof value === "object") {
-    if (typeof value.value === "number" && Number.isFinite(value.value)) {
-      return value.value;
-    }
-    if (typeof value.value === "string") {
-      const parsed = Number(value.value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-  }
-  return null;
-};
-
-const getFenceReferenceLonLat = (fence) => {
-  if (!fence || !fence.referenceType) {
-    return null;
-  }
-
-  if (fence.referenceType === "boat") {
-    const navPosition = state.value?.navigation?.position;
-    let lat = toFenceCoordinateNumber(navPosition?.latitude);
-    let lon = toFenceCoordinateNumber(navPosition?.longitude);
-    if (lat == null || lon == null) {
-      const topPosition = state.value?.position;
-      lat = toFenceCoordinateNumber(topPosition?.latitude);
-      lon = toFenceCoordinateNumber(topPosition?.longitude);
-    }
-    if (lat == null || lon == null) {
-      return null;
-    }
-    return [lon, lat];
-  }
-
-  if (fence.referenceType === "anchor_drop") {
-    const drop = anchorState.value?.anchorDropLocation;
-    const lat = toFenceCoordinateNumber(drop?.latitude);
-    const lon = toFenceCoordinateNumber(drop?.longitude);
-    if (lat == null || lon == null) {
-      return null;
-    }
-    return [lon, lat];
-  }
-
-  return null;
-};
-
-const updateFenceDistanceStats = (fence, targetLonLat) => {
-  if (!fence || !Array.isArray(targetLonLat) || targetLonLat.length < 2) {
-    return;
-  }
-
-  const referenceLonLat = getFenceReferenceLonLat(fence);
-  if (!Array.isArray(referenceLonLat) || referenceLonLat.length < 2) {
-    if (fence.currentDistance !== null) {
-      fence.currentDistance = null;
-    }
-    return;
-  }
-
-  const distanceMeters = calculateDistanceMeters(
-    referenceLonLat[1],
-    referenceLonLat[0],
-    targetLonLat[1],
-    targetLonLat[0],
-    true
-  );
-
-  if (!Number.isFinite(distanceMeters)) {
-    if (fence.currentDistance !== null) {
-      fence.currentDistance = null;
-    }
-    return;
-  }
-
-  const distanceInFenceUnits = fence.units === "ft" ? distanceMeters * 3.28084 : distanceMeters;
-  const nowMs = Date.now();
-  
-  if (Number.isFinite(distanceInFenceUnits) && distanceInFenceUnits !== fence.currentDistance) {
-    fence.currentDistance = distanceInFenceUnits;
-    fence.currentDistanceUnits = fence.units;
-    
-    // Push to distance history for sparkline
-    if (!Array.isArray(fence.distanceHistory)) {
-      fence.distanceHistory = [];
-    }
-    fence.distanceHistory.push({
-      t: nowMs,
-      v: distanceInFenceUnits
-    });
-    // Keep only last 100 readings to prevent memory bloat
-    if (fence.distanceHistory.length > 100) {
-      fence.distanceHistory = fence.distanceHistory.slice(-100);
-    }
-  }
-
-  const existingMinimum =
-    typeof fence.minimumDistance === "number" && Number.isFinite(fence.minimumDistance)
-      ? fence.minimumDistance
-      : null;
-
-  let normalizedExistingMinimum = existingMinimum;
-  if (
-    normalizedExistingMinimum != null
-    && typeof fence.minimumDistanceUnits === "string"
-    && fence.minimumDistanceUnits !== fence.units
-  ) {
-    if (fence.minimumDistanceUnits === "ft" && fence.units !== "ft") {
-      normalizedExistingMinimum = normalizedExistingMinimum / 3.28084;
-    } else if (fence.minimumDistanceUnits !== "ft" && fence.units === "ft") {
-      normalizedExistingMinimum = normalizedExistingMinimum * 3.28084;
-    }
-  }
-
-  if (normalizedExistingMinimum == null || distanceInFenceUnits < normalizedExistingMinimum) {
-    fence.minimumDistance = distanceInFenceUnits;
-    fence.minimumDistanceUnits = fence.units;
-    fence.minimumDistanceUpdatedAt = nowMs;
-  }
-};
-
-const updateFenceFeatures = () => {
-  clearFeature(FEATURE_TYPES.FENCE_TARGET);
-  clearFeature(FEATURE_TYPES.FENCE_RANGE);
-  clearFeature(FEATURE_TYPES.FENCE_LINK);
-
-  const isDark = isDarkMode.value === true;
-
-  const fences = anchorState.value?.fences;
-  if (!Array.isArray(fences) || fences.length === 0) {
-    return;
-  }
-
-  fences.forEach((fence) => {
-    if (!fence || fence.enabled === false) {
-      return;
-    }
-
-    const lonLat = getFenceTargetLonLat(fence);
-    if (!Array.isArray(lonLat) || lonLat.length < 2) {
-      return;
-    }
-
-    updateFenceDistanceStats(fence, lonLat);
-
-    if (fenceConnectorLinesVisible.value === true) {
-      const referenceLonLat = getFenceReferenceLonLat(fence);
-      if (Array.isArray(referenceLonLat) && referenceLonLat.length >= 2) {
-        const lineGeometry = new LineString([
-          fromLonLat(referenceLonLat),
-          fromLonLat(lonLat),
-        ]);
-        if (isDark) {
-          const lineFeature = new Feature({ geometry: lineGeometry });
-          lineFeature.set("type", FEATURE_TYPES.FENCE_LINK);
-          lineFeature.setStyle(
-            new Style({
-              stroke: new Stroke({
-                color: "rgba(250, 204, 21, 0.22)",
-                width: 2,
-                lineDash: [8, 8],
-              }),
-              zIndex: 118,
-            })
-          );
-          vectorSource.addFeature(lineFeature);
-        } else {
-          const lineFeatureLM = new Feature({ geometry: lineGeometry });
-          lineFeatureLM.set("type", FEATURE_TYPES.FENCE_LINK);
-          lineFeatureLM.setStyle(
-            new Style({
-              stroke: new Stroke({
-                color: "#D97706",
-                width: 2.5,
-                lineDash: [10, 6],
-              }),
-              zIndex: 118,
-            })
-          );
-          vectorSource.addFeature(lineFeatureLM);
-        }
-      }
-    }
-
-    const mapCoord = fromLonLat(lonLat);
-    const labelText = fence.name || "Fence";
-    const distanceText = fence.currentDistance != null 
-      ? `${Math.round(fence.currentDistance)}${fence.units === "ft" ? "ft" : "m"}`
-      : "--";
-
-    const marker = new Feature({ geometry: new Point(mapCoord) });
-    marker.set("type", FEATURE_TYPES.FENCE_TARGET);
-    marker.setStyle(
-      new Style({
-        image: new CircleStyle({
-          radius: 7,
-          fill: new Fill({ color: "rgba(250, 204, 21, 0.95)" }),
-          stroke: new Stroke({ color: "rgba(17, 24, 39, 0.95)", width: 2 }),
-        }),
-        text: new Text({
-          text: labelText,
-          font: "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-          fill: new Fill({ color: "#f9fafb" }),
-          stroke: new Stroke({ color: "rgba(17,24,39,0.8)", width: 3 }),
-          offsetY: -14,
-        }),
-        zIndex: 140,
-      })
-    );
-    vectorSource.addFeature(marker);
-
-    // Add distance text as separate feature below the point
-    const distanceMarker = new Feature({ geometry: new Point(mapCoord) });
-    distanceMarker.set("type", FEATURE_TYPES.FENCE_TARGET);
-    distanceMarker.setStyle(
-      new Style({
-        text: new Text({
-          text: distanceText,
-          font: "600 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-          fill: new Fill({ color: "#f9fafb" }),
-          stroke: new Stroke({ color: "rgba(17,24,39,0.8)", width: 3 }),
-          offsetY: 14,
-        }),
-        zIndex: 140,
-      })
-    );
-    vectorSource.addFeature(distanceMarker);
-
-    const rangeValue = Number(fence.alertRange);
-    if (!Number.isFinite(rangeValue) || rangeValue <= 0) {
-      return;
-    }
-    const rangeMeters = fence.units === "ft" ? rangeValue / 3.28084 : rangeValue;
-
-    const circleGeometry = createCircleWithRadius(lonLat, rangeMeters);
-    const rangeFeature = new Feature({ geometry: circleGeometry });
-    rangeFeature.set("type", FEATURE_TYPES.FENCE_RANGE);
-    rangeFeature.setStyle(
-      new Style({
-        stroke: new Stroke({
-          color: isDark ? "rgba(250, 204, 21, 0.65)" : "#D97706",
-          width: 2,
-        }),
-        fill: new Fill({
-          color: isDark ? "rgba(250, 204, 21, 0.12)" : "rgba(255, 255, 255, 0.25)",
-        }),
-        zIndex: 120,
-      })
-    );
-    vectorSource.addFeature(rangeFeature);
-  });
-};
 
 const isDarkMode = computed(() => preferences.value?.display?.darkMode || false);
 
@@ -1621,6 +1109,11 @@ const { buildAisModalTarget } = useAisModalTarget({
   calculateDistanceMeters,
 });
 
+const {
+  normalizeDepthDatum,
+  resolveAnchorDropDepth,
+} = useAnchorDepthResolution();
+
 const boatPosition = computed(() => navigationState.value?.position);
 const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
 const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
@@ -1663,13 +1156,6 @@ const logFullStateInterval = setInterval(() => {
 console.log("[AnchorView] Full state snapshot (initial):", {
   timestamp: new Date().toISOString(),
   fullState: state.value
-});
-
-// Cleanup interval on component unmount
-onUnmounted(() => {
-  if (logFullStateInterval) {
-    clearInterval(logFullStateInterval);
-  }
 });
 
 // Map tools
@@ -2138,6 +1624,26 @@ const createCircleWithRadius = (centerLonLat, radius) => {
   // Create a polygon from the points
   return new Polygon([points]);
 };
+
+const { updateFenceFeatures } = useAnchorFenceFeatures({
+  state,
+  anchorState,
+  isDarkMode,
+  fenceConnectorLinesVisible,
+  featureTypes: FEATURE_TYPES,
+  clearFeature,
+  fromLonLat,
+  getVectorSource: () => vectorSource,
+  Feature,
+  Point,
+  LineString,
+  Style,
+  Stroke,
+  Fill,
+  CircleStyle,
+  createCircleWithRadius,
+  calculateDistanceMeters,
+});
 
 const getTrueWindDirectionDegrees = () => {
   // Use True Wind Direction (TWD) - North-up reference, not relative to boat
@@ -2973,323 +2479,27 @@ const updateBreadcrumbs = debounce(() => {
   updateFeatureGroup(FEATURE_TYPES.BREADCRUMB, validCrumbs);
 }, 300);
 
-// Map Initialization
-const initializeMap = async () => {
-  logger.info("Initializing map...");
-  logger.debug("Starting map initialization");
-
-  // Get position from state
-  const state = stateStore.state;
-  const pos = state?.navigation?.position;
-  const anchor = state?.anchor;
-
-  logger.debug("Position data:", pos ? pos : "No position data");
-  logger.debug("Position details:", {
-    latitude: pos?.latitude?.value,
-    longitude: pos?.longitude?.value,
-    hasLat: pos?.latitude?.value != null,
-    hasLon: pos?.longitude?.value != null
-  });
-  logger.debug("Anchor state:", anchor);
-
-  // Determine center coordinates based on anchor state
-  let centerLat = 0;
-  let centerLon = 0;
-  let hasValidPosition = false;
-
-  // If anchor is deployed, center on current anchor location (end of rode)
-  if (anchor?.anchorDeployed) {
-    const anchorLoc = anchor?.anchorLocation;
-    const anchorPos = anchorLoc?.position ?? anchorLoc;
-    const anchorLat = anchorPos?.latitude?.value ?? anchorPos?.latitude;
-    const anchorLon = anchorPos?.longitude?.value ?? anchorPos?.longitude;
-
-    if (anchorLat != null && anchorLon != null) {
-      centerLat = anchorLat;
-      centerLon = anchorLon;
-      hasValidPosition = true;
-      logger.debug("Centering on anchor location:", { lat: centerLat, lon: centerLon });
-    } else {
-      const dropLoc = anchor?.anchorDropLocation;
-      const dropPos = dropLoc?.position ?? dropLoc;
-      const dropLat = dropPos?.latitude?.value ?? dropPos?.latitude;
-      const dropLon = dropPos?.longitude?.value ?? dropPos?.longitude;
-      if (dropLat != null && dropLon != null) {
-        centerLat = dropLat;
-        centerLon = dropLon;
-        hasValidPosition = true;
-        logger.debug("Centering on anchor drop location:", { lat: centerLat, lon: centerLon });
-      }
-    }
-  }
-  
-  // Otherwise, center on boat position
-  if (!hasValidPosition && pos?.latitude?.value != null && pos?.longitude?.value != null) {
-    centerLat = pos.latitude.value;
-    centerLon = pos.longitude.value;
-    hasValidPosition = true;
-    logger.debug("Centering on boat position:", { lat: centerLat, lon: centerLon });
-  }
-  
-  if (!hasValidPosition) {
-    logger.debug("Using default position (0,0)");
-  }
-
-  // Initialize map using composable
-  try {
-    await initializeMapComposable({
-      center: [centerLon, centerLat],
-      zoom: getResponsiveZoom(),
-      isDarkMode: isDarkMode.value
-    });
-
-    // Set map ready immediately after composable initialization
-    isMapRenderReadyFromComposable.value = true;
-    console.log("Map initialized and set as ready");
-
-    // Get vector source from the provider and replace our vector source
-    const provider = map.value?.__provider__;
-    if (provider && provider.getVectorSource) {
-      const providerVectorSource = provider.getVectorSource();
-      // Copy features from our vectorSource to provider's vectorSource
-      const features = vectorSource.getFeatures();
-      features.forEach(feature => providerVectorSource.addFeature(feature));
-      
-      // Replace our vectorSource reference
-      vectorSource = providerVectorSource;
-      
-      // Reset feature cache so future lookups use the provider-managed source
-      resetFeatureRegistry();
-    }
-
-    // Setup interactions
-    setupInteractions();
-
-    // Setup map event listeners
-    if (map.value && typeof map.value.on === "function") {
-      map.value.on("loadcomplete", () => {
-        try {
-          logger.debug("Map load complete event fired");
-          updateWindIndicatorScale();
-        } catch (error) {
-          console.error("Error in map load complete:", error);
-        }
-      });
-    } else {
-      console.log("Map object not available for event listeners");
-    }
-
-    hasAppliedDefaultFramingThisEntry.value = false;
-    attachDefaultFramingListener();
-    
-    // Also set map ready after a short delay as backup
-    setTimeout(() => {
-      if (!isMapRenderReadyFromComposable.value) {
-        console.log("Backup: setting map ready");
-        isMapRenderReadyFromComposable.value = true;
-      }
-    }, 1000);
-
-    logger.info("Map initialized successfully");
-  } catch (error) {
-    logger.error("Failed to initialize map:", error);
-    throw error;
-  }
-
-  // Do not draw boat here. Initial feature rendering is coordinated after map + data readiness.
-
-  // Set willReadFrequently attribute on the canvas for better performance
-  // We need to wait for the map to be properly rendered before accessing the canvas
-  setTimeout(() => {
-    if (map.value) {
-      const canvas = map.value.getViewport().querySelector("canvas");
-      if (canvas) {
-        // The correct way to set willReadFrequently is to get a new context with the attribute
-        canvas.getContext("2d", { willReadFrequently: true });
-        logger.debug("Set willReadFrequently on map canvas for better performance");
-      }
-    }
-  }, 100);
-
-  // Add mouse wheel zoom interaction manually with custom options
-  const mouseWheelZoom = new MouseWheelZoom({
-    duration: 250,
-    timeout: 80,
-    useAnchor: true,
-  });
-  map.value.addInteraction(mouseWheelZoom);
-
-  // Hide OpenLayers attribution control
-  setTimeout(() => {
-    const attributionElements = document.querySelectorAll('.ol-attribution, .ol-attribution-button, .ol-attribution ul');
-    attributionElements.forEach(el => {
-      el.style.visibility = 'hidden';
-      el.style.display = 'none';
-    });
-  }, 100);
-
-  // Add click handler for features
-  map.value.on("click", handleMapClick);
-
-  // Add both passive and non-passive event listeners as fallback
-  if (mapElement.value) {
-    mapElement.value.addEventListener("wheel", handleWheelEvent, { passive: false });
-    // Focus management
-    mapElement.value.tabIndex = 0; // Make focusable
-    mapElement.value.style.outline = "none";
-    mapElement.value.focus();
-  }
-  document.addEventListener("wheel", handleWheelEvent, { passive: false, capture: true });
-};
-
-// Watchers
-// Watch for changes in the state's navigation position
-// Watch for position changes and auto-center if map is at default position
-watch(
-  () => stateStore.state?.navigation?.position,
-  (newPosition) => {
-    if (newPosition && newPosition.latitude?.value && newPosition.longitude?.value) {
-      // Only auto-center if map is still at default position (0,0) and hasn't been manually centered
-      if (map.value && !hasAppliedDefaultFramingThisEntry.value) {
-        const view = map.value.getView();
-        const currentCenter = view.getCenter();
-        
-        // Check if current center is close to (0,0) in lon/lat coordinates
-        const currentLonLat = toLonLat(currentCenter);
-        const isAtDefault = Math.abs(currentLonLat[0]) < 1 && Math.abs(currentLonLat[1]) < 1;
-        
-        if (isAtDefault) {
-          const boatCoord = fromLonLat([newPosition.longitude.value, newPosition.latitude.value]);
-          view.setCenter(boatCoord);
-          hasAppliedDefaultFramingThisEntry.value = true;
-        }
-      }
-    }
+const { initializeMap } = useAnchorMapInitialization({
+  logger,
+  stateStore,
+  map,
+  mapElement,
+  isDarkMode,
+  isMapRenderReadyFromComposable,
+  initializeMapComposable,
+  getResponsiveZoom: () => getResponsiveZoom(),
+  getVectorSource: () => vectorSource,
+  setVectorSource: (nextSource) => {
+    vectorSource = nextSource;
   },
-  { immediate: true, deep: true }
-);
-
-watch(
-  () => stateStore.state.navigation?.position,
-  () => {
-    updateBoatPosition();
-    updateFenceFeatures();
-    // Also update rode line when boat position changes and anchor is deployed
-    if (anchorState.value?.anchorDeployed) {
-      updateRodeLine();
-    }
-  },
-  { immediate: true, deep: true }
-);
-
-watch(
-  () => stateStore.state.navigation?.course?.heading,
-  () => {
-    updateBoatPosition();
-  },
-  { immediate: true, deep: true }
-);
-
-// Watch for anchor state changes
-watch(
-  anchorState,
-  () => {
-    // Check if anchorState exists before accessing properties
-    if (!anchorState.value) {
-      return;
-    }
-    
-    if (anchorState.value.anchorDeployed) {
-      updateAnchorPoints();
-      updateCriticalRangeCircle();
-      updateRodeLine();
-    } else {
-      clearFeature(FEATURE_TYPES.ANCHOR_DROP_LOCATION);
-      clearFeature(FEATURE_TYPES.ANCHOR_LOCATION);
-      clearFeature(FEATURE_TYPES.RODE);
-      clearFeature(FEATURE_TYPES.CIRCLE);
-    }
-  },
-  { deep: true, immediate: true }
-);
-
-// Watch boat position to update rode line when anchor is deployed and detect anchor dragging
-watch(
-  boatPosition,
-  (newPosition) => {
-    logger.debug("Boat position updated", { position: newPosition });
-
-    updateFenceFeatures();
-
-    if (measureModeEnabled.value) {
-      syncMeasurementWithBoat();
-    }
-
-    // Check if anchorState exists before accessing properties
-    if (!anchorState.value) {
-      return;
-    }
-    
-    if (anchorState.value.anchorDeployed) {
-      // The server now handles all dragging detection and anchor location updates
-      // Client only needs to update the rode line visualization
-      updateRodeLine();
-    }
-  },
-  { deep: true }
-);
-
-// Watch for anchor state changes from the server
-watch(
-  anchorState,
-  (newState, oldState) => {
-    if (!newState) return;
-    
-    // If anchor location was updated by server, update the map visualization
-    if (newState.anchorLocation?.position && 
-        oldState?.anchorLocation?.position &&
-        (newState.anchorLocation.position.latitude?.value !== oldState.anchorLocation.position.latitude?.value ||
-         newState.anchorLocation.position.longitude?.value !== oldState.anchorLocation.position.longitude?.value)) {
-      logger.debug("Anchor location updated by server", {
-        oldPosition: oldState.anchorLocation.position,
-        newPosition: newState.anchorLocation.position
-      });
-      
-      // Update anchor visualization
-      updateAnchorPoints();
-      updateCriticalRangeCircle();
-      updateRodeLine();
-    }
-    
-    // If dragging state changed, update visualization
-    if (newState.dragging !== oldState?.dragging) {
-      logger.debug("Anchor dragging state changed", {
-        isDragging: newState.dragging
-      });
-      
-      // Update critical range circle style based on dragging state
-      updateCriticalRangeCircle();
-    }
-  },
-  { deep: true }
-);
-
-// Removed duplicate watch as it's now handled by the anchor state watch
-
-// We've removed the auto-centering watch function to prevent the map from recentering
-// on every position update, allowing users to maintain their chosen map view
-//
-// Original code:
-// watch(
-//   () => navigationState.value?.position,
-//   (newPos) => {
-//     if (map.value && newPos?.latitude?.value && newPos?.longitude?.value) {
-//       const center = fromLonLat([newPos.longitude.value, newPos.latitude.value]);
-//       map.value.getView().setCenter(center);
-//     }
-//   },
-//   { immediate: true }
-// );
+  resetFeatureRegistry,
+  setupInteractions,
+  attachDefaultFramingListener,
+  hasAppliedDefaultFramingThisEntry,
+  updateWindIndicatorScale,
+  handleMapClick: () => handleMapClick,
+  handleWheelEvent: () => handleWheelEvent,
+});
 
 // Function to update the boat-centered normal range circle
 const updateBoatRangeCircle = debounce(() => {
@@ -3342,99 +2552,34 @@ const updateBoatRangeCircle = debounce(() => {
   vectorSource.addFeature(feature);
 }, 200);
 
-// Watch for critical anchor state changes
-watch(
-  () => anchorState.value?.dragging,
-  (isDragging) => {
-    logger.debug("Anchor dragging state changed", {
-      isDragging: isDragging,
-    });
-  },
-  { immediate: true, deep: true }
-);
-
-// Watch for critical anchor state changes
-watch(
-  [() => anchorState.value?.criticalRange?.r, () => anchorState.value?.dragging],
-  ([range, isDragging]) => {
-    logger.debug("Critical anchor state changed:", {
-      criticalRange: range,
-      isDragging: isDragging,
-    });
-
-    // Check if anchorState exists before accessing properties
-    if (!anchorState.value) {
-      clearFeature(FEATURE_TYPES.CIRCLE);
-      return;
-    }
-
-    // Ensure range visuals stay up to date (critical range circle is drawn in updateCriticalRangeCircle)
-    updateCriticalRangeCircle();
-    updateBoatRangeCircle();
-  },
-  { immediate: true, deep: true }
-);
-
-// Also watch for boat position changes to update the boat range circle
-watch(
-  () => state.value.aisTargets,
-  () => {
-    // Skip if this is initial load - let the other watcher handle it
-    if (isAisInitialLoad) {
-      logger.debug("Skipping raw AIS targets update on initial load");
-      return;
-    }
-    updateAisTargets();
-    updateFenceFeatures();
-  },
-  { deep: true }
-);
-
-watch(
-  () => anchorState.value?.fences,
-  () => {
-    updateFenceFeatures();
-  },
-  { deep: true }
-);
-
-// Also watch for boat position changes to update the boat range circle
-watch(
-  () => boatPosition.value,
-  () => {
-    updateBoatRangeCircle();
-  },
-  { deep: true }
-);
-
-// Watch for critical range changes
-watch(
-  () => anchorState.value?.criticalRange?.r,
-  (newVal) => {
-    logger.debug("Critical range changed:", newVal);
-    logger.debug("Anchor drop location:", anchorDropLocation.value);
-    logger.debug("Anchor deployed:", anchorDeployed.value);
-  },
-  { immediate: true }
-);
-
-// Watch for AIS targets changes
-watch(
+useAnchorViewWatchers({
+  logger,
+  map,
+  stateStore,
+  state,
+  anchorState,
+  boatPosition,
+  anchorDropLocation,
+  anchorDeployed,
   aisTargets,
-  () => {
-    updateAisTargets();
-  },
-  { immediate: true, deep: true }
-);
-
-// Watch for breadcrumbs changes
-watch(breadcrumbs, () => {
-  updateBreadcrumbs();
-}, { immediate: true });
-
-// Modal State
-const showSetAnchorDialog = ref(false);
-const showDropAnchorDialog = ref(false);
+  breadcrumbs,
+  isAisInitialLoad: () => isAisInitialLoad,
+  measureModeEnabled,
+  hasAppliedDefaultFramingThisEntry,
+  toLonLat,
+  fromLonLat,
+  featureTypes: FEATURE_TYPES,
+  clearFeature,
+  updateBoatPosition,
+  updateFenceFeatures,
+  updateRodeLine,
+  updateAnchorPoints,
+  updateCriticalRangeCircle,
+  updateBoatRangeCircle,
+  updateAisTargets,
+  updateBreadcrumbs,
+  syncMeasurementWithBoat,
+});
 
 const dropAnchorPreview = computed(() => {
   const boatPosition = navigationState.value?.position;
@@ -3702,88 +2847,10 @@ const recommendedScope = computed(() => {
   }
 });
 
-onIonViewDidEnter(() => {
-  hasCenteredOnBoatThisEntry.value = null;
-  hasLoggedFramingDebugThisEntry.value = false;
-  hasAppliedDefaultFramingThisEntry.value = false;
-  isAnchorViewActive.value = true;
-  updateBoatPosition();
-  if (map.value) {
-    map.value.updateSize();
-
-    isMapRenderReady.value = false;
-    map.value.once("postrender", () => {
-      isMapRenderReady.value = true;
-      if (isAnchorViewActive.value === true) {
-        hasAppliedDefaultFramingThisEntry.value = false;
-        attachDefaultFramingListener();
-      }
-    });
-    if (typeof map.value.render === "function") {
-      map.value.render();
-    }
-  }
-
-  nextTick(() => {
-    if (!map.value) return;
-    map.value.updateSize();
-
-    attachDefaultFramingListener();
-  });
-});
-
-onIonViewDidLeave(() => {
-  isAnchorViewActive.value = false;
-});
-
-watch(map, (nextMap) => {
-  if (!nextMap) return;
-  if (isAnchorViewActive.value !== true) return;
-  if (hasAppliedDefaultFramingThisEntry.value === true) return;
-  nextTick(() => {
-    attachDefaultFramingListener();
-  });
-});
-
-onMounted(() => {
-  const handleVisibilityChange = () => {
-    if (document.visibilityState !== "visible") return;
-    if (!map.value) return;
-    map.value.updateSize();
-    attachDefaultFramingListener();
-  };
-
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-  onUnmounted(() => {
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
-  });
-});
-
 const showUpdateDialog = ref(false);
 const showCancelDialog = ref(false);
 const showUpdateDropConfirm = ref(false);
 const locationRequestFailed = ref(false);
-
-const normalizeDepthDatum = (depthCandidate) => {
-  if (!depthCandidate || typeof depthCandidate !== "object") {
-    return null;
-  }
-
-  if (typeof depthCandidate.units === "string" && "value" in depthCandidate) {
-    return depthCandidate;
-  }
-
-  const belowTransducer = depthCandidate.belowTransducer;
-  if (!belowTransducer || typeof belowTransducer !== "object") {
-    return null;
-  }
-
-  if (typeof belowTransducer.units === "string" && "value" in belowTransducer) {
-    return belowTransducer;
-  }
-
-  return null;
-};
 
 const {
   handleFenceSave,
@@ -3808,605 +2875,34 @@ const {
   },
 });
 
-const handleSaveAnchorParameters = () => {
-  console.log("[AnchorView] handleSaveAnchorParameters called");
-  if (!anchorState.value) {
-    logger.warn("Cannot save anchor parameters - anchorState is missing");
-    showSetAnchorDialog.value = false;
-    return;
-  }
-
-  if (anchorState.value.anchorDeployed !== true) {
-    logger.warn("Cannot save anchor parameters - anchor is not deployed");
-    showSetAnchorDialog.value = false;
-    return;
-  }
-
-  const rodeAmount = anchorState.value.rode?.amount;
-  const critical = anchorState.value.criticalRange?.r;
-  const warning = anchorState.value.warningRange?.r;
-
-  logger.debug("Saving anchor parameters - raw values:", {
-    rodeAmount,
-    critical,
-    warning,
-    criticalUnits: anchorState.value.criticalRange?.units,
-    preferredUnits: preferences.value?.units?.length || anchorState.value.rode?.units,
-  });
-
-  if (typeof rodeAmount !== "number" || Number.isNaN(rodeAmount)) {
-    logger.warn("Cannot save anchor parameters - invalid rode amount", { rodeAmount });
-    return;
-  }
-  if (typeof critical !== "number" || Number.isNaN(critical)) {
-    logger.warn("Cannot save anchor parameters - invalid critical range", { critical });
-    return;
-  }
-  if (typeof warning !== "number" || Number.isNaN(warning)) {
-    logger.warn("Cannot save anchor parameters - invalid warning range", { warning });
-    return;
-  }
-
-  const preferredUnits = isMetric.value ? "m" : "ft";
-  if (preferredUnits !== "m" && preferredUnits !== "ft") {
-    logger.warn("Cannot save anchor parameters - missing/invalid preferred length units", {
-      preferredUnits,
-    });
-    return;
-  }
-
-  try {
-    const updatedAnchorState = {
-      ...anchorState.value,
-      rode: {
-        ...anchorState.value.rode,
-        amount: rodeAmount,
-        units: preferredUnits,
-      },
-      criticalRange: {
-        ...anchorState.value.criticalRange,
-        r: critical,
-        units: preferredUnits,
-      },
-      warningRange: {
-        ...anchorState.value.warningRange,
-        r: warning,
-        units: preferredUnits,
-      },
-    };
-
-    const existingDropLocation = updatedAnchorState.anchorDropLocation;
-    if (!existingDropLocation) {
-      logger.warn("Cannot save anchor parameters - anchorDropLocation is missing");
-      return;
-    }
-
-    const hasUserDepth = customAnchorDropDepthValue.value != null;
-    const navigationDepth = navigationState.value?.depth;
-    let resolvedDropDepth = null;
-    let resolvedDepthSource = null;
-
-    if (hasUserDepth) {
-      resolvedDropDepth = {
-        value: customAnchorDropDepthValue.value,
-        units: preferredUnits,
-      };
-      resolvedDepthSource = "user_entered";
-    } else if (existingDropLocation.depth) {
-      const normalizedExistingDepth = normalizeDepthDatum(existingDropLocation.depth);
-      const normalizedNavigationDepth = normalizeDepthDatum(navigationDepth);
-
-      if (normalizedExistingDepth?.value != null) {
-        resolvedDropDepth = normalizedExistingDepth;
-      } else if (normalizedNavigationDepth?.value != null) {
-        resolvedDropDepth = normalizedNavigationDepth;
-      } else {
-        resolvedDropDepth = normalizedExistingDepth || normalizedNavigationDepth;
-      }
-
-      if (typeof existingDropLocation.depthSource === "string") {
-        resolvedDepthSource = existingDropLocation.depthSource;
-      } else {
-        resolvedDepthSource = "assumed_from_boat";
-      }
-    } else if (navigationDepth) {
-      resolvedDropDepth = normalizeDepthDatum(navigationDepth);
-      resolvedDepthSource = "assumed_from_boat";
-    }
-
-    if (!resolvedDropDepth) {
-      logger.warn("Cannot save anchor parameters - unable to resolve anchor drop depth");
-      return;
-    }
-
-    if (!resolvedDepthSource) {
-      logger.warn("Cannot save anchor parameters - unable to resolve depth source");
-      return;
-    }
-
-    updatedAnchorState.anchorDropLocation = {
-      ...existingDropLocation,
-      depth: resolvedDropDepth,
-      depthSource: resolvedDepthSource,
-    };
-
-    state.value.anchor = { ...updatedAnchorState };
-
-    // Use nextTick to ensure all reactive updates are processed before calling updateAisTargets
-    nextTick(() => {
-      try {
-        if (typeof updateAisTargets?.cancel === "function") {
-          updateAisTargets.cancel();
-        }
-        if (typeof updateAisTargets === "function") {
-          updateAisTargets();
-        }
-      } catch (e) {
-        logger.error("Failed to update AIS targets after saving anchor parameters", e);
-      }
-    });
-
-    try {
-      const unitLabel = isMetric.value ? "m" : "ft";
-
-      if (updatedAnchorState.warningRange?.r === 0) {
-        if (typeof stateStore?.resolveAlertsByTrigger === "function") {
-          stateStore.resolveAlertsByTrigger("ais_proximity", {
-            warningRadius: updatedAnchorState.warningRange.r,
-            units: unitLabel,
-            source: "AnchorView.handleSaveAnchorParameters",
-          });
-        }
-
-        if (state.value?.alerts?.active && Array.isArray(state.value.alerts.active)) {
-          const shouldRemove = (alert) => {
-            const trigger = alert?.trigger;
-            const type = alert?.type;
-            return trigger === "ais_proximity" || type === "ais_proximity";
-          };
-
-          const nextActive = state.value.alerts.active.filter((alert) => !shouldRemove(alert));
-          state.value.alerts.active = nextActive;
-        }
-      }
-
-      if (updatedAnchorState.criticalRange?.r === 0) {
-        if (typeof stateStore?.resolveAlertsByTrigger === "function") {
-          stateStore.resolveAlertsByTrigger("critical_range", {
-            criticalRange: updatedAnchorState.criticalRange.r,
-            units: unitLabel,
-            source: "AnchorView.handleSaveAnchorParameters",
-          });
-        }
-
-        if (state.value?.alerts?.active && Array.isArray(state.value.alerts.active)) {
-          const shouldRemove = (alert) => {
-            const trigger = alert?.trigger;
-            const type = alert?.type;
-            return trigger === "critical_range" || type === "critical_range";
-          };
-
-          const nextActive = state.value.alerts.active.filter((alert) => !shouldRemove(alert));
-          state.value.alerts.active = nextActive;
-        }
-      }
-    } catch (e) {
-      logger.error("Failed to auto-resolve alerts after anchor parameter update", e);
-    }
-
-    try {
-      const storageState = {
-        anchorDeployed: true,
-        anchorDropLocation: updatedAnchorState.anchorDropLocation,
-        anchorLocation: updatedAnchorState.anchorLocation,
-        criticalRange: updatedAnchorState.criticalRange,
-        warningRange: updatedAnchorState.warningRange,
-        rode: updatedAnchorState.rode,
-        timestamp: Date.now(),
-      };
-      localStorage.setItem("anchorState", JSON.stringify(storageState));
-    } catch (e) {
-      logger.error("Failed to save anchor parameters to localStorage", e);
-    }
-
-    try {
-      // Create payload following server protocol - only send allowed fields
-      const payload = {
-        type: "anchor:update",
-        data: {
-          // Only allowed parameters - NO position data
-          rode: updatedAnchorState.rode,
-          criticalRange: updatedAnchorState.criticalRange,
-          warningRange: updatedAnchorState.warningRange,
-          
-          // Always include anchorDropLocation with depth and depthSource
-          anchorDropLocation: {
-            depth: updatedAnchorState.anchorDropLocation.depth,
-            depthSource: updatedAnchorState.anchorDropLocation.depthSource
-          },
-          
-          // Bearing ONLY if user set it (not default value)
-          // Check if bearing is different from default (180 degrees) or if user tried phone bearing
-          ...(updatedAnchorState.anchorDropLocation?.bearing && 
-            (updatedAnchorState.anchorDropLocation.bearing.degrees !== 180 || hasTriedPhoneBearing.value) && {
-            setBearing: {
-              value: updatedAnchorState.anchorDropLocation.bearing.degrees,
-              units: "deg"
-            }
-          })
-        }
-      };
-      
-      stateStore
-        .sendMessageToServer("anchor:update", payload.data, {
-          source: "AnchorView.handleSaveAnchorParameters",
-          timeout: 5000,
-        })
-        .then((response) => {
-          logger.info("Server acknowledged anchor parameter update", response);
-          console.log("[AnchorView] Server response for anchor parameters:", {
-            fullResponse: response,
-            responseData: response.data,
-            serverCriticalRange: response?.data?.criticalRange,
-            serverWarningRange: response?.data?.warningRange,
-            serverRode: response?.data?.rode,
-            serverAnchorLocation: response?.data?.anchorLocation,
-            serverDropLocation: response?.data?.anchorDropLocation
-          });
-          logger.debug("Server response data:", {
-            responseCriticalRange: response?.data?.criticalRange,
-            responseCriticalR: response?.data?.criticalRange?.r,
-            responseCriticalUnits: response?.data?.criticalRange?.units,
-            localCriticalR: updatedAnchorState.criticalRange?.r,
-            localCriticalUnits: updatedAnchorState.criticalRange?.units,
-          });
-          const merged = { ...updatedAnchorState, ...(response?.data || {}) };
-
-          state.value.anchor = merged;
-
-          try {
-            if (typeof updateAisTargets?.cancel === "function") {
-              updateAisTargets.cancel();
-            }
-            if (typeof updateAisTargets === "function") {
-              updateAisTargets();
-            }
-          } catch (e) {
-            logger.error("Failed to update AIS targets after server ack", e);
-          }
-        })
-        .catch((error) => {
-          logger.error("Failed to send updated anchor parameters to server", error);
-        });
-    } catch (error) {
-      logger.error("Error preparing anchor parameter update for server", error);
-    }
-
-    updateCriticalRangeCircle();
-    updateBoatRangeCircle();
-    updateRodeLine();
-    showSetAnchorDialog.value = false;
-  } catch (error) {
-    logger.error("Failed to save anchor parameters", error);
-  }
-};
-
-// Modal Handlers
-const handleSetAnchor = () => {
-  logger.info("Handling set anchor action...");
-  if (!validateCoordinates(boatPosition.value)) {
-    logger.warn("Cannot set anchor: Invalid boat position");
-    return;
-  }
-
-  try {
-    // Extract values safely
-    const boatLat = boatPosition.value.latitude?.value ?? boatPosition.value.latitude;
-    const boatLon = boatPosition.value.longitude?.value ?? boatPosition.value.longitude;
-
-    // Get the bearing from the anchor drop location or use a default of 180 degrees (south)
-    // This ensures the anchor is placed in a different location than the boat
-    const bearingDegrees = anchorState.value.anchorDropLocation?.bearing?.degrees ?? 180;
-
-    // IMPORTANT: The bearing needs to be in radians for the calculation
-    // The bearing is the direction FROM the boat TO the anchor
-    const bearingRad = (bearingDegrees * Math.PI) / 180; // Convert degrees to radians
-
-    // Make sure we have a non-zero rode length (default to 50m if not set)
-    const rodeAmount = anchorState.value.rode?.amount ?? 50;
-    const currentRodeUnits = anchorState.value.rode?.units || "m";
-    const preferredUnits = preferences.value?.units?.length || currentRodeUnits;
-    let rode = rodeAmount;
-    if (preferredUnits === "m" && currentRodeUnits === "ft") {
-      rode = UnitConversion.ftToM(rodeAmount);
-    } else if (preferredUnits === "ft" && currentRodeUnits === "m") {
-      rode = UnitConversion.mToFt(rodeAmount);
-    }
-    const depth = navigationState.value?.depth?.value ?? 0; // Use 0 as default if no depth
-
-    // Debug the values being passed to getComputedAnchorLocation
-    logger.debug("Computing anchor location with:", {
-      dropLocation: { latitude: boatLat, longitude: boatLon },
-      rode: rode,
-      bearing: bearingRad,
-      depth: depth,
-    });
-
-    // Calculate anchor position using the state store's function
-    const computedAnchorLocation = getComputedAnchorLocation(
-      { latitude: boatLat, longitude: boatLon },
-      rode,
-      bearingRad,
-      depth,
-      isMetric.value
-    );
-
-    logger.debug("Computed anchor location:", computedAnchorLocation);
-
-    // Calculate the distance between boat and anchor positions
-    const distanceToAnchor = calculateDistanceMeters(
-      boatLat,
-      boatLon,
-      computedAnchorLocation.latitude,
-      computedAnchorLocation.longitude,
-      isMetric.value
-    );
-
-    logger.debug("Distance calculations:", {
-      boatPosition: [boatLon, boatLat],
-      anchorPosition: [computedAnchorLocation.longitude, computedAnchorLocation.latitude],
-      rodeLength: rode,
-      calculatedDistance: distanceToAnchor,
-      difference: Math.abs(rode - distanceToAnchor),
-    });
-
-    // Log the anchor state before updating
-    const normalizedNavigationDepth = normalizeDepthDatum(navigationState.value?.depth);
-    const newAnchorState = {
-      anchorDropLocation: {
-        position: {
-          latitude: { value: boatLat, units: "deg" },
-          longitude: { value: boatLon, units: "deg" },
-        },
-        time: new Date().toISOString(),
-        depth: normalizedNavigationDepth,
-        bearing: { value: bearingRad, units: "rad", degrees: bearingDegrees },
-      },
-      anchorLocation: {
-        position: {
-          latitude: { value: computedAnchorLocation.latitude, units: "deg" },
-          longitude: { value: computedAnchorLocation.longitude, units: "deg" },
-        },
-        originalPosition: {
-          latitude: { value: computedAnchorLocation.latitude, units: "deg" },
-          longitude: { value: computedAnchorLocation.longitude, units: "deg" },
-        },
-        time: new Date().toISOString(),
-        depth: normalizedNavigationDepth,
-        distancesFromCurrent: {
-          value: 0,
-        },
-        distancesFromDrop: {
-          value: 0,
-        },
-        originalBearing: { value: bearingRad, units: "rad", degrees: bearingDegrees },
-        bearing: { value: bearingRad, units: "rad", degrees: bearingDegrees },
-      },
-      rode: {
-        amount: rode,
-        units: preferredUnits,
-      },
-      criticalRange: {
-        r: anchorState.value.criticalRange?.r || rode,
-        units: preferredUnits,
-      },
-      warningRange: {
-        r: anchorState.value.warningRange?.r || 15,
-        units: preferredUnits,
-      },
-      defaultScope: {
-        value: 5,
-        units: "ratio",
-      },
-      dragging: false,
-      anchorDeployed: true,
-      history: [],
-      useDeviceGPS: true,
-    };
-
-    // Log the state that will be sent to the server
-    logger.info(
-      "Updating anchor state on server:",
-      JSON.stringify(
-        {
-          type: "anchor:update",
-          data: newAnchorState,
-          timestamp: new Date().toISOString(),
-          source: "AnchorView.handleSetAnchor",
-        },
-        null,
-        2
-      )
-    );
-
-    // Log the raw values being used
-    logger.debug("Anchor state update details:", {
-      boatPosition: { lat: boatLat, lon: boatLon },
-      computedAnchorLocation,
-      rode,
-      depth: navigationState.value?.depth,
-      bearing: { degrees: bearingDegrees, radians: bearingRad },
-    });
-
-    // Create a clean object for localStorage
-    const storageState = {
-      anchorDeployed: true,
-      anchorDropLocation: newAnchorState.anchorDropLocation,
-      anchorLocation: newAnchorState.anchorLocation,
-      criticalRange: newAnchorState.criticalRange,
-      warningRange: newAnchorState.warningRange,
-      rode: newAnchorState.rode,
-      timestamp: Date.now(),
-    };
-
-    // Update the local state first for immediate UI feedback
-    state.value.anchor = { ...newAnchorState };
-
-    try {
-      // Save to local storage immediately for offline use
-      localStorage.setItem("anchorState", JSON.stringify(storageState));
-      logger.debug("Anchor state saved to local storage");
-    } catch (e) {
-      logger.error("Failed to save anchor state to localStorage", e);
-      // Continue with server sync even if localStorage fails
-    }
-
-    // Send the anchor update to the server
-    const stateStore = useStateDataStore();
-    logger.info("Sending anchor update to server...");
-
-    const hasUserDepth = customAnchorDropDepthValue.value != null;
-    const navigationDepth = navigationState.value?.depth;
-    let resolvedDropDepth = null;
-    let resolvedDepthSource = null;
-
-    if (hasUserDepth) {
-      resolvedDropDepth = {
-        value: customAnchorDropDepthValue.value,
-        units: isMetric.value ? "m" : "ft",
-      };
-      resolvedDepthSource = "user_entered";
-    } else if (newAnchorState.anchorDropLocation?.depth) {
-      const normalizedExistingDepth = normalizeDepthDatum(newAnchorState.anchorDropLocation.depth);
-      const normalizedNavigationDepth = normalizeDepthDatum(navigationDepth);
-
-      if (normalizedExistingDepth?.value != null) {
-        resolvedDropDepth = normalizedExistingDepth;
-      } else if (normalizedNavigationDepth?.value != null) {
-        resolvedDropDepth = normalizedNavigationDepth;
-      } else {
-        resolvedDropDepth = normalizedExistingDepth || normalizedNavigationDepth;
-      }
-
-      if (typeof newAnchorState.anchorDropLocation.depthSource === "string") {
-        resolvedDepthSource = newAnchorState.anchorDropLocation.depthSource;
-      } else {
-        resolvedDepthSource = "assumed_from_boat";
-      }
-    } else if (navigationDepth) {
-      resolvedDropDepth = normalizeDepthDatum(navigationDepth);
-      resolvedDepthSource = "assumed_from_boat";
-    }
-
-    if (!resolvedDropDepth) {
-      logger.warn("Cannot set anchor - unable to resolve anchor drop depth");
-      return;
-    }
-
-    if (!resolvedDepthSource) {
-      logger.warn("Cannot set anchor - unable to resolve depth source");
-      return;
-    }
-
-    newAnchorState.anchorDropLocation = {
-      ...newAnchorState.anchorDropLocation,
-      depth: resolvedDropDepth,
-      depthSource: resolvedDepthSource,
-    };
-
-    state.value.anchor = { ...newAnchorState };
-
-    // Create payload following server protocol - only send allowed fields
-    const payload = {
-      type: "anchor:update",
-      data: {
-        action: "set_after_deploy",
-        anchorDeployed: true,
-        rode: newAnchorState.rode,
-        criticalRange: newAnchorState.criticalRange,
-        warningRange: newAnchorState.warningRange,
-        
-        // Depth: handle both user-entered and boat depth cases
-        anchorDropLocation: {
-          depth: resolvedDropDepth,
-          depthSource: resolvedDepthSource
-        },
-        
-        // Bearing as setBearing
-        setBearing: {
-          value: bearingDegrees,
-          units: "deg"
-        }
-      }
-    };
-
-    stateStore
-      .sendMessageToServer("anchor:update", payload.data, {
-        source: "AnchorView.handleSetAnchor",
-        timeout: 5000, // 5 second timeout
-      })
-      .then((response) => {
-        logger.info("Server acknowledged anchor update", response);
-        console.log("[AnchorView] Server response for set anchor:", {
-          fullResponse: response,
-          responseType: typeof response,
-          responseKeys: response ? Object.keys(response) : 'null',
-          responseData: response?.data,
-          responseDataType: typeof response?.data,
-          serverCriticalRange: response?.data?.criticalRange,
-          serverWarningRange: response?.data?.warningRange,
-          serverRode: response?.data?.rode,
-          serverAnchorLocation: response?.data?.anchorLocation,
-          serverDropLocation: response?.data?.anchorDropLocation,
-          serverAnchorDeployed: response?.data?.anchorDeployed
-        });
-        // Update the local state with any server-side modifications
-        state.value.anchor = { ...newAnchorState, ...(response.data || {}) };
-
-        // Update local storage with the latest state from server
-        try {
-          const updatedStorageState = {
-            ...storageState,
-            ...(response.data || {}),
-          };
-          localStorage.setItem("anchorState", JSON.stringify(updatedStorageState));
-          logger.info("Updated anchor state in localStorage with server response");
-        } catch (e) {
-          logger.error("Failed to update anchor state in localStorage", e);
-        }
-      })
-      .catch((error) => {
-        logger.error("Failed to send anchor update to server", error);
-        // Don't show an alert here as it might be annoying for temporary network issues
-        // The state is already saved locally
-      });
-
-    // Update the map UI
-    updateAnchorPoints();
-    updateCriticalRangeCircle();
-    updateRodeLine();
-    updateBoatRangeCircle();
-
-    // Close the dialog
-    showSetAnchorDialog.value = false;
-  } catch (error) {
-    logger.error("Failed to save anchor state", { error });
-    console.error('Error in handleSetAnchor:', {
-    error: error.message,
-    stack: error.stack,
-    name: error.name,
-    cause: error.cause
-  });
-  logger.error("Failed to save anchor state", { 
-    error: error.message,
-    stack: error.stack,
-    name: error.name,
-    cause: error.cause
-  });
-  alert("Error saving anchor position. See console for details.");
-  showSetAnchorDialog.value = false;
-  }
-};
+const {
+  handleSaveAnchorParameters,
+  handleSetAnchor,
+} = useAnchorCommands({
+  logger,
+  stateStore,
+  state,
+  anchorState,
+  navigationState,
+  boatPosition,
+  preferences,
+  isMetric,
+  customAnchorDropDepthValue,
+  hasTriedPhoneBearing,
+  showSetAnchorDialog,
+  updateAisTargets,
+  updateCriticalRangeCircle,
+  updateBoatRangeCircle,
+  updateRodeLine,
+  updateAnchorPoints,
+  resolveAnchorDropDepth,
+  normalizeDepthDatum,
+  validateCoordinates,
+  getComputedAnchorLocation,
+  calculateDistanceMeters,
+  UnitConversion,
+  nextTick,
+});
 
 // Handler for the anchor-dropped event from AnchorInfoGrid
 const handleAnchorDropped = () => {
@@ -4417,287 +2913,39 @@ const handleAnchorDropped = () => {
   handleSetAnchor();
 };
 
-const handleUpdateDropLocation = () => {
-  const anchorPos = anchorState.value?.anchorLocation?.position;
-  if (!anchorPos) {
-    logger.warn("Cannot update drop location - anchorLocation.position is missing");
-    return;
-  }
-
-  const lat =
-    typeof anchorPos.latitude === "object" ? anchorPos.latitude.value : anchorPos.latitude;
-  const lon =
-    typeof anchorPos.longitude === "object" ? anchorPos.longitude.value : anchorPos.longitude;
-
-  if (
-    lat === null ||
-    lat === undefined ||
-    lon === null ||
-    lon === undefined ||
-    typeof lat !== "number" ||
-    typeof lon !== "number" ||
-    Number.isNaN(lat) ||
-    Number.isNaN(lon)
-  ) {
-    logger.warn("Cannot update drop location - invalid anchorLocation.position coordinates", {
-      latitude: anchorPos.latitude,
-      longitude: anchorPos.longitude,
-    });
-    return;
-  }
-
-  anchorState.value.anchorDropLocation.position = {
-    latitude: { value: lat, units: "deg" },
-    longitude: { value: lon, units: "deg" },
-  };
-
-  showUpdateDialog.value = false;
-};
-
-const confirmUpdateDropLocation = () => {
-  logger.info("Confirming update of drop location...");
-  handleUpdateDropLocation();
-  try {
-    const updatedAnchor = anchorState.value;
-    if (updatedAnchor) {
-      // Create payload following server protocol - only send reset action
-      const payload = {
-        type: "anchor:update",
-        data: {
-          action: "reset_anchor_here"
-        }
-      };
-
-      console.log("[AnchorView] Sending to server - reset anchor here payload:", payload);
-
-      stateStore
-        .sendMessageToServer("anchor:update", payload.data, {
-          source: "AnchorView.confirmUpdateDropLocation",
-          timeout: 5000,
-        })
-        .then((response) => {
-          logger.info("Server acknowledged updated drop location", response);
-          console.log("[AnchorView] Server response for reset anchor here:", {
-            fullResponse: response,
-            responseData: response.data,
-            serverAnchorLocation: response?.data?.anchorLocation,
-            serverDropLocation: response?.data?.anchorDropLocation,
-            serverBearing: response?.data?.anchorDropLocation?.bearing,
-            serverTimes: response?.data?.anchorDropLocation?.time
-          });
-        })
-        .catch((error) => {
-          logger.error("Failed to send updated drop location to server", error);
-        });
-    }
-  } catch (error) {
-    logger.error("Error preparing anchor update for server", error);
-  }
-  showUpdateDropConfirm.value = false;
-  showCancelDialog.value = false;
-};
-
-const handleCancelAnchor = () => {
-  logger.info("Handling cancel anchor action...");
-  // First, identify all features we want to keep
-  const boatFeatures = [];
-  const aisFeatures = [];
-
-  // Get all boat and AIS features
-  vectorSource.forEachFeature((feature) => {
-    const featureType = feature.get("type");
-    if (featureType === FEATURE_TYPES.BOAT) {
-      boatFeatures.push(feature);
-    } else if (featureType === FEATURE_TYPES.AIS) {
-      aisFeatures.push(feature);
-    }
-  });
-
-  logger.debug("Found features to preserve", {
-    boatFeatures: boatFeatures.length,
-    aisFeatures: aisFeatures.length,
-  });
-
-  // Clear ALL features from the vector source
-  vectorSource.clear();
-
-  // Re-add the boat features
-  boatFeatures.forEach((feature) => {
-    vectorSource.addFeature(feature);
-  });
-
-  // Re-add the AIS features with neutral style (reset from warning state)
-  aisFeatures.forEach((feature) => {
-    feature.set("isInWarningRange", false);
-    feature.setStyle(STYLES.AIS_VESSEL);
-    vectorSource.addFeature(feature);
-  });
-
-  // If no boat feature was found, force an update of the boat position
-  if (boatFeatures.length === 0 && boatPosition.value) {
-    updateBoatPosition();
-  }
-
-  // Reset the anchor state in the store
-  if (anchorState.value && Array.isArray(anchorState.value.fences)) {
-    anchorState.value.fences = [];
-  }
-  dropNowSessionActive.value = false;
-  dropNowCapturedDepth.value = null;
-  stateStore.cancelAnchor();
-  updateFenceFeatures();
-
-  // Close the dialog
-  showCancelDialog.value = false;
-
-  // logger.debug('All anchor-related features have been cleared from the map');
-};
-
-// Toast for anchor reset acknowledgements
-const showAnchorResetToast = async (ack) => {
-  try {
-    const success = ack && ack.success !== false;
-    const message = success
-      ? "Anchor reset on server"
-      : ack && ack.error
-        ? `Failed to reset anchor: ${ack.error}`
-        : "Failed to reset anchor";
-
-    const toast = await toastController.create({
-      message,
-      duration: 2500,
-      position: "bottom",
-      color: success ? "success" : "danger",
-      cssClass: "anchor-reset-toast",
-    });
-    await toast.present();
-  } catch (e) {
-    logger.error("Error showing anchor reset toast", e);
-  }
-};
-
-const getAnchorUpdateAckErrorMessage = (ack) => {
-  if (!ack || typeof ack !== "object") {
-    return "Server rejected anchor update.";
-  }
-
-  if (typeof ack.error === "string" && ack.error.trim().length > 0) {
-    return ack.error;
-  }
-
-  if (typeof ack.message === "string" && ack.message.trim().length > 0) {
-    return ack.message;
-  }
-
-  if (typeof ack.reason === "string" && ack.reason.trim().length > 0) {
-    return ack.reason;
-  }
-
-  if (Array.isArray(ack.validationErrors) && ack.validationErrors.length > 0) {
-    const firstError = ack.validationErrors[0];
-    if (typeof firstError === "string" && firstError.trim().length > 0) {
-      return firstError;
-    }
-    if (firstError && typeof firstError.message === "string" && firstError.message.trim().length > 0) {
-      return firstError.message;
-    }
-  }
-
-  return "Server rejected anchor update.";
-};
-
-onMounted(() => {
-  const handleAnchorResetAck = (msg) => {
-    showAnchorResetToast(msg);
-  };
-
-  const handleAnchorUpdateAck = (ack) => {
-    const action = pendingAnchorUpdateAction.value;
-    if (typeof action !== "string") {
-      return;
-    }
-
-    const success = ack && ack.success !== false;
-
-    if (action === "finalize_drop_now") {
-      if (success) {
-        dropNowValidationError.value = "";
-      } else {
-        dropNowValidationError.value = getAnchorUpdateAckErrorMessage(ack);
-        showSetAnchorDialog.value = true;
-      }
-      pendingAnchorUpdateAction.value = null;
-      return;
-    }
-
-    if (action === "drop_now") {
-      if (!success) {
-        dropNowSessionActive.value = false;
-        dropNowCapturedDepth.value = null;
-        showDropAnchorDialog.value = true;
-      }
-      pendingAnchorUpdateAction.value = null;
-      return;
-    }
-
-    if (action === "cancel_drop_now") {
-      pendingAnchorUpdateAction.value = null;
-    }
-  };
-
-  relayConnectionBridge.on("anchor:reset:ack", handleAnchorResetAck);
-  directConnectionAdapter.on("anchor:reset:ack", handleAnchorResetAck);
-  relayConnectionBridge.on("anchor:update:ack", handleAnchorUpdateAck);
-  directConnectionAdapter.on("anchor:update:ack", handleAnchorUpdateAck);
-
-  onUnmounted(() => {
-    relayConnectionBridge.off("anchor:reset:ack", handleAnchorResetAck);
-    directConnectionAdapter.off("anchor:reset:ack", handleAnchorResetAck);
-    relayConnectionBridge.off("anchor:update:ack", handleAnchorUpdateAck);
-    directConnectionAdapter.off("anchor:update:ack", handleAnchorUpdateAck);
-  });
+const {
+  handleUpdateDropLocation,
+  confirmUpdateDropLocation,
+  handleCancelAnchor,
+} = useAnchorResetCommands({
+  logger,
+  stateStore,
+  anchorState,
+  boatPosition,
+  vectorSource,
+  featureTypes: FEATURE_TYPES,
+  styles: STYLES,
+  updateBoatPosition,
+  updateFenceFeatures,
+  dropNowSessionActive,
+  dropNowCapturedDepth,
+  showUpdateDialog,
+  showUpdateDropConfirm,
+  showCancelDialog,
 });
 
-// Handle map clicks to detect feature clicks
-const handleMapClick = (event) => {
-  logger.debug("Map click detected", {
-    coordinate: event.coordinate,
-    pixel: event.pixel,
-    type: event.type,
-  });
-
-  if (handleMeasureMapClick(event)) {
-    return;
-  }
-
-  if (handleFenceMapClick(event)) {
-    return;
-  }
-
-  // Get features at the click position
-  const clickedFeatures = map.value?.getFeaturesAtPixel?.(event.pixel);
-
-  if (clickedFeatures && clickedFeatures.length > 0) {
-    // Check if any of the features is an AIS target
-    const aisFeature = clickedFeatures.find(
-      (feature) => feature.get("type") === FEATURE_TYPES.AIS
-    );
-
-    if (aisFeature) {
-      const mmsi = aisFeature.get("mmsi");
-      const name = aisFeature.get("name");
-
-      logger.debug(
-        `Clicked on AIS target: ${name || "Unnamed"} (MMSI: ${mmsi || "N/A"})`
-      );
-
-      // Open AIS target modal instead of navigating
-      if (aisFeature) {
-        openAISModal(aisFeature);
-      }
-    }
-  }
-};
+useAnchorUpdateAcks({
+  logger,
+  toastController,
+  relayConnectionBridge,
+  directConnectionAdapter,
+  pendingAnchorUpdateAction,
+  dropNowValidationError,
+  showSetAnchorDialog,
+  dropNowSessionActive,
+  dropNowCapturedDepth,
+  showDropAnchorDialog,
+});
 
 // AIS Modal state
 const showAISModal = ref(false);
@@ -4706,30 +2954,24 @@ const selectedAISTarget = ref(null);
 // Anchor Inspector Modal state
 const showAnchorInspectorModal = ref(false);
 
-const openAISModal = (aisFeature) => {
-  const mmsi = aisFeature.get("mmsi");
-  const name = aisFeature.get("name");
-  
-  logger.debug(`[AIS Modal] Opening modal for MMSI: ${mmsi}, Name: ${name}`);
-  
-  // Look up the full AIS target data from the store
-  const mmsiStr = String(mmsi);
-  const raw = state.value.aisTargets?.[mmsiStr];
-  if (!raw) {
-    logger.warn(`[AIS Modal] No AIS target found in store for MMSI: ${mmsi}`);
-  } else {
-    logger.debug(`[AIS Modal] Found raw target data:`, raw);
-  }
-
-  selectedAISTarget.value = buildAisModalTarget({
-    raw,
-    mmsi,
-    name,
-    ownPosition: state.value?.navigation?.position,
-  });
-  
-  showAISModal.value = true;
-};
+const {
+  handleMapClick,
+  handleAnchorDroppedEvent,
+} = useAnchorMapClickActions({
+  logger,
+  map,
+  featureTypes: FEATURE_TYPES,
+  state,
+  handleMeasureMapClick,
+  handleFenceMapClick,
+  buildAisModalTarget,
+  showAISModal,
+  selectedAISTarget,
+  updateAnchorPoints,
+  updateCriticalRangeCircle,
+  updateRodeLine,
+  updateBoatRangeCircle,
+});
 
 const handleAnchorStatusClick = () => {
   if (isDropNowDeploying.value === true) {
@@ -4964,159 +3206,46 @@ const zoomOut = () => {
   }
 };
 
-// Handler for the custom anchor-dropped event
-const handleAnchorDroppedEvent = (event) => {
-  logger.debug("Received anchor-dropped event", event.detail);
-
-  // Update the map features
-  updateAnchorPoints();
-  updateCriticalRangeCircle();
-  updateRodeLine();
-  updateBoatRangeCircle();
-};
-
 function deg2rad(deg) {
   return deg * (Math.PI / 180);
 }
 
-// Lifecycle hooks
-let anchorStateLogInterval;
-let fenceGraphLogInterval;
-let stopInitialFeatureWatcher = null;
-let hasDrawnInitialFeatures = false;
-
-const hasBoatPosition = () => {
-  const boatLat = boatPosition.value?.latitude?.value;
-  const boatLon = boatPosition.value?.longitude?.value;
-  return typeof boatLat === "number" && typeof boatLon === "number";
-};
-
-const hasAnchoredFeatureData = () => {
-  if (!hasBoatPosition()) return false;
-  if (anchorState.value?.anchorDeployed !== true) return false;
-
-  const anchorPos = anchorState.value?.anchorLocation?.position;
-  const anchorLat = anchorPos?.latitude?.value ?? anchorPos?.latitude;
-  const anchorLon = anchorPos?.longitude?.value ?? anchorPos?.longitude;
-  const criticalRange = anchorState.value?.criticalRange?.r;
-  const rodeLength = anchorState.value?.rode?.length;
-
-  return (
-    typeof anchorLat === "number" &&
-    typeof anchorLon === "number" &&
-    typeof criticalRange === "number" &&
-    typeof rodeLength === "number"
-  );
-};
-
-const drawInitialFeaturesIfReady = () => {
-  if (hasDrawnInitialFeatures) return;
-  if (!isMapRenderReadyFromComposable.value) return;
-
-  if (anchorState.value?.anchorDeployed === true) {
-    if (!hasAnchoredFeatureData()) return;
-
-    logger.debug("Initial draw: anchored data ready, drawing boat+rode together");
-    applyDefaultFramingOnEnter();
-    updateAnchorPoints();
-    updateCriticalRangeCircle();
-    updateRodeLine();
-    updateBoatPosition();
-    hasDrawnInitialFeatures = true;
-    return;
-  }
-
-  if (!hasBoatPosition()) return;
-
-  logger.debug("Initial draw: not anchored, drawing boat");
-  attachDefaultFramingListener();
-  updateBoatPosition();
-  hasDrawnInitialFeatures = true;
-};
-
-const startInitialFeatureWatcher = () => {
-  if (stopInitialFeatureWatcher) {
-    stopInitialFeatureWatcher();
-    stopInitialFeatureWatcher = null;
-  }
-
-  stopInitialFeatureWatcher = watch(
-    [
-      () => isMapRenderReadyFromComposable.value,
-      () => boatPosition.value?.latitude?.value,
-      () => boatPosition.value?.longitude?.value,
-      () => anchorState.value?.anchorDeployed,
-      () => anchorState.value?.anchorLocation?.position?.latitude?.value,
-      () => anchorState.value?.anchorLocation?.position?.longitude?.value,
-      () => anchorState.value?.criticalRange?.r,
-      () => anchorState.value?.rode?.length,
-    ],
-    () => {
-      drawInitialFeaturesIfReady();
-      if (hasDrawnInitialFeatures && stopInitialFeatureWatcher) {
-        stopInitialFeatureWatcher();
-        stopInitialFeatureWatcher = null;
-      }
-    },
-    { immediate: true }
-  );
-};
-
-onMounted(async () => {
-  logger.info("Component mounted, initializing map...");
-  
-  try {
-    hasDrawnInitialFeatures = false;
-    await initializeMap();
-    startInitialFeatureWatcher();
-    
-    // Add event listener for the anchor-dropped event
-    window.addEventListener("anchor-dropped", handleAnchorDroppedEvent);
-    logger.info("Data waiting setup complete and event listeners added");
-    
-    // Start fade timer for FAB buttons
-    resetFadeTimer();
-    
-    // Reset fade timer on any touch/click
-    document.addEventListener('touchstart', resetFadeTimer);
-    document.addEventListener('click', resetFadeTimer);
-
-    // fenceGraphLogInterval = setInterval(() => {
-    //   console.log("Fence graph state snapshot", anchorState.value?.fences);
-    // }, 60000);
-
-  } catch (error) {
-    logger.error("Error during component mount", {
-      error: error.message,
-      stack: error.stack,
-    });
-    throw error;
-  }
-});
-
-onUnmounted(() => {
-  if (anchorStateLogInterval) {
-    clearInterval(anchorStateLogInterval);
-  }
-  if (fenceGraphLogInterval) {
-    clearInterval(fenceGraphLogInterval);
-  }
-  if (stopInitialFeatureWatcher) {
-    stopInitialFeatureWatcher();
-    stopInitialFeatureWatcher = null;
-  }
-  stopAnimations();
-  cleanupMeasureMode();
-  clearAll();
-  window.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
-  document.removeEventListener("anchor-dropped", handleAnchorDroppedEvent);
-  
-  // Clean up fade timer and event listeners
-  if (fadeTimeout) {
-    clearTimeout(fadeTimeout);
-  }
-  document.removeEventListener('touchstart', resetFadeTimer);
-  document.removeEventListener('click', resetFadeTimer);
+useAnchorViewLifecycle({
+  logger,
+  map,
+  mapElement,
+  anchorState,
+  boatPosition,
+  isAnchorViewActive,
+  isMapRenderReady,
+  isMapRenderReadyFromComposable,
+  hasCenteredOnBoatThisEntry,
+  hasLoggedFramingDebugThisEntry,
+  hasAppliedDefaultFramingThisEntry,
+  attachDefaultFramingListener,
+  applyDefaultFramingOnEnter,
+  updateBoatPosition,
+  updateAnchorPoints,
+  updateCriticalRangeCircle,
+  updateRodeLine,
+  initializeMap,
+  handleAnchorDroppedEvent,
+  resetFadeTimer,
+  clearFadeTimer: () => {
+    if (fadeTimeout) {
+      clearTimeout(fadeTimeout);
+      fadeTimeout = null;
+    }
+  },
+  stopAnimations,
+  cleanupMeasureMode,
+  clearAll,
+  handleWheelEvent,
+  onCleanup: () => {
+    if (logFullStateInterval) {
+      clearInterval(logFullStateInterval);
+    }
+  },
 });
 
 </script>
