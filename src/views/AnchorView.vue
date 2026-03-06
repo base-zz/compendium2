@@ -233,6 +233,7 @@ import { useMapTools } from "@/utils/mapUtils.js";
 import { useAnchorFeatureRegistry } from "@/composables/anchor/useAnchorFeatureRegistry.js";
 import { useAnchorAnimation } from "@/composables/anchor/useAnchorAnimation.js";
 import { useAnchorMeasureMode } from "@/composables/anchor/useAnchorMeasureMode.js";
+import { useAnchorFenceMode } from "@/composables/anchor/useAnchorFenceMode.js";
 import { useMapManagement } from "@/composables/useMapManagement.js";
 import { useMapInteractions } from "@/composables/useMapInteractions.js";
 import { STYLES, createWindIndicatorStyle } from "@/utils/mapStyles";
@@ -795,51 +796,6 @@ const attachDefaultFramingListener = () => {
   if (typeof map.value.render === "function") {
     map.value.render();
   }
-};
-
-const toggleFenceMode = () => {
-  if (fenceModeEnabled.value === true) {
-    fenceModeEnabled.value = false;
-    return;
-  }
-
-  if (Array.isArray(anchorState.value?.fences) && anchorState.value.fences.length > 0) {
-    showFenceListModal.value = true;
-    return;
-  }
-
-  fenceModeEnabled.value = true;
-  if (fenceModeEnabled.value === true) {
-    measureModeEnabled.value = false;
-  }
-};
-
-const startFenceSelectionFromList = () => {
-  showFenceListModal.value = false;
-  fenceModeEnabled.value = true;
-  measureModeEnabled.value = false;
-};
-
-const resetFenceDraft = () => {
-  selectedFenceTarget.value = null;
-  fenceName.value = "";
-  fenceRangeInput.value = "";
-  fenceReferenceType.value = "";
-  fenceValidationError.value = null;
-};
-
-const handleFenceModalCancel = () => {
-  showFenceConfigModal.value = false;
-  resetFenceDraft();
-};
-
-const handleFenceReferenceChange = (event) => {
-  const value = event?.target?.value;
-  if (typeof value !== "string") {
-    return;
-  }
-  fenceReferenceType.value = value;
-  fenceValidationError.value = null;
 };
 
 const handleFenceSave = async () => {
@@ -1695,15 +1651,6 @@ const anchorStatusClass = computed(() => {
   return 'status-not-anchored';
 });
 
-const fenceModeEnabled = ref(false);
-const showFenceConfigModal = ref(false);
-const showFenceListModal = ref(false);
-const selectedFenceTarget = ref(null);
-const fenceName = ref("");
-const fenceRangeInput = ref("");
-const fenceReferenceType = ref("");
-const fenceValidationError = ref(null);
-
 // Unit system handling
 const isMetric = computed(() => {
   const useImperial = preferences.value?.units?.useImperial;
@@ -1753,6 +1700,36 @@ const {
   fromLonLat,
   toLonLat,
   getBoatLonLatForMeasure,
+});
+
+const disableMeasureModeForFence = () => {
+  if (measureModeEnabled.value === true) {
+    void toggleMeasureMode();
+  }
+};
+
+const {
+  fenceModeEnabled,
+  showFenceConfigModal,
+  showFenceListModal,
+  selectedFenceTarget,
+  fenceName,
+  fenceRangeInput,
+  fenceReferenceType,
+  fenceValidationError,
+  toggleFenceMode,
+  startFenceSelectionFromList,
+  handleFenceModalCancel,
+  handleFenceReferenceChange,
+  handleFenceMapClick,
+  resetFenceDraft,
+} = useAnchorFenceMode({
+  map,
+  toLonLat,
+  featureTypes: FEATURE_TYPES,
+  logger,
+  getAnchorState: () => anchorState.value,
+  disableMeasureMode: disableMeasureModeForFence,
 });
 
 const boatPosition = computed(() => navigationState.value?.position);
@@ -4781,54 +4758,7 @@ const handleMapClick = (event) => {
     return;
   }
 
-  if (fenceModeEnabled.value) {
-    const clickedFeaturesForFence = map.value?.getFeaturesAtPixel?.(event.pixel);
-    const aisFeatureForFence = Array.isArray(clickedFeaturesForFence)
-      ? clickedFeaturesForFence.find((feature) => feature.get("type") === FEATURE_TYPES.AIS)
-      : null;
-
-    if (aisFeatureForFence) {
-      const mmsi = aisFeatureForFence.get("mmsi");
-      const name = aisFeatureForFence.get("name");
-      if (mmsi != null) {
-        selectedFenceTarget.value = {
-          targetType: "ais",
-          name: name || "AIS Target",
-          targetRef: { mmsi },
-        };
-        fenceName.value = name || "";
-        showFenceConfigModal.value = true;
-        return;
-      }
-    }
-
-    const lonLatClicked = toLonLat(event.coordinate);
-    if (!Array.isArray(lonLatClicked) || lonLatClicked.length < 2) {
-      logger.warn("Fence mode click ignored: invalid map coordinate", {
-        coordinate: event.coordinate,
-      });
-      return;
-    }
-
-    const clickedLon = lonLatClicked[0];
-    const clickedLat = lonLatClicked[1];
-    if (typeof clickedLat !== "number" || typeof clickedLon !== "number") {
-      logger.warn("Fence mode click ignored: non-numeric coordinate", {
-        lonLatClicked,
-      });
-      return;
-    }
-
-    selectedFenceTarget.value = {
-      targetType: "point",
-      name: "Map Point",
-      targetRef: {
-        latitude: clickedLat,
-        longitude: clickedLon,
-      },
-    };
-    fenceName.value = "";
-    showFenceConfigModal.value = true;
+  if (handleFenceMapClick(event)) {
     return;
   }
 
