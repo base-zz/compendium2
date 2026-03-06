@@ -181,7 +181,6 @@ console.log("=== ANCHOR VIEW SCRIPT SETUP STARTING ===");
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import { createLogger } from "@/services/logger";
-import { useRouter } from "vue-router";
 import {
   useStateDataStore,
   calculateDistanceMeters,
@@ -191,13 +190,11 @@ import { usePreferencesStore } from "@/stores/preferences";
 import { UnitConversion } from "@/shared/unitConversion";
 import { debounce, throttle } from "lodash-es";
 import { getComputedAnchorLocation } from "@/stores/stateDataStore";
-import { createAisProximityAlert } from "@/utils/anchorAlerts";
 import { useDeviceHeading } from "@/composables/useDeviceHeading.js";
 
 // Component imports
 import AnchorInfoGrid from "@/components/AnchorInfoGrid.vue";
 import GenericHeader from "@/components/GenericHeader.vue";
-import TideComponent from "@/components/TideComponent.vue";
 import AnchorInspectorModal from "@/components/anchor/AnchorInspectorModal.vue";
 import AnchorToolbar from "@/components/anchor/AnchorToolbar.vue";
 import UpdateDropModal from "@/components/anchor/UpdateDropModal.vue";
@@ -210,34 +207,18 @@ import SetAnchorModal from "@/components/anchor/SetAnchorModal.vue";
 import DropAnchorModal from "@/components/anchor/DropAnchorModal.vue";
 
 // Router setup
-const router = useRouter();
 
 // Ionic imports
 import {
   IonPage,
-  IonModal,
   IonButton,
-  IonContent,
-  IonRange,
   IonSpinner,
-  IonIcon,
-  IonFooter,
-  IonToolbar,
-  IonHeader,
-  IonTitle,
   onIonViewDidEnter,
   onIonViewDidLeave,
   toastController,
 } from "@ionic/vue";
-import { chevronUpOutline, navigate, resizeOutline, addOutline, removeOutline, closeOutline, shieldOutline } from "ionicons/icons";
 
 // OpenLayers imports
-import Map from "ol/Map";
-import View from "ol/View";
-import TileLayer from "ol/layer/Tile";
-import OSM from "ol/source/OSM";
-import XYZ from "ol/source/XYZ";
-import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import Feature from "ol/Feature";
 import { Style, Stroke, Fill, Text } from "ol/style";
@@ -246,13 +227,8 @@ import { fromLonLat, toLonLat } from "ol/proj";
 import { Point } from "ol/geom";
 import Polygon from "ol/geom/Polygon";
 import LineString from "ol/geom/LineString";
-import { defaults as defaultControls } from "ol/control";
-import { defaults as defaultInteractions } from "ol/interaction";
 import Collection from "ol/Collection";
 import Translate from "ol/interaction/Translate";
-import DragPan from "ol/interaction/DragPan";
-import DragRotate from "ol/interaction/DragRotate";
-import PinchRotate from "ol/interaction/PinchRotate";
 
 import MouseWheelZoom from "ol/interaction/MouseWheelZoom";
 import { useMapTools } from "@/utils/mapUtils.js";
@@ -358,20 +334,127 @@ const resolveDropNowDepthForFinalize = () => {
   return null;
 };
 
+const normalizeBearingToDegrees = (bearingCandidate) => {
+  if (typeof bearingCandidate === "number" && Number.isFinite(bearingCandidate)) {
+    if (Math.abs(bearingCandidate) <= Math.PI * 2) {
+      return ((bearingCandidate * 180) / Math.PI + 360) % 360;
+    }
+    return bearingCandidate;
+  }
+
+  if (!bearingCandidate || typeof bearingCandidate !== "object") {
+    return null;
+  }
+
+  if (typeof bearingCandidate.degrees === "number" && Number.isFinite(bearingCandidate.degrees)) {
+    return bearingCandidate.degrees;
+  }
+
+  const value = bearingCandidate.value;
+  const units = bearingCandidate.units;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+
+  if (typeof units === "string") {
+    const normalizedUnits = units.toLowerCase();
+    if (normalizedUnits === "rad" || normalizedUnits === "radian" || normalizedUnits === "radians") {
+      return ((value * 180) / Math.PI + 360) % 360;
+    }
+    if (normalizedUnits === "deg" || normalizedUnits === "degree" || normalizedUnits === "degrees") {
+      return value;
+    }
+  }
+
+  if (Math.abs(value) <= Math.PI * 2) {
+    return ((value * 180) / Math.PI + 360) % 360;
+  }
+
+  return value;
+};
+
+const resolveCoordinateDegrees = (coordinateCandidate) => {
+  if (typeof coordinateCandidate === "number" && Number.isFinite(coordinateCandidate)) {
+    return coordinateCandidate;
+  }
+
+  if (!coordinateCandidate || typeof coordinateCandidate !== "object") {
+    return null;
+  }
+
+  const value = coordinateCandidate.value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  return null;
+};
+
+const calculateBoatToAnchorBearingDegrees = () => {
+  const boatPosition = navigationState.value?.position;
+  const anchorPosition =
+    anchorState.value?.anchorDropLocation?.position ||
+    anchorState.value?.anchorLocation?.position;
+
+  const boatLat = resolveCoordinateDegrees(boatPosition?.latitude);
+  const boatLon = resolveCoordinateDegrees(boatPosition?.longitude);
+  const anchorLat = resolveCoordinateDegrees(anchorPosition?.latitude);
+  const anchorLon = resolveCoordinateDegrees(anchorPosition?.longitude);
+
+  if (
+    typeof boatLat !== "number" ||
+    !Number.isFinite(boatLat) ||
+    typeof boatLon !== "number" ||
+    !Number.isFinite(boatLon) ||
+    typeof anchorLat !== "number" ||
+    !Number.isFinite(anchorLat) ||
+    typeof anchorLon !== "number" ||
+    !Number.isFinite(anchorLon)
+  ) {
+    return null;
+  }
+
+  const toRad = (degrees) => (degrees * Math.PI) / 180;
+  const boatLatRad = toRad(boatLat);
+  const anchorLatRad = toRad(anchorLat);
+  const deltaLonRad = toRad(anchorLon - boatLon);
+
+  const y = Math.sin(deltaLonRad) * Math.cos(anchorLatRad);
+  const x =
+    Math.cos(boatLatRad) * Math.sin(anchorLatRad) -
+    Math.sin(boatLatRad) * Math.cos(anchorLatRad) * Math.cos(deltaLonRad);
+
+  const bearingDegrees = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  if (typeof bearingDegrees === "number" && Number.isFinite(bearingDegrees)) {
+    return bearingDegrees;
+  }
+
+  return null;
+};
+
 const resolveFinalizeBearingDegrees = () => {
-  const localBearingDegrees = anchorState.value?.anchorDropLocation?.bearing?.degrees;
-  if (typeof localBearingDegrees === "number" && Number.isFinite(localBearingDegrees)) {
-    return localBearingDegrees;
+  const candidates = [
+    anchorState.value?.anchorDropLocation?.bearing,
+    anchorState.value?.anchorDropLocation?.originalBearing,
+    anchorState.value?.anchorLocation?.bearing,
+    anchorState.value?.setBearing,
+    anchorState.value?.dropSession?.measured?.currentBearing,
+    anchorState.value?.dropSession?.measured?.bearing,
+    anchorState.value?.dropSession?.measured?.current?.bearing,
+    anchorState.value?.dropSession?.measured?.bearingDegrees,
+    anchorState.value?.dropSession?.measured?.current?.bearingDegrees,
+  ];
+
+  for (const candidate of candidates) {
+    const normalizedDegrees = normalizeBearingToDegrees(candidate);
+    if (typeof normalizedDegrees === "number" && Number.isFinite(normalizedDegrees)) {
+      return normalizedDegrees;
+    }
   }
 
-  const measuredCurrentBearing = anchorState.value?.dropSession?.measured?.currentBearing;
-  if (typeof measuredCurrentBearing === "number" && Number.isFinite(measuredCurrentBearing)) {
-    return measuredCurrentBearing;
-  }
-
-  const measuredCurrentBearingValue = anchorState.value?.dropSession?.measured?.currentBearing?.value;
-  if (typeof measuredCurrentBearingValue === "number" && Number.isFinite(measuredCurrentBearingValue)) {
-    return measuredCurrentBearingValue;
+  const vectorBearingDegrees = calculateBoatToAnchorBearingDegrees();
+  if (typeof vectorBearingDegrees === "number" && Number.isFinite(vectorBearingDegrees)) {
+    return vectorBearingDegrees;
   }
 
   return null;
@@ -610,6 +693,8 @@ const handleFinalizeDropNow = () => {
     },
   };
 
+  showSetAnchorDialog.value = false;
+
   pendingAnchorUpdateAction.value = "finalize_drop_now";
 
   stateStore
@@ -621,6 +706,8 @@ const handleFinalizeDropNow = () => {
       if (success !== true) {
         pendingAnchorUpdateAction.value = null;
         dropNowValidationError.value = "Unable to send finalize request. Please retry.";
+        showSetAnchorDialog.value = true;
+        return;
       }
     })
     .catch((error) => {
@@ -2378,48 +2465,6 @@ function updateRodeFeaturePosition(boatX, boatY, anchorX, anchorY) {
   }
 }
 
-// Update rode line using animation (DEPRECATED - now handled in boat animation)
-function updateRodeLineAnimated() {
-  const state = stateStore.state;
-  const boatPos = state?.navigation?.position;
-  const anchorPos = state?.anchor?.anchorLocation?.position;
-  
-  if (!boatPos || !anchorPos) return;
-  
-  const toScalar = (value) => {
-    if (value == null) return null;
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    if (typeof value === "object" && typeof value.value === "number") {
-      return Number.isFinite(value.value) ? value.value : null;
-    }
-    return null;
-  };
-  
-  const boatLat = toScalar(boatPos?.latitude);
-  const boatLon = toScalar(boatPos?.longitude);
-  const anchorLat = toScalar(anchorPos?.latitude);
-  const anchorLon = toScalar(anchorPos?.longitude);
-  
-  if (!Number.isFinite(boatLat) || !Number.isFinite(boatLon) ||
-      !Number.isFinite(anchorLat) || !Number.isFinite(anchorLon)) {
-    return;
-  }
-  
-  const boatCoord = fromLonLat([boatLon, boatLat]);
-  const anchorCoord = fromLonLat([anchorLon, anchorLat]);
-  
-  // If rode feature doesn't exist yet, create it
-  const rodeFeature = vectorSource.getFeatures().find(f => f.get('type') === FEATURE_TYPES.RODE);
-  if (!rodeFeature) {
-    // Fall back to full update
-    updateRodeLine();
-    return;
-  }
-  
-  // Animate to new position
-  animateRodeLine(boatCoord[0], boatCoord[1], anchorCoord[0], anchorCoord[1], 500);
-}
-
 const updateBoatPosition = debounce(() => {
   // Get the raw state to ensure we're accessing the data directly
   const state = stateStore.state;
@@ -2972,7 +3017,7 @@ function animateWindRotation(targetRotation, duration = 350) {
 
 // Track if critical circle was already drawn to prevent clearing on re-mount
 // Use sessionStorage to persist across component re-mounts
-let criticalCircleDrawn = ref(sessionStorage.getItem('criticalCircleDrawn') === 'true');
+const criticalCircleDrawn = ref(sessionStorage.getItem('criticalCircleDrawn') === 'true');
 
 const updateCriticalRangeCircle = debounce(() => {
   // Check if anchorState exists first
@@ -5512,12 +5557,6 @@ const openAISModal = (aisFeature) => {
   showAISModal.value = true;
 };
 
-const closeAISModal = () => {
-  console.log("[AIS Modal] Closing modal");
-  showAISModal.value = false;
-  selectedAISTarget.value = null;
-};
-
 const handleAnchorStatusClick = () => {
   if (isDropNowDeploying.value === true) {
     showSetAnchorDialog.value = true;
@@ -5636,50 +5675,6 @@ const calculateRodeCircleViolated = () => {
   
   return distanceMeters > radiusMeters;
 };
-
-// Helper functions for AIS data formatting
-const toNumericValue = (val) => {
-  if (val == null) return null;
-  if (typeof val === 'number') return Number.isFinite(val) ? val : null;
-  if (typeof val === 'object' && val.value != null) {
-    const numeric = Number(val.value);
-    return Number.isFinite(numeric) ? numeric : null;
-  }
-  return null;
-};
-
-const formatCoordinate = (coord) => {
-  if (coord == null) return 'N/A';
-  const num = toNumericValue(coord);
-  if (num == null) return 'N/A';
-  return num.toFixed(4);
-};
-
-const formatSpeed = (speed) => {
-  if (speed == null) return 'N/A';
-  const num = toNumericValue(speed);
-  if (num == null) return 'N/A';
-  const unit = isMetric.value ? 'km/h' : 'mph';
-  const converted = isMetric.value ? num : num * 0.621371;
-  return `${converted.toFixed(1)} ${unit}`;
-};
-
-const formatCourse = (course) => {
-  if (course == null) return 'N/A';
-  const num = toNumericValue(course);
-  if (num == null) return 'N/A';
-  return `${Math.round(num)}°`;
-};
-
-const formatDistance = (distance) => {
-  if (distance == null) return 'N/A';
-  const num = toNumericValue(distance);
-  if (num == null) return 'N/A';
-  const unit = isMetric.value ? 'm' : 'ft';
-  const converted = isMetric.value ? num : num * 3.28084;
-  return `${Math.round(converted)} ${unit}`;
-};
-
 
 const handleWheelEvent = (event) => {
   logger.debug("Mouse wheel event", { deltaY: event.deltaY });
@@ -5805,24 +5800,6 @@ const handleAnchorDroppedEvent = (event) => {
   updateRodeLine();
   updateBoatRangeCircle();
 };
-
-// Function to calculate distance between two points based on unit preferences
-function getDistanceFromLatLon(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Radius of the earth in meters
-  const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(deg2rad(lat1)) *
-      Math.cos(deg2rad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distanceInMeters = R * c; // Distance in meters
-
-  // Return in meters if metric, feet if imperial
-  return isMetric.value ? distanceInMeters : distanceInMeters * 3.28084;
-}
 
 function deg2rad(deg) {
   return deg * (Math.PI / 180);

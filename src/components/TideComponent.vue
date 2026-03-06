@@ -74,47 +74,17 @@
         </IonContent>
       </IonModal>
 
-      <div v-if="tideExtremesTable" class="tide-events">
-        <h3 class="section-title">Tide Extremes</h3>
-        <div class="tide-table-container">
-          <table class="tide-extremes-table">
-            <thead>
-              <tr>
-                <th>Period</th>
-                <th>Low</th>
-                <th>High</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in tideExtremesTable" :key="row.label">
-                <td class="period-cell">{{ row.label }}</td>
-                <td :class="props.viewMode === 'anchor' ? row.lowClass : 'extreme-cell-neutral'">{{ row.low }}</td>
-                <td :class="props.viewMode === 'anchor' ? 'high-cell' : 'extreme-cell-neutral'">{{ row.high }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <TideExtremesTable
+        v-if="tideExtremesTable"
+        :rows="tideExtremesTable"
+        :view-mode="props.viewMode"
+      />
 
-      <div v-if="hourlyWindForecast.length" class="wind-forecast">
-        <h3 class="section-title">Wind Forecast</h3>
-        <div class="wind-forecast-grid">
-          <div class="wind-forecast-cell wind-forecast-key-cell">
-            <div class="wind-forecast-day">&nbsp;</div>
-            <div class="wind-forecast-time">&nbsp;</div>
-            <div class="wind-forecast-key-item">Dir</div>
-            <div class="wind-forecast-key-item">Wind (kn)</div>
-            <div class="wind-forecast-key-item">Gust (kn)</div>
-          </div>
-          <div v-for="item in hourlyWindForecast" :key="item.startTime" class="wind-forecast-cell">
-            <div class="wind-forecast-day">{{ item.dayLabel }}</div>
-            <div class="wind-forecast-time">{{ item.timeLabel }}</div>
-            <div class="wind-forecast-arrow" :style="{ transform: `rotate(${item.directionDegrees}deg)` }">↑</div>
-            <div class="wind-forecast-speed">{{ item.windSpeed }}</div>
-            <div class="wind-forecast-gust">{{ item.windGust }}</div>
-          </div>
-        </div>
-      </div>
+      <HourlyMarineTimeline
+        :forecast-data="forecastData"
+        :tide-data="tideData"
+        :units="units"
+      />
 
       <!-- Current Marine Conditions -->
       <div v-if="currentConditions" class="marine-conditions">
@@ -244,6 +214,8 @@ import {
   IonContent,
 } from '@ionic/vue';
 import TideChart from '@/components/charts/TideChart.vue';
+import HourlyMarineTimeline from '@/components/HourlyMarineTimeline.vue';
+import TideExtremesTable from '@/components/TideExtremesTable.vue';
 import { useStateDataStore } from '@/stores/stateDataStore';
 import { storeToRefs } from 'pinia';
 import noaaTideStations from '@/components/data/noaa-tide-stations.json';
@@ -388,107 +360,6 @@ const canShowMoreStations = computed(() => {
 const seaLevelUnitLabel = computed(() => {
   const unit = units.value?.seaLevelHeight;
   return typeof unit === 'string' ? unit : '';
-});
-
-const windDirectionToDegrees = (value) => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const normalized = value.trim().toUpperCase();
-  if (!normalized) {
-    return null;
-  }
-  const map = {
-    N: 0,
-    NNE: 22.5,
-    NE: 45,
-    ENE: 67.5,
-    E: 90,
-    ESE: 112.5,
-    SE: 135,
-    SSE: 157.5,
-    S: 180,
-    SSW: 202.5,
-    SW: 225,
-    WSW: 247.5,
-    W: 270,
-    WNW: 292.5,
-    NW: 315,
-    NNW: 337.5,
-  };
-  if (!Object.prototype.hasOwnProperty.call(map, normalized)) {
-    return null;
-  }
-  return map[normalized];
-};
-
-const hourlyWindForecast = computed(() => {
-  const hourly = forecastData.value?.hourly;
-  const times = hourly?.time;
-  const speeds = hourly?.wind_speed_10m;
-  const directions = hourly?.wind_direction_10m;
-  const gusts = hourly?.wind_gusts_10m;
-  if (!Array.isArray(times) || !Array.isArray(speeds) || !Array.isArray(directions) || !Array.isArray(gusts)) {
-    return [];
-  }
-  const count = Math.min(times.length, speeds.length, directions.length, gusts.length);
-  if (count < 1) {
-    return [];
-  }
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    hour12: true,
-  });
-  const dayFormatter = new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-  });
-  return Array.from({ length: count }, (_, index) => {
-    const startTime = times[index];
-    const windSpeed = speeds[index];
-    const direction = directions[index];
-    const windGust = gusts[index];
-    if (typeof startTime !== 'string' || !startTime) {
-      return null;
-    }
-    if (typeof windSpeed !== 'number' || Number.isNaN(windSpeed)) {
-      return null;
-    }
-    if (typeof windGust !== 'number' || Number.isNaN(windGust)) {
-      return null;
-    }
-    const rawDirection = windDirectionToDegrees(direction);
-    if (typeof rawDirection !== 'number') {
-      return null;
-    }
-    const directionDegrees = (rawDirection + 180) % 360;
-    const time = new Date(startTime);
-    if (!(time instanceof Date) || Number.isNaN(time.getTime())) {
-      return null;
-    }
-    return {
-      startTime,
-      dayLabel: dayFormatter.format(time),
-      timeLabel: formatter.format(time),
-      windSpeed: `${windSpeed}`,
-      windGust: `${windGust}`,
-      directionDegrees,
-      timeMs: time.getTime(), // Add timestamp for filtering
-    };
-  }).filter((entry) => entry != null);
-  
-  // Filter to only show hours >= current time
-  const nowMs = Date.now();
-  const futureEntries = result.filter((entry) => entry.timeMs >= nowMs);
-  
-  // If all entries are in the past (edge case), show at least the next few hours from start
-  if (futureEntries.length === 0 && result.length > 0) {
-    return result.slice(0, 12); // Show next 12 hours from beginning of data
-  }
-  
-  return futureEntries;
 });
 
 const currentTideLevelFromHourly = computed(() => {
@@ -1283,203 +1154,6 @@ async function fetchNoaaTidePredictionsHiLo({ stationId, beginDate, endDate, dat
 .tide-chart {
   width: 100%;
   height: 100%;
-}
-
-.tide-events {
-  margin: 6px 8px 0;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--app-surface-color) 95%, var(--app-text-color) 5%);
-  border: 1px solid var(--app-border-color);
-  border-radius: 12px;
-}
-
-.tide-events .section-title {
-  padding-left: 0;
-  margin: 0 0 10px 0;
-}
-
-.events-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.event-card {
-  background: color-mix(in srgb, var(--app-surface-color) 80%, var(--app-background-color) 20%);
-  border: 1px solid var(--app-border-color);
-  border-radius: 10px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.event-card-wide {
-  grid-column: 1 / -1;
-}
-
-.event-label {
-  font-size: 0.75rem;
-  color: var(--app-muted-text-color);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
-}
-
-.event-value {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--app-text-color);
-  line-height: 1.15;
-}
-
-/* Tide extremes table styles */
-.tide-table-container {
-  overflow-x: auto;
-}
-
-.wind-forecast {
-  margin-top: 8px;
-}
-
-.wind-forecast-key-item {
-  font-size: 0.75rem;
-  color: var(--app-muted-text-color);
-  font-weight: 600;
-}
-
-.wind-forecast-grid {
-  display: flex;
-  overflow-x: auto;
-  gap: 1.25rem;
-  padding: 1rem;
-  margin: 0.5rem 0 1rem;
-  min-height: 100px;
-  scrollbar-width: none;
-  background: color-mix(in srgb, var(--app-surface-color) 50%, var(--app-background-color) 50%);
-  border-radius: 12px;
-  border: 1px solid var(--app-border-color);
-}
-
-.wind-forecast-grid::-webkit-scrollbar {
-  display: none;
-}
-
-.wind-forecast-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 3.25rem;
-  gap: 0.35rem;
-}
-
-.wind-forecast-key-cell {
-  min-width: 74px;
-  align-items: flex-start;
-  padding-right: 6px;
-}
-
-.wind-forecast-day {
-  font-size: 0.7rem;
-  color: var(--app-muted-text-color);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.wind-forecast-time {
-  font-size: 0.75rem;
-  color: var(--app-muted-text-color);
-}
-
-.wind-forecast-arrow {
-  font-size: 1.25rem;
-  color: #ffffff;
-  min-height: 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.wind-forecast-speed {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--app-text-color);
-  min-height: 1.2rem;
-}
-
-.wind-forecast-gust {
-  font-size: 0.75rem;
-  color: var(--app-muted-text-color);
-  min-height: 1rem;
-}
-
-.tide-extremes-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-
-.tide-extremes-table th {
-  text-align: left;
-  padding: 8px 6px;
-  font-weight: 600;
-  color: var(--app-muted-text-color);
-  border-bottom: 1px solid var(--app-border-color);
-  text-transform: uppercase;
-  font-size: 0.7rem;
-  letter-spacing: 0.03em;
-}
-
-.tide-extremes-table td {
-  padding: 10px 6px;
-  border-bottom: 1px solid var(--app-border-color);
-  vertical-align: top;
-}
-
-.tide-extremes-table tr:last-child td {
-  border-bottom: none;
-}
-
-.period-cell {
-  font-weight: 600;
-  color: var(--app-text-color);
-  white-space: nowrap;
-}
-
-.high-cell {
-  color: #22c55e;
-  font-weight: 500;
-}
-
-.low-cell {
-  color: #ef4444;
-  font-weight: 500;
-}
-
-.low-cell-safe {
-  color: #22c55e;
-  font-weight: 500;
-}
-
-.low-cell-warning {
-  color: #f97316;
-  font-weight: 500;
-}
-
-.low-cell-danger {
-  color: #ef4444;
-  font-weight: 500;
-}
-
-.extreme-cell-neutral {
-  color: var(--app-text-color);
-  font-weight: 500;
-}
-
-@media (max-width: 480px) {
-  .events-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .marine-conditions {
