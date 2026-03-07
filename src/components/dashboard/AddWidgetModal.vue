@@ -484,6 +484,15 @@ watch(displayType, (newType) => {
     if (!widgetName.value) {
       widgetName.value = 'Pressure & Tide';
     }
+  } else if (newType === 'windcompassarrow') {
+    dataSource.value = '';
+    maintainSquareRatio.value = true;
+    if (!widgetTitle.value) {
+      widgetTitle.value = 'Wind';
+    }
+    if (!widgetName.value) {
+      widgetName.value = 'Wind';
+    }
   } else if (newType === 'instrument' && !dataSource.value) {
     // Set a default data source but don't hardcode the title
     const defaultSource = instrumentDataSources.value[0];

@@ -303,9 +303,9 @@ const widgetData = computed(() => {
       ...data,
       ...stateData,
       dataConfig: dataSource,
-      label: dataSource?.label || stateData?.label || data.label,
+      label: data.widgetTitle || data.label || dataSource?.label || stateData?.label,
       displayLabel:
-        dataSource?.displayLabel || stateData?.displayLabel || data.displayLabel,
+        data.widgetTitle || data.displayLabel || data.label || dataSource?.displayLabel || stateData?.displayLabel,
       units: stateData?.units || data.units || dataSource?.defaultUnits,
       updated: true,
     };

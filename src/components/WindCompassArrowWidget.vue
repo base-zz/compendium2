@@ -65,7 +65,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { useStateDataStore } from "@/stores/stateDataStore";
 
 const props = defineProps({
@@ -90,7 +90,7 @@ const windAngle = computed(() => {
 });
 
 // Missing properties that template uses
-const displayLabel = computed(() => props.widgetData?.displayLabel || props.widgetData?.label || 'Wind');
+const displayLabel = computed(() => props.widgetData?.widgetTitle || props.widgetData?.label || 'Wind');
 const tickMarkers = [10, 20, 40, 50, 70, 80, 100, 110, 130, 140, 160, 170, 190, 200, 220, 230, 250, 260, 280, 290, 310, 320, 340, 350];
 
 const radius = 88;
