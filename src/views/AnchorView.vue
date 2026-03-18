@@ -1114,7 +1114,10 @@ const {
   resolveAnchorDropDepth,
 } = useAnchorDepthResolution();
 
-const boatPosition = computed(() => navigationState.value?.position);
+const boatPosition = computed(() => 
+  anchorState.value?.filteredBoatPosition?.position || 
+  navigationState.value?.position
+);
 const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
 const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
 
