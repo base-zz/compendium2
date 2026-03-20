@@ -90,9 +90,10 @@ export function useAnchorFencePersistence({
     }
 
     const referenceType = fenceReferenceType?.value;
-    if (!referenceType) {
+    const supportedReferenceTypes = ["boat", "anchor_drop", "anchor_location"];
+    if (!supportedReferenceTypes.includes(referenceType)) {
       logger?.warn?.("Cannot save fence: reference type is not selected");
-      fenceValidationError.value = "Select a reference (Boat or Anchor Drop).";
+      fenceValidationError.value = "Select a reference (Boat, Anchor Drop, or Anchor Location).";
       return;
     }
 

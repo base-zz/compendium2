@@ -242,6 +242,10 @@ function getReferenceCoordinates(fence) {
     return normalizeCoordinates(anchorState.value?.anchorDropLocation);
   }
 
+  if (fence.referenceType === "anchor_location") {
+    return normalizeCoordinates(anchorState.value?.anchorLocation);
+  }
+
   return null;
 }
 
@@ -271,12 +275,12 @@ const fenceRows = computed(() => {
           : null;
 
       const currentDistance =
-        Number.isFinite(currentDistanceMeters) && units
-          ? units === "ft"
-            ? currentDistanceMeters * 3.28084
-            : currentDistanceMeters
-          : Number.isFinite(fence.currentDistance)
-            ? fence.currentDistance
+        Number.isFinite(fence.currentDistance)
+          ? fence.currentDistance
+          : Number.isFinite(currentDistanceMeters) && units
+            ? units === "ft"
+              ? currentDistanceMeters * 3.28084
+              : currentDistanceMeters
             : null;
 
       const persistedMinimum = toFiniteNumber(fence.minimumDistance);
@@ -322,10 +326,15 @@ const fenceRows = computed(() => {
       return {
         id: fence.id,
         name: typeof fence.name === "string" && fence.name.trim() ? fence.name.trim() : "Fence",
-        referenceIcon: fence.referenceType === "anchor_drop" ? "⚓" : "🚤",
+        referenceIcon:
+          fence.referenceType === "anchor_drop" || fence.referenceType === "anchor_location"
+            ? "⚓"
+            : "🚤",
         referenceLabel:
           fence.referenceType === "anchor_drop"
             ? "Reference: Anchor Drop"
+            : fence.referenceType === "anchor_location"
+              ? "Reference: Anchor Location"
             : fence.referenceType === "boat"
               ? "Reference: Boat"
               : "Reference: Unknown",

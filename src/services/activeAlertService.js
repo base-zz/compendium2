@@ -149,6 +149,10 @@ function computeFenceAlertFromState(state) {
       return normalizeCoordinates(anchor?.anchorDropLocation);
     }
 
+    if (fence.referenceType === "anchor_location") {
+      return normalizeCoordinates(anchor?.anchorLocation);
+    }
+
     return null;
   };
 
@@ -182,7 +186,9 @@ function computeFenceAlertFromState(state) {
         : null;
 
     const currentDistance =
-      computedDistance != null ? computedDistance : toFiniteNumber(fence.currentDistance);
+      toFiniteNumber(fence.currentDistance) != null
+        ? toFiniteNumber(fence.currentDistance)
+        : computedDistance;
 
     if (!(typeof alertRange === "number" && Number.isFinite(alertRange))) {
       return false;

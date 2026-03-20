@@ -3,6 +3,8 @@ import { Text } from "ol/style";
 export function useAnchorFenceFeatures({
   state,
   anchorState,
+  boatPosition,
+  getRenderedBoatLonLat,
   isDarkMode,
   fenceConnectorLinesVisible,
   featureTypes,
@@ -17,7 +19,6 @@ export function useAnchorFenceFeatures({
   Fill,
   CircleStyle,
   createCircleWithRadius,
-  calculateDistanceMeters,
 }) {
   const toFenceCoordinateNumber = (value) => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -80,11 +81,60 @@ export function useAnchorFenceFeatures({
     }
 
     if (fence.referenceType === "boat") {
-      const navPosition = state.value?.navigation?.position;
-      let lat = toFenceCoordinateNumber(navPosition?.latitude);
-      let lon = toFenceCoordinateNumber(navPosition?.longitude);
+      const renderedBoatLonLat =
+        typeof getRenderedBoatLonLat === "function" ? getRenderedBoatLonLat() : null;
+      let lat = Array.isArray(renderedBoatLonLat)
+        ? toFenceCoordinateNumber(renderedBoatLonLat[1])
+        : null;
+      let lon = Array.isArray(renderedBoatLonLat)
+        ? toFenceCoordinateNumber(renderedBoatLonLat[0])
+        : null;
+
       if (lat == null || lon == null) {
-        const topPosition = state.value?.position;
+        const renderedBoatPosition = boatPosition?.value;
+        lat = toFenceCoordinateNumber(renderedBoatPosition?.latitude);
+        lon = toFenceCoordinateNumber(renderedBoatPosition?.longitude);
+      }
+
+      if (lat == null || lon == null) {
+        const navPosition = state.value?.navigation?.position;
+        lat = toFenceCoordinateNumber(navPosition?.latitude);
+        lon = toFenceCoordinateNumber(navPosition?.longitude);
+      }
+
+      if (lat == null || lon == null) {
+        const rawTopPosition = state.value?.position;
+        const resolveTopLevelPosition = (positionState) => {
+          if (!positionState || typeof positionState !== "object" || Array.isArray(positionState)) {
+            return null;
+          }
+
+          if (
+            Object.prototype.hasOwnProperty.call(positionState, "latitude") ||
+            Object.prototype.hasOwnProperty.call(positionState, "longitude")
+          ) {
+            return positionState;
+          }
+
+          const candidates = Object.values(positionState);
+          if (!Array.isArray(candidates) || candidates.length === 0) {
+            return null;
+          }
+
+          const matchedCandidate = candidates.find((candidate) => {
+            if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+              return false;
+            }
+            return (
+              Object.prototype.hasOwnProperty.call(candidate, "latitude") ||
+              Object.prototype.hasOwnProperty.call(candidate, "longitude")
+            );
+          });
+
+          return matchedCandidate || null;
+        };
+
+        const topPosition = resolveTopLevelPosition(rawTopPosition);
         lat = toFenceCoordinateNumber(topPosition?.latitude);
         lon = toFenceCoordinateNumber(topPosition?.longitude);
       }
@@ -95,7 +145,9 @@ export function useAnchorFenceFeatures({
     }
 
     if (fence.referenceType === "anchor_drop") {
-      const drop = anchorState.value?.anchorDropLocation;
+      const drop =
+        anchorState.value?.anchorDropLocation?.position ||
+        anchorState.value?.anchorDropLocation;
       const lat = toFenceCoordinateNumber(drop?.latitude);
       const lon = toFenceCoordinateNumber(drop?.longitude);
       if (lat == null || lon == null) {
@@ -104,81 +156,19 @@ export function useAnchorFenceFeatures({
       return [lon, lat];
     }
 
+    if (fence.referenceType === "anchor_location") {
+      const anchorLocation =
+        anchorState.value?.anchorLocation?.position ||
+        anchorState.value?.anchorLocation;
+      const lat = toFenceCoordinateNumber(anchorLocation?.latitude);
+      const lon = toFenceCoordinateNumber(anchorLocation?.longitude);
+      if (lat == null || lon == null) {
+        return null;
+      }
+      return [lon, lat];
+    }
+
     return null;
-  };
-
-  const updateFenceDistanceStats = (fence, targetLonLat) => {
-    if (!fence || !Array.isArray(targetLonLat) || targetLonLat.length < 2) {
-      return;
-    }
-
-    const referenceLonLat = getFenceReferenceLonLat(fence);
-    if (!Array.isArray(referenceLonLat) || referenceLonLat.length < 2) {
-      if (fence.currentDistance !== null) {
-        fence.currentDistance = null;
-      }
-      return;
-    }
-
-    const distanceMeters = calculateDistanceMeters(
-      referenceLonLat[1],
-      referenceLonLat[0],
-      targetLonLat[1],
-      targetLonLat[0],
-      true
-    );
-
-    if (!Number.isFinite(distanceMeters)) {
-      if (fence.currentDistance !== null) {
-        fence.currentDistance = null;
-      }
-      return;
-    }
-
-    const distanceInFenceUnits = fence.units === "ft" ? distanceMeters * 3.28084 : distanceMeters;
-    const nowMs = Date.now();
-
-    if (Number.isFinite(distanceInFenceUnits) && distanceInFenceUnits !== fence.currentDistance) {
-      fence.currentDistance = distanceInFenceUnits;
-      fence.currentDistanceUnits = fence.units;
-
-      // Push to distance history for sparkline
-      if (!Array.isArray(fence.distanceHistory)) {
-        fence.distanceHistory = [];
-      }
-      fence.distanceHistory.push({
-        t: nowMs,
-        v: distanceInFenceUnits,
-      });
-      // Keep only last 100 readings to prevent memory bloat
-      if (fence.distanceHistory.length > 100) {
-        fence.distanceHistory = fence.distanceHistory.slice(-100);
-      }
-    }
-
-    const existingMinimum =
-      typeof fence.minimumDistance === "number" && Number.isFinite(fence.minimumDistance)
-        ? fence.minimumDistance
-        : null;
-
-    let normalizedExistingMinimum = existingMinimum;
-    if (
-      normalizedExistingMinimum != null &&
-      typeof fence.minimumDistanceUnits === "string" &&
-      fence.minimumDistanceUnits !== fence.units
-    ) {
-      if (fence.minimumDistanceUnits === "ft" && fence.units !== "ft") {
-        normalizedExistingMinimum = normalizedExistingMinimum / 3.28084;
-      } else if (fence.minimumDistanceUnits !== "ft" && fence.units === "ft") {
-        normalizedExistingMinimum = normalizedExistingMinimum * 3.28084;
-      }
-    }
-
-    if (normalizedExistingMinimum == null || distanceInFenceUnits < normalizedExistingMinimum) {
-      fence.minimumDistance = distanceInFenceUnits;
-      fence.minimumDistanceUnits = fence.units;
-      fence.minimumDistanceUpdatedAt = nowMs;
-    }
   };
 
   const updateFenceFeatures = () => {
@@ -207,8 +197,6 @@ export function useAnchorFenceFeatures({
       if (!Array.isArray(lonLat) || lonLat.length < 2) {
         return;
       }
-
-      updateFenceDistanceStats(fence, lonLat);
 
       if (fenceConnectorLinesVisible.value === true) {
         const referenceLonLat = getFenceReferenceLonLat(fence);

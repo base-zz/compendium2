@@ -139,7 +139,7 @@ export const STYLES = {
   }),
   AIS_VESSEL: createStyle({
     circle: {
-      radius: 8,
+      radius: 7,
       fill: { color: "#4CAF50" }, // Green for vessels
       stroke: { color: "#FFFFFF", width: 2 },
     },
@@ -147,7 +147,7 @@ export const STYLES = {
   }),
   AIS_HAZARD: createStyle({
     circle: {
-      radius: 8,
+      radius: 7,
       fill: { color: "#4CAF50" }, // Green for all AIS targets
       stroke: { color: "#FFFFFF", width: 2 },
     },
@@ -155,7 +155,7 @@ export const STYLES = {
   }),
   AIS_DEFAULT: createStyle({
     circle: {
-      radius: 8,
+      radius: 7,
       fill: { color: "#4CAF50" }, // Green for all AIS targets
       stroke: { color: "#FFFFFF", width: 2 },
     },
@@ -163,7 +163,7 @@ export const STYLES = {
   }),
   AIS_WARNING: createStyle({
     circle: {
-      radius: 9, // Larger radius for targets in warning range
+      radius: 8, // Larger radius for targets in warning range
       fill: { color: "#F44336" }, // Red for targets in warning range
       stroke: { color: "#FFFFFF", width: 2 },
     },

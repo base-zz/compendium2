@@ -350,7 +350,17 @@ export const useStateDataStore = defineStore("stateData", () => {
           source: newPos.source !== null && newPos.source !== undefined ? newPos.source : currentPos.source
         };
         
-        state.position = state.navigation.position;
+        const currentTopLevelPosition = state.position;
+        const isTopLevelSourceKeyedPosition =
+          currentTopLevelPosition &&
+          typeof currentTopLevelPosition === "object" &&
+          !Array.isArray(currentTopLevelPosition) &&
+          !Object.prototype.hasOwnProperty.call(currentTopLevelPosition, "latitude") &&
+          !Object.prototype.hasOwnProperty.call(currentTopLevelPosition, "longitude");
+
+        if (!isTopLevelSourceKeyedPosition) {
+          state.position = state.navigation.position;
+        }
         // Navigation position updates are now handled silently; any debug logging has been removed.
         delete updatedState.navigation.position;
       }

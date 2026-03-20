@@ -9,7 +9,7 @@
         <div v-for="fence in fences" :key="fence.id" class="fence-list-item">
           <div class="fence-list-title">{{ fence.name }}</div>
           <div class="fence-list-detail">
-            {{ fence.targetType === "ais" ? "AIS" : "Point" }} · {{ fence.alertRange }} {{ fence.units }} · {{ fence.referenceType === "anchor_drop" ? "Anchor Drop" : "Boat" }}
+            {{ fence.targetType === "ais" ? "AIS" : "Point" }} · {{ fence.alertRange }} {{ fence.units }} · {{ fence.referenceType === "anchor_drop" ? "Anchor Drop" : fence.referenceType === "anchor_location" ? "Anchor Location" : "Boat" }}
           </div>
           <IonButton size="small" color="danger" fill="outline" @click="$emit('remove-fence', fence.id)">Remove</IonButton>
         </div>

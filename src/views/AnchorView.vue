@@ -1114,10 +1114,20 @@ const {
   resolveAnchorDropDepth,
 } = useAnchorDepthResolution();
 
-const boatPosition = computed(() => 
-  anchorState.value?.filteredBoatPosition?.position || 
-  navigationState.value?.position
-);
+const boatPosition = computed(() => {
+  const filtered = anchorState.value?.filteredBoatPosition?.position;
+  const raw = navigationState.value?.position;
+
+  if (
+    filtered &&
+    filtered.latitude?.value != null &&
+    filtered.longitude?.value != null
+  ) {
+    return filtered;
+  }
+
+  return raw;
+});
 const anchorDeployed = computed(() => anchorState.value?.anchorDeployed);
 const anchorDropLocation = computed(() => anchorState.value?.anchorDropLocation);
 
@@ -1316,6 +1326,11 @@ const {
   getState: () => stateStore.state,
   getAnchorState: () => anchorState.value,
   onRodeMissing: () => updateRodeLine(),
+  onBoatAnimationFrame: () => {
+    if (typeof updateFenceFeatures === "function") {
+      updateFenceFeatures();
+    }
+  },
 });
 
 const updateBoatPosition = debounce(() => {
@@ -1481,6 +1496,35 @@ const lastKnownValidPosition = ref({
   timestamp: 0,
 });
 
+const resolveTopLevelPositionCoordinates = (positionState) => {
+  if (!positionState || typeof positionState !== "object" || Array.isArray(positionState)) {
+    return null;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(positionState, "latitude") ||
+    Object.prototype.hasOwnProperty.call(positionState, "longitude")
+  ) {
+    return positionState;
+  }
+
+  const sourceEntries = Object.values(positionState);
+  if (!Array.isArray(sourceEntries) || sourceEntries.length === 0) {
+    return null;
+  }
+
+  const matchedSource = sourceEntries.find((candidate) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      return false;
+    }
+    const lat = candidate.latitude?.value ?? candidate.latitude;
+    const lon = candidate.longitude?.value ?? candidate.longitude;
+    return typeof lat === "number" && typeof lon === "number";
+  });
+
+  return matchedSource || null;
+};
+
 // Computed property to check if we have a valid position
 const hasValidPosition = computed(() => {
   const state = stateStore.state;
@@ -1492,7 +1536,7 @@ const hasValidPosition = computed(() => {
   
   // If navigation.position doesn't have valid data, try top-level position
   if (lat == null || lon == null) {
-    const topPos = state?.position;
+    const topPos = resolveTopLevelPositionCoordinates(state?.position);
     lat = topPos?.latitude?.value;
     lon = topPos?.longitude?.value;
   }
@@ -1603,7 +1647,7 @@ const createCircleWithRadius = (centerLonLat, radius) => {
   const adjustedRadius = radiusInMeters / scaleFactor;
 
   // Convert center from [lon, lat] to projected coordinates
-  const center = fromLonLat(centerLonLat);
+  const centerCoord = fromLonLat(centerLonLat);
 
   // Create a simple circle with the adjusted radius
   const numPoints = 60; // More points = smoother circle
@@ -1614,8 +1658,8 @@ const createCircleWithRadius = (centerLonLat, radius) => {
     const angle = (i * 2 * Math.PI) / numPoints;
 
     // Calculate point on the circle in projected coordinates
-    const x = center[0] + adjustedRadius * Math.cos(angle);
-    const y = center[1] + adjustedRadius * Math.sin(angle);
+    const x = centerCoord[0] + adjustedRadius * Math.cos(angle);
+    const y = centerCoord[1] + adjustedRadius * Math.sin(angle);
 
     // Add to points array
     points.push([x, y]);
@@ -1628,9 +1672,37 @@ const createCircleWithRadius = (centerLonLat, radius) => {
   return new Polygon([points]);
 };
 
+const getRenderedBoatFenceReferenceLonLat = () => {
+  const boatFeature = getFeatureByType(FEATURE_TYPES.BOAT);
+  const boatGeometry = boatFeature?.getGeometry?.();
+  const boatCoord =
+    boatGeometry && typeof boatGeometry.getCoordinates === "function"
+      ? boatGeometry.getCoordinates()
+      : null;
+
+  if (!Array.isArray(boatCoord) || boatCoord.length < 2) {
+    return null;
+  }
+
+  const projectedLonLat = toLonLat(boatCoord);
+  const lon = projectedLonLat?.[0];
+  const lat = projectedLonLat?.[1];
+
+  if (typeof lat !== "number" || !Number.isFinite(lat)) {
+    return null;
+  }
+  if (typeof lon !== "number" || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  return [lon, lat];
+};
+
 const { updateFenceFeatures } = useAnchorFenceFeatures({
   state,
   anchorState,
+  boatPosition,
+  getRenderedBoatLonLat: getRenderedBoatFenceReferenceLonLat,
   isDarkMode,
   fenceConnectorLinesVisible,
   featureTypes: FEATURE_TYPES,
@@ -1931,6 +2003,21 @@ const updateCriticalRangeCircle = debounce(() => {
   
   const isMetricUnits = units && typeof units === "string" && !units.toLowerCase().startsWith("ft");
   const radiusInMeters = isMetricUnits ? rawRadius : rawRadius / 3.28084;
+  
+  // Debug: Compare boat position with circle center
+  const boatPos = boatPosition.value;
+  if (boatPos) {
+    const boatLat = boatPos.latitude?.value ?? boatPos.latitude;
+    const boatLon = boatPos.longitude?.value ?? boatPos.longitude;
+    const distanceToCircle = calculateDistanceMeters(boatLat, boatLon, latitude, longitude);
+    console.log('Boat to circle center:', {
+      distance: distanceToCircle.toFixed(1) + 'm',
+      boat: [boatLon, boatLat],
+      circle: [longitude, latitude],
+      radius: radiusInMeters.toFixed(1) + 'm',
+      outside: distanceToCircle > radiusInMeters
+    });
+  }
 
   // Create a circle with the correct radius in meters
   const circleGeometry = createCircleWithRadius([longitude, latitude], radiusInMeters);
@@ -2071,17 +2158,43 @@ const updateRodeLine = throttle(() => {
   const state = stateStore.state;
   const pos = state?.navigation?.position;
   let boatLat, boatLon;
-  
+
+  const boatFeature = getFeatureByType(FEATURE_TYPES.BOAT);
+  const boatGeometry = boatFeature?.getGeometry?.();
+  const boatCoord =
+    boatGeometry && typeof boatGeometry.getCoordinates === "function"
+      ? boatGeometry.getCoordinates()
+      : null;
+  if (Array.isArray(boatCoord) && boatCoord.length >= 2) {
+    const projectedLonLat = toLonLat(boatCoord);
+    const featureLon = projectedLonLat?.[0];
+    const featureLat = projectedLonLat?.[1];
+    if (
+      typeof featureLat === "number" &&
+      Number.isFinite(featureLat) &&
+      typeof featureLon === "number" &&
+      Number.isFinite(featureLon)
+    ) {
+      boatLat = featureLat;
+      boatLon = featureLon;
+    }
+  }
+
   const animatedBoatLonLat = getAnimatedBoatLonLat();
-  if (animatedBoatLonLat) {
+  if (
+    (typeof boatLat !== "number" || typeof boatLon !== "number") &&
+    animatedBoatLonLat
+  ) {
     boatLon = animatedBoatLonLat.lon;
     boatLat = animatedBoatLonLat.lat;
-  } else if (pos?.latitude?.value != null && pos?.longitude?.value != null) {
-    // Try to get boat position from state (same as initialization logic)
+  } else if (
+    (typeof boatLat !== "number" || typeof boatLon !== "number") &&
+    pos?.latitude?.value != null &&
+    pos?.longitude?.value != null
+  ) {
     boatLat = pos.latitude.value;
     boatLon = pos.longitude.value;
-  } else {
-    // Fallback: use anchor position if boat position is not available
+  } else if (typeof boatLat !== "number" || typeof boatLon !== "number") {
     const anchor = state?.anchor;
     if (anchor?.anchorLocation?.position) {
       const anchorPos = anchor.anchorLocation.position;

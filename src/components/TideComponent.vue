@@ -305,7 +305,39 @@ const originalStationHeader = computed(() => {
 
 const boatPosition = computed(() => {
   const navPos = state.value?.navigation?.position;
-  const topPos = state.value?.position;
+  const rawTopPos = state.value?.position;
+
+  const resolveTopLevelPosition = (positionState) => {
+    if (!positionState || typeof positionState !== 'object' || Array.isArray(positionState)) {
+      return null;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(positionState, 'latitude') ||
+      Object.prototype.hasOwnProperty.call(positionState, 'longitude')
+    ) {
+      return positionState;
+    }
+
+    const candidates = Object.values(positionState);
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      return null;
+    }
+
+    const matchedCandidate = candidates.find((candidate) => {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        return false;
+      }
+      return (
+        Object.prototype.hasOwnProperty.call(candidate, 'latitude') ||
+        Object.prototype.hasOwnProperty.call(candidate, 'longitude')
+      );
+    });
+
+    return matchedCandidate || null;
+  };
+
+  const topPos = resolveTopLevelPosition(rawTopPos);
   const source = navPos || topPos || null;
   if (!source || typeof source !== 'object') return null;
 

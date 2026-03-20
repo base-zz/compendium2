@@ -6,6 +6,7 @@ export function useAnchorAnimation({
   getState,
   getAnchorState,
   onRodeMissing,
+  onBoatAnimationFrame,
 }) {
   let currentBoatPosition = null;
   let boatAnimationFrame = null;
@@ -119,6 +120,10 @@ export function useAnchorAnimation({
         }
       }
 
+      if (typeof onBoatAnimationFrame === "function") {
+        onBoatAnimationFrame();
+      }
+
       return;
     }
 
@@ -155,6 +160,10 @@ export function useAnchorAnimation({
         } else {
           updateRodeFeaturePosition(currentX, currentY, anchorCoord[0], anchorCoord[1]);
         }
+      }
+
+      if (typeof onBoatAnimationFrame === "function") {
+        onBoatAnimationFrame();
       }
 
       if (progress < 1) {

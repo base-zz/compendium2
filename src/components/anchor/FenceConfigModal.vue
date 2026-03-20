@@ -33,6 +33,7 @@
           <option value="">Select reference</option>
           <option value="boat">Boat</option>
           <option value="anchor_drop">Anchor Drop</option>
+          <option value="anchor_location">Anchor Location</option>
         </select>
       </div>
 
